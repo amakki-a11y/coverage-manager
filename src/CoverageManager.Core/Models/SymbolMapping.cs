@@ -1,15 +1,32 @@
+using System.Text.Json.Serialization;
+
 namespace CoverageManager.Core.Models;
 
 public class SymbolMapping
 {
     public Guid Id { get; set; } = Guid.NewGuid();
+
+    [JsonPropertyName("canonical_name")]
     public string CanonicalName { get; set; } = string.Empty;
+
+    [JsonPropertyName("bbook_symbol")]
     public string BBookSymbol { get; set; } = string.Empty;
+
+    [JsonPropertyName("bbook_contract_size")]
     public decimal BBookContractSize { get; set; }
+
+    [JsonPropertyName("coverage_symbol")]
     public string CoverageSymbol { get; set; } = string.Empty;
+
+    [JsonPropertyName("coverage_contract_size")]
     public decimal CoverageContractSize { get; set; }
+
     public int Digits { get; set; }
+
+    [JsonPropertyName("profit_currency")]
     public string ProfitCurrency { get; set; } = "USD";
+
+    [JsonPropertyName("is_active")]
     public bool IsActive { get; set; } = true;
 
     /// <summary>

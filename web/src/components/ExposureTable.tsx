@@ -31,16 +31,16 @@ export function ExposureTable({ summaries }: ExposureTableProps) {
   // Totals
   const totals = summaries.reduce(
     (acc, s) => ({
-      bbookBuy: acc.bbookBuy + s.bbookBuyVolume,
-      bbookSell: acc.bbookSell + s.bbookSellVolume,
-      bbookNet: acc.bbookNet + s.bbookNetVolume,
-      bbookPnL: acc.bbookPnL + s.bbookPnL,
-      covBuy: acc.covBuy + s.coverageBuyVolume,
-      covSell: acc.covSell + s.coverageSellVolume,
-      covNet: acc.covNet + s.coverageNetVolume,
-      covPnL: acc.covPnL + s.coveragePnL,
-      netVol: acc.netVol + s.netVolume,
-      netPnL: acc.netPnL + s.netPnL,
+      bbookBuy: acc.bbookBuy + (s.bBookBuyVolume ?? 0),
+      bbookSell: acc.bbookSell + (s.bBookSellVolume ?? 0),
+      bbookNet: acc.bbookNet + (s.bBookNetVolume ?? 0),
+      bbookPnL: acc.bbookPnL + (s.bBookPnL ?? 0),
+      covBuy: acc.covBuy + (s.coverageBuyVolume ?? 0),
+      covSell: acc.covSell + (s.coverageSellVolume ?? 0),
+      covNet: acc.covNet + (s.coverageNetVolume ?? 0),
+      covPnL: acc.covPnL + (s.coveragePnL ?? 0),
+      netVol: acc.netVol + (s.netVolume ?? 0),
+      netPnL: acc.netPnL + (s.netPnL ?? 0),
     }),
     { bbookBuy: 0, bbookSell: 0, bbookNet: 0, bbookPnL: 0, covBuy: 0, covSell: 0, covNet: 0, covPnL: 0, netVol: 0, netPnL: 0 }
   );
@@ -66,18 +66,19 @@ export function ExposureTable({ summaries }: ExposureTableProps) {
         </thead>
         <tbody>
           {summaries.map((s) => {
-            const hedgeBg = s.hedgeRatio < 20 ? 'rgba(255,82,82,0.12)'
-              : s.hedgeRatio < 50 ? 'rgba(255,186,66,0.08)'
+            const hr = s.hedgeRatio ?? 0;
+            const hedgeBg = hr < 20 ? 'rgba(255,82,82,0.12)'
+              : hr < 50 ? 'rgba(255,186,66,0.08)'
               : 'transparent';
             return (
               <tr key={s.canonicalSymbol} style={{ background: hedgeBg, borderBottom: `1px solid ${THEME.border}` }}>
                 <td style={{ ...cellStyle, textAlign: 'left', color: THEME.t1, fontWeight: 600, fontFamily: 'inherit' }}>
                   {s.canonicalSymbol}
                 </td>
-                <td style={{ ...cellStyle, color: THEME.green }}>{fmt(s.bbookBuyVolume)}</td>
-                <td style={{ ...cellStyle, color: THEME.red }}>{fmt(s.bbookSellVolume)}</td>
-                <td style={{ ...cellStyle, color: pnlColor(s.bbookNetVolume) }}>{fmt(s.bbookNetVolume)}</td>
-                <td style={{ ...cellStyle, color: pnlColor(s.bbookPnL) }}>{fmtPnl(s.bbookPnL)}</td>
+                <td style={{ ...cellStyle, color: THEME.green }}>{fmt(s.bBookBuyVolume)}</td>
+                <td style={{ ...cellStyle, color: THEME.red }}>{fmt(s.bBookSellVolume)}</td>
+                <td style={{ ...cellStyle, color: pnlColor(s.bBookNetVolume) }}>{fmt(s.bBookNetVolume)}</td>
+                <td style={{ ...cellStyle, color: pnlColor(s.bBookPnL) }}>{fmtPnl(s.bBookPnL)}</td>
                 <td style={{ ...cellStyle, color: THEME.green, borderLeft: `1px solid ${THEME.border}` }}>{fmt(s.coverageBuyVolume)}</td>
                 <td style={{ ...cellStyle, color: THEME.red }}>{fmt(s.coverageSellVolume)}</td>
                 <td style={{ ...cellStyle, color: pnlColor(s.coverageNetVolume) }}>{fmt(s.coverageNetVolume)}</td>
@@ -86,7 +87,7 @@ export function ExposureTable({ summaries }: ExposureTableProps) {
                   {fmt(s.netVolume)}
                 </td>
                 <td style={{ ...cellStyle, color: pnlColor(s.netPnL), fontWeight: 700 }}>{fmtPnl(s.netPnL)}</td>
-                <td style={{ ...cellStyle, color: hedgeColor(s.hedgeRatio) }}>{s.hedgeRatio.toFixed(0)}%</td>
+                <td style={{ ...cellStyle, color: hedgeColor(s.hedgeRatio) }}>{(s.hedgeRatio ?? 0).toFixed(0)}%</td>
               </tr>
             );
           })}
@@ -97,7 +98,7 @@ export function ExposureTable({ summaries }: ExposureTableProps) {
             <td style={{ ...cellStyle, color: THEME.green }}>{fmt(totals.bbookBuy)}</td>
             <td style={{ ...cellStyle, color: THEME.red }}>{fmt(totals.bbookSell)}</td>
             <td style={{ ...cellStyle, color: pnlColor(totals.bbookNet) }}>{fmt(totals.bbookNet)}</td>
-            <td style={{ ...cellStyle, color: pnlColor(totals.bbookPnL) }}>{fmtPnl(totals.bbookPnL)}</td>
+            <td style={{ ...cellStyle, color: pnlColor(totals.bBookPnL) }}>{fmtPnl(totals.bBookPnL)}</td>
             <td style={{ ...cellStyle, color: THEME.green, borderLeft: `1px solid ${THEME.border}` }}>{fmt(totals.covBuy)}</td>
             <td style={{ ...cellStyle, color: THEME.red }}>{fmt(totals.covSell)}</td>
             <td style={{ ...cellStyle, color: pnlColor(totals.covNet) }}>{fmt(totals.covNet)}</td>
@@ -112,20 +113,23 @@ export function ExposureTable({ summaries }: ExposureTableProps) {
   );
 }
 
-function fmt(v: number): string {
-  return v.toFixed(2);
+function fmt(v: number | undefined): string {
+  return (v ?? 0).toFixed(2);
 }
 
-function fmtPnl(v: number): string {
-  return (v >= 0 ? '+' : '') + v.toFixed(2);
+function fmtPnl(v: number | undefined): string {
+  const n = v ?? 0;
+  return (n >= 0 ? '+' : '') + n.toFixed(2);
 }
 
-function pnlColor(v: number): string {
-  return v > 0 ? THEME.green : v < 0 ? THEME.red : THEME.t2;
+function pnlColor(v: number | undefined): string {
+  const n = v ?? 0;
+  return n > 0 ? THEME.green : n < 0 ? THEME.red : THEME.t2;
 }
 
-function hedgeColor(ratio: number): string {
-  if (ratio >= 80) return THEME.green;
-  if (ratio >= 50) return THEME.amber;
+function hedgeColor(ratio: number | undefined): string {
+  const r = ratio ?? 0;
+  if (r >= 80) return THEME.green;
+  if (r >= 50) return THEME.amber;
   return THEME.red;
 }

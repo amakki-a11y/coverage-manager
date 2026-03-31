@@ -15,12 +15,12 @@ export interface Position {
 
 export interface ExposureSummary {
   canonicalSymbol: string;
-  bbookBuyVolume: number;
-  bbookBuyAvgPrice: number;
-  bbookSellVolume: number;
-  bbookSellAvgPrice: number;
-  bbookNetVolume: number;
-  bbookPnL: number;
+  bBookBuyVolume: number;
+  bBookBuyAvgPrice: number;
+  bBookSellVolume: number;
+  bBookSellAvgPrice: number;
+  bBookNetVolume: number;
+  bBookPnL: number;
   coverageBuyVolume: number;
   coverageBuyAvgPrice: number;
   coverageSellVolume: number;
@@ -34,14 +34,14 @@ export interface ExposureSummary {
 
 export interface SymbolMapping {
   id: string;
-  canonicalName: string;
-  bbookSymbol: string;
-  bbookContractSize: number;
-  coverageSymbol: string;
-  coverageContractSize: number;
+  canonical_name: string;
+  bbook_symbol: string;
+  bbook_contract_size: number;
+  coverage_symbol: string;
+  coverage_contract_size: number;
   digits: number;
-  profitCurrency: string;
-  isActive: boolean;
+  profit_currency: string;
+  is_active: boolean;
 }
 
 export interface PriceQuote {

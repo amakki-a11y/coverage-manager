@@ -7,10 +7,10 @@ interface TotalBarProps {
 }
 
 export function TotalBar({ summaries, connected }: TotalBarProps) {
-  const totalBBookPnL = summaries.reduce((s, e) => s + e.bbookPnL, 0);
-  const totalCoveragePnL = summaries.reduce((s, e) => s + e.coveragePnL, 0);
+  const totalBBookPnL = summaries.reduce((s, e) => s + (e.bBookPnL ?? 0), 0);
+  const totalCoveragePnL = summaries.reduce((s, e) => s + (e.coveragePnL ?? 0), 0);
   const totalNetPnL = totalBBookPnL + totalCoveragePnL;
-  const totalUnhedged = summaries.reduce((s, e) => s + Math.abs(e.netVolume), 0);
+  const totalUnhedged = summaries.reduce((s, e) => s + Math.abs(e.netVolume ?? 0), 0);
 
   return (
     <div style={{

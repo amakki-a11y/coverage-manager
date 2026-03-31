@@ -47,13 +47,13 @@ export function SymbolMappingAdmin() {
   const [mappings, setMappings] = useState<SymbolMapping[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({
-    canonicalName: '',
-    bbookSymbol: '',
-    bbookContractSize: '100000',
-    coverageSymbol: '',
-    coverageContractSize: '100000',
+    canonical_name: '',
+    bbook_symbol: '',
+    bbook_contract_size: '100000',
+    coverage_symbol: '',
+    coverage_contract_size: '100000',
     digits: '5',
-    profitCurrency: 'USD',
+    profit_currency: 'USD',
   });
 
   const fetchMappings = useCallback(async () => {
@@ -71,18 +71,18 @@ export function SymbolMappingAdmin() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          canonicalName: form.canonicalName,
-          bbookSymbol: form.bbookSymbol,
-          bbookContractSize: Number(form.bbookContractSize),
-          coverageSymbol: form.coverageSymbol,
-          coverageContractSize: Number(form.coverageContractSize),
+          canonical_name: form.canonical_name,
+          bbook_symbol: form.bbook_symbol,
+          bbook_contract_size: Number(form.bbook_contract_size),
+          coverage_symbol: form.coverage_symbol,
+          coverage_contract_size: Number(form.coverage_contract_size),
           digits: Number(form.digits),
-          profitCurrency: form.profitCurrency,
-          isActive: true,
+          profit_currency: form.profit_currency,
+          is_active: true,
         }),
       });
       setShowForm(false);
-      setForm({ canonicalName: '', bbookSymbol: '', bbookContractSize: '100000', coverageSymbol: '', coverageContractSize: '100000', digits: '5', profitCurrency: 'USD' });
+      setForm({ canonical_name: '', bbook_symbol: '', bbook_contract_size: '100000', coverage_symbol: '', coverage_contract_size: '100000', digits: '5', profit_currency: 'USD' });
       fetchMappings();
     } catch { /* ignore */ }
   };
@@ -95,8 +95,8 @@ export function SymbolMappingAdmin() {
   };
 
   const conversionPreview = () => {
-    const bb = Number(form.bbookContractSize) || 1;
-    const cov = Number(form.coverageContractSize) || 1;
+    const bb = Number(form.bbook_contract_size) || 1;
+    const cov = Number(form.coverage_contract_size) || 1;
     const ratio = cov / bb;
     return `1 LP lot = ${ratio.toFixed(4)} B-Book lots`;
   };
@@ -125,23 +125,23 @@ export function SymbolMappingAdmin() {
         }}>
           <div>
             <label style={{ color: THEME.t3, fontSize: 10, textTransform: 'uppercase' }}>Canonical Name</label>
-            <input style={inputStyle} value={form.canonicalName} onChange={e => setForm({ ...form, canonicalName: e.target.value })} placeholder="XAUUSD" />
+            <input style={inputStyle} value={form.canonical_name} onChange={e => setForm({ ...form, canonical_name: e.target.value })} placeholder="XAUUSD" />
           </div>
           <div>
             <label style={{ color: THEME.t3, fontSize: 10, textTransform: 'uppercase' }}>B-Book Symbol</label>
-            <input style={inputStyle} value={form.bbookSymbol} onChange={e => setForm({ ...form, bbookSymbol: e.target.value })} placeholder="XAUUSD" />
+            <input style={inputStyle} value={form.bbook_symbol} onChange={e => setForm({ ...form, bbook_symbol: e.target.value })} placeholder="XAUUSD" />
           </div>
           <div>
             <label style={{ color: THEME.t3, fontSize: 10, textTransform: 'uppercase' }}>B-Book Contract Size</label>
-            <input style={inputStyle} type="number" value={form.bbookContractSize} onChange={e => setForm({ ...form, bbookContractSize: e.target.value })} />
+            <input style={inputStyle} type="number" value={form.bbook_contract_size} onChange={e => setForm({ ...form, bbook_contract_size: e.target.value })} />
           </div>
           <div>
             <label style={{ color: THEME.t3, fontSize: 10, textTransform: 'uppercase' }}>Coverage Symbol</label>
-            <input style={inputStyle} value={form.coverageSymbol} onChange={e => setForm({ ...form, coverageSymbol: e.target.value })} placeholder="GOLD" />
+            <input style={inputStyle} value={form.coverage_symbol} onChange={e => setForm({ ...form, coverage_symbol: e.target.value })} placeholder="GOLD" />
           </div>
           <div>
             <label style={{ color: THEME.t3, fontSize: 10, textTransform: 'uppercase' }}>Coverage Contract Size</label>
-            <input style={inputStyle} type="number" value={form.coverageContractSize} onChange={e => setForm({ ...form, coverageContractSize: e.target.value })} />
+            <input style={inputStyle} type="number" value={form.coverage_contract_size} onChange={e => setForm({ ...form, coverage_contract_size: e.target.value })} />
           </div>
           <div>
             <label style={{ color: THEME.t3, fontSize: 10, textTransform: 'uppercase' }}>Digits</label>
@@ -149,7 +149,7 @@ export function SymbolMappingAdmin() {
           </div>
           <div>
             <label style={{ color: THEME.t3, fontSize: 10, textTransform: 'uppercase' }}>Profit Currency</label>
-            <input style={inputStyle} value={form.profitCurrency} onChange={e => setForm({ ...form, profitCurrency: e.target.value })} />
+            <input style={inputStyle} value={form.profit_currency} onChange={e => setForm({ ...form, profit_currency: e.target.value })} />
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
             <div style={{ color: THEME.teal, fontSize: 11, marginBottom: 6 }}>{conversionPreview()}</div>
@@ -176,17 +176,17 @@ export function SymbolMappingAdmin() {
         </thead>
         <tbody>
           {mappings.map((m) => {
-            const ratio = m.coverageContractSize / m.bbookContractSize;
+            const ratio = m.coverage_contract_size / m.bbook_contract_size;
             return (
               <tr key={m.id} style={{ borderBottom: `1px solid ${THEME.border}` }}>
-                <td style={{ ...cellStyle, color: THEME.t1, fontWeight: 600 }}>{m.canonicalName}</td>
-                <td style={{ ...cellStyle, color: THEME.blue }}>{m.bbookSymbol}</td>
-                <td style={{ ...cellStyle, textAlign: 'right', color: THEME.t2 }}>{m.bbookContractSize}</td>
-                <td style={{ ...cellStyle, color: '#FF8A80' }}>{m.coverageSymbol}</td>
-                <td style={{ ...cellStyle, textAlign: 'right', color: THEME.t2 }}>{m.coverageContractSize}</td>
+                <td style={{ ...cellStyle, color: THEME.t1, fontWeight: 600 }}>{m.canonical_name}</td>
+                <td style={{ ...cellStyle, color: THEME.blue }}>{m.bbook_symbol}</td>
+                <td style={{ ...cellStyle, textAlign: 'right', color: THEME.t2 }}>{m.bbook_contract_size}</td>
+                <td style={{ ...cellStyle, color: '#FF8A80' }}>{m.coverage_symbol}</td>
+                <td style={{ ...cellStyle, textAlign: 'right', color: THEME.t2 }}>{m.coverage_contract_size}</td>
                 <td style={{ ...cellStyle, textAlign: 'right', color: THEME.t2 }}>{m.digits}</td>
-                <td style={{ ...cellStyle, textAlign: 'right', color: THEME.t2 }}>{m.profitCurrency}</td>
-                <td style={{ ...cellStyle, textAlign: 'right', color: THEME.teal }}>1 LP = {ratio.toFixed(4)} BB</td>
+                <td style={{ ...cellStyle, textAlign: 'right', color: THEME.t2 }}>{m.profit_currency}</td>
+                <td style={{ ...cellStyle, textAlign: 'right', color: THEME.teal }}>1 LP = {isFinite(ratio) ? ratio.toFixed(4) : '—'} BB</td>
                 <td style={{ ...cellStyle, textAlign: 'right' }}>
                   <button
                     onClick={() => handleDelete(m.id)}
