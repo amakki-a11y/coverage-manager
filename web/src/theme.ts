@@ -1,0 +1,15 @@
+export const THEME = {
+  bg: '#0C0F14',
+  bg2: '#141820',
+  bg3: '#1A1F2A',
+  card: '#1E2430',
+  border: 'rgba(255,255,255,0.08)',
+  t1: '#F0EDE6',
+  t2: '#9BA3B0',
+  t3: '#636B78',
+  green: '#66BB6A',
+  red: '#FF5252',
+  amber: '#FFBA42',
+  teal: '#3DD9A0',
+  blue: '#5B9EFF',
+} as const;
