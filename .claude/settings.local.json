@@ -9,7 +9,10 @@
       "Bash(taskkill //F //IM \"CoverageManager.Api.exe\")",
       "Bash(dotnet test:*)",
       "Bash(npx tsc:*)",
-      "Bash(python3 -c \"import sys, json; d=json.load\\(sys.stdin\\); print\\(list\\(d[0].keys\\(\\)\\)\\)\")"
+      "Bash(python3 -c \"import sys, json; d=json.load\\(sys.stdin\\); print\\(list\\(d[0].keys\\(\\)\\)\\)\")",
+      "Bash(netstat -ano)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f''''{len\\(d\\)} symbols, first: {d[0][\"\"canonicalSymbol\"\"]}''''\\)\")",
+      "Bash(curl -s http://localhost:5000/api/settings/accounts)"
     ]
   }
 }

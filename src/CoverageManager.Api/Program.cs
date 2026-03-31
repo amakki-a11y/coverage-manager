@@ -1,7 +1,6 @@
 using System.Net.WebSockets;
 using Serilog;
 using CoverageManager.Core.Engines;
-using CoverageManager.Connector;
 using CoverageManager.Api.Services;
 
 Log.Logger = new LoggerConfiguration()
@@ -36,17 +35,6 @@ try
 
     // Broadcast service (WebSocket push)
     builder.Services.AddSingleton<ExposureBroadcastService>();
-
-    // Mock MT5 connection (replace with real MT5Connection when DLLs available)
-    builder.Services.AddHostedService(sp =>
-    {
-        var broadcast = sp.GetRequiredService<ExposureBroadcastService>();
-        return new MockMT5Connection(
-            positionManager,
-            priceCache,
-            sp.GetRequiredService<ILogger<MockMT5Connection>>(),
-            () => broadcast.MarkDirty());
-    });
 
     builder.Services.AddControllers();
     builder.Services.AddEndpointsApiExplorer();

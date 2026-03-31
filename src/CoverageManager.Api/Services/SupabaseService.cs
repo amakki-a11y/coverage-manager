@@ -82,4 +82,62 @@ public class SupabaseService
             return false;
         }
     }
+
+    // ── Account Settings ──
+
+    public async Task<List<AccountSettings>> GetAccountSettingsAsync()
+    {
+        try
+        {
+            var response = await _http.GetAsync($"{_url}/rest/v1/account_settings?select=*&order=account_type,created_at");
+            response.EnsureSuccessStatusCode();
+            var json = await response.Content.ReadAsStringAsync();
+            return JsonSerializer.Deserialize<List<AccountSettings>>(json, JsonOptions) ?? [];
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to fetch account settings from Supabase");
+            return [];
+        }
+    }
+
+    public async Task<AccountSettings?> UpsertAccountSettingsAsync(AccountSettings settings)
+    {
+        try
+        {
+            settings.UpdatedAt = DateTime.UtcNow;
+            var json = JsonSerializer.Serialize(settings, JsonOptions);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            var request = new HttpRequestMessage(HttpMethod.Post, $"{_url}/rest/v1/account_settings")
+            {
+                Content = content
+            };
+            request.Headers.Add("Prefer", "resolution=merge-duplicates,return=representation");
+
+            var response = await _http.SendAsync(request);
+            response.EnsureSuccessStatusCode();
+            var result = await response.Content.ReadAsStringAsync();
+            var list = JsonSerializer.Deserialize<List<AccountSettings>>(result, JsonOptions);
+            return list?.FirstOrDefault();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to upsert account settings");
+            return null;
+        }
+    }
+
+    public async Task<bool> DeleteAccountSettingsAsync(Guid id)
+    {
+        try
+        {
+            var response = await _http.DeleteAsync($"{_url}/rest/v1/account_settings?id=eq.{id}");
+            return response.IsSuccessStatusCode;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to delete account settings {Id}", id);
+            return false;
+        }
+    }
 }

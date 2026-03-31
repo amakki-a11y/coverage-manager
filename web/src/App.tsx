@@ -5,9 +5,10 @@ import { TotalBar } from './components/TotalBar';
 import { ExposureTable } from './components/ExposureTable';
 import { PositionsGrid } from './components/PositionsGrid';
 import { SymbolMappingAdmin } from './components/SymbolMappingAdmin';
+import { SettingsPanel } from './components/SettingsPanel';
 import type { Position } from './types';
 
-type Tab = 'exposure' | 'positions' | 'mappings';
+type Tab = 'exposure' | 'positions' | 'mappings' | 'settings';
 
 const tabStyle = (active: boolean): React.CSSProperties => ({
   padding: '8px 20px',
@@ -59,12 +60,14 @@ function App() {
         <button style={tabStyle(tab === 'exposure')} onClick={() => setTab('exposure')}>Exposure</button>
         <button style={tabStyle(tab === 'positions')} onClick={() => setTab('positions')}>Positions</button>
         <button style={tabStyle(tab === 'mappings')} onClick={() => setTab('mappings')}>Mappings</button>
+        <button style={tabStyle(tab === 'settings')} onClick={() => setTab('settings')}>Settings</button>
       </div>
 
       <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
         {tab === 'exposure' && <ExposureTable summaries={exposureSummaries} />}
         {tab === 'positions' && <PositionsGrid positions={positions} />}
         {tab === 'mappings' && <SymbolMappingAdmin />}
+        {tab === 'settings' && <SettingsPanel />}
       </div>
     </div>
   );

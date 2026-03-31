@@ -52,6 +52,19 @@ export interface PriceQuote {
   timestamp: string;
 }
 
+export interface AccountSettings {
+  id: string;
+  account_type: 'manager' | 'coverage';
+  label: string;
+  server: string;
+  login: number;
+  password: string;
+  group_mask: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ExposureMessage {
   type: 'exposure_update';
   data: {
