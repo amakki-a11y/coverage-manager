@@ -12,7 +12,11 @@
       "Bash(python3 -c \"import sys, json; d=json.load\\(sys.stdin\\); print\\(list\\(d[0].keys\\(\\)\\)\\)\")",
       "Bash(netstat -ano)",
       "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f''''{len\\(d\\)} symbols, first: {d[0][\"\"canonicalSymbol\"\"]}''''\\)\")",
-      "Bash(curl -s http://localhost:5000/api/settings/accounts)"
+      "Bash(curl -s http://localhost:5000/api/settings/accounts)",
+      "Bash(curl -s -X POST http://localhost:5000/api/settings/accounts -H \"Content-Type: application/json\" -d '{\"\"account_type\"\":\"\"manager\"\",\"\"label\"\":\"\"Test\"\",\"\"server\"\":\"\"1.2.3.4:443\"\",\"\"login\"\":100,\"\"password\"\":\"\"test\"\",\"\"group_mask\"\":\"\"*\"\",\"\"is_active\"\":true}')",
+      "Bash(curl -s -X POST \"https://svhmhcqopkdgccnzgvzp.supabase.co/rest/v1/account_settings\" -H \"apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN2aG1oY3FvcGtkZ2NjbnpndnpwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ5NjI4MTUsImV4cCI6MjA5MDUzODgxNX0.9DmKh9Bg7Ntq5fhFtP_JoZ3k3eHupi9r7Zbzf8Y67HI\" -H \"Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN2aG1oY3FvcGtkZ2NjbnpndnpwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ5NjI4MTUsImV4cCI6MjA5MDUzODgxNX0.9DmKh9Bg7Ntq5fhFtP_JoZ3k3eHupi9r7Zbzf8Y67HI\" -H \"Content-Type: application/json\" -H \"Prefer: return=representation\" -d '{\"\"account_type\"\":\"\"manager\"\",\"\"label\"\":\"\"Test\"\",\"\"server\"\":\"\"1.2.3.4:443\"\",\"\"login\"\":100,\"\"password\"\":\"\"test\"\",\"\"group_mask\"\":\"\"*\"\",\"\"is_active\"\":true}')",
+      "Bash(curl -s -X POST http://localhost:5000/api/settings/accounts -H \"Content-Type: application/json\" -d '{\"\"account_type\"\":\"\"manager\"\",\"\"label\"\":\"\"Test Manager\"\",\"\"server\"\":\"\"89.21.67.56:443\"\",\"\"login\"\":100,\"\"password\"\":\"\"test123\"\",\"\"group_mask\"\":\"\"*\"\",\"\"is_active\"\":true}')",
+      "Bash(curl -s -X DELETE http://localhost:5000/api/settings/accounts/9c91218a-6514-4fd5-ab47-f2db50851c54)"
     ]
   }
 }

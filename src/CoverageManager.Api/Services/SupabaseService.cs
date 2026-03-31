@@ -101,18 +101,17 @@ public class SupabaseService
         }
     }
 
-    public async Task<AccountSettings?> UpsertAccountSettingsAsync(AccountSettings settings)
+    public async Task<AccountSettings?> CreateAccountSettingsAsync(AccountSettings settings)
     {
         try
         {
-            settings.UpdatedAt = DateTime.UtcNow;
             var json = JsonSerializer.Serialize(settings, JsonOptions);
             var content = new StringContent(json, Encoding.UTF8, "application/json");
             var request = new HttpRequestMessage(HttpMethod.Post, $"{_url}/rest/v1/account_settings")
             {
                 Content = content
             };
-            request.Headers.Add("Prefer", "resolution=merge-duplicates,return=representation");
+            request.Headers.Add("Prefer", "return=representation");
 
             var response = await _http.SendAsync(request);
             response.EnsureSuccessStatusCode();
@@ -122,7 +121,33 @@ public class SupabaseService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to upsert account settings");
+            _logger.LogError(ex, "Failed to create account settings");
+            return null;
+        }
+    }
+
+    public async Task<AccountSettings?> UpdateAccountSettingsAsync(Guid id, AccountSettings settings)
+    {
+        try
+        {
+            settings.UpdatedAt = DateTime.UtcNow;
+            var json = JsonSerializer.Serialize(settings, JsonOptions);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            var request = new HttpRequestMessage(HttpMethod.Patch, $"{_url}/rest/v1/account_settings?id=eq.{id}")
+            {
+                Content = content
+            };
+            request.Headers.Add("Prefer", "return=representation");
+
+            var response = await _http.SendAsync(request);
+            response.EnsureSuccessStatusCode();
+            var result = await response.Content.ReadAsStringAsync();
+            var list = JsonSerializer.Deserialize<List<AccountSettings>>(result, JsonOptions);
+            return list?.FirstOrDefault();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to update account settings");
             return null;
         }
     }

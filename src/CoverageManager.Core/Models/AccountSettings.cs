@@ -4,17 +4,22 @@ namespace CoverageManager.Core.Models;
 
 public class AccountSettings
 {
+    [JsonPropertyName("id")]
     public Guid Id { get; set; } = Guid.NewGuid();
 
     [JsonPropertyName("account_type")]
     public string AccountType { get; set; } = string.Empty; // "manager" or "coverage"
 
+    [JsonPropertyName("label")]
     public string Label { get; set; } = string.Empty;
 
+    [JsonPropertyName("server")]
     public string Server { get; set; } = string.Empty;
 
+    [JsonPropertyName("login")]
     public long Login { get; set; }
 
+    [JsonPropertyName("password")]
     public string Password { get; set; } = string.Empty;
 
     [JsonPropertyName("group_mask")]

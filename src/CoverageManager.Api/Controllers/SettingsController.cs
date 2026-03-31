@@ -29,9 +29,9 @@ public class SettingsController : ControllerBase
     /// POST /api/settings/accounts — add or update an account
     /// </summary>
     [HttpPost("accounts")]
-    public async Task<IActionResult> UpsertAccount([FromBody] AccountSettings settings)
+    public async Task<IActionResult> CreateAccount([FromBody] AccountSettings settings)
     {
-        var result = await _supabase.UpsertAccountSettingsAsync(settings);
+        var result = await _supabase.CreateAccountSettingsAsync(settings);
         if (result == null) return StatusCode(500, "Failed to save account settings");
         return Ok(result);
     }
@@ -42,8 +42,7 @@ public class SettingsController : ControllerBase
     [HttpPut("accounts/{id:guid}")]
     public async Task<IActionResult> UpdateAccount(Guid id, [FromBody] AccountSettings settings)
     {
-        settings.Id = id;
-        var result = await _supabase.UpsertAccountSettingsAsync(settings);
+        var result = await _supabase.UpdateAccountSettingsAsync(id, settings);
         if (result == null) return StatusCode(500, "Failed to update account settings");
         return Ok(result);
     }

@@ -4,6 +4,7 @@ namespace CoverageManager.Core.Models;
 
 public class SymbolMapping
 {
+    [JsonPropertyName("id")]
     public Guid Id { get; set; } = Guid.NewGuid();
 
     [JsonPropertyName("canonical_name")]
@@ -21,6 +22,7 @@ public class SymbolMapping
     [JsonPropertyName("coverage_contract_size")]
     public decimal CoverageContractSize { get; set; }
 
+    [JsonPropertyName("digits")]
     public int Digits { get; set; }
 
     [JsonPropertyName("profit_currency")]
