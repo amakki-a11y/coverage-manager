@@ -22,7 +22,7 @@ public class ExposureSummary
 
     // Net exposure: remaining uncovered volume (BBook - Coverage, since coverage mirrors client direction)
     public decimal NetVolume => BBookNetVolume - CoverageNetVolume;
-    public decimal NetPnL => BBookPnL + CoveragePnL;
+    public decimal NetPnL => -BBookPnL + CoveragePnL;
 
     // Hedge ratio: how much of B-Book is covered by LP
     public decimal HedgeRatio => BBookNetVolume == 0 ? 100

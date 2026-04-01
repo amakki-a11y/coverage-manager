@@ -97,6 +97,7 @@ dotnet test CoverageManager.sln
 - **Symbol normalization:** Contract size conversion (e.g., 1500 GOLD lots = 15 XAUUSD B-Book lots)
 - **Coverage mirrors client direction:** Clients sell → broker hedges by selling on LP
 - **Net Exposure:** `BBookNet - CoverageNet` (not addition, since coverage mirrors direction)
+- **Net P&L:** `-ClientPnL + CoveragePnL` (invert client P&L for broker perspective)
 - **To Cover:** `BBookNet - CoverageNet` → negative = SELL more, positive = BUY more
 
 ## Exposure Table Layout
