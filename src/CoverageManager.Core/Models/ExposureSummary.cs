@@ -20,11 +20,11 @@ public class ExposureSummary
     public decimal CoverageNetVolume => CoverageBuyVolume - CoverageSellVolume;
     public decimal CoveragePnL { get; set; }
 
-    // Net exposure (B-Book + Coverage combined)
-    public decimal NetVolume => BBookNetVolume + CoverageNetVolume;
+    // Net exposure: remaining uncovered volume (BBook - Coverage, since coverage mirrors client direction)
+    public decimal NetVolume => BBookNetVolume - CoverageNetVolume;
     public decimal NetPnL => BBookPnL + CoveragePnL;
 
-    // Hedge ratio: 0% = no hedge, 100% = fully hedged
+    // Hedge ratio: how much of B-Book is covered by LP
     public decimal HedgeRatio => BBookNetVolume == 0 ? 100
         : Math.Min(100, Math.Abs(CoverageNetVolume / BBookNetVolume) * 100);
 

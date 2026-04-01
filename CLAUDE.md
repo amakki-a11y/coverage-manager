@@ -7,8 +7,9 @@ Real-time exposure management system for forex dealing desks. Shows B-Book clien
 ```
 B-Book MT5 Server → C# Manager API (event-driven) → C# Backend → WebSocket → React Dashboard
 Coverage MT5 Terminal → Python Collector (poll 100ms) → HTTP POST → C# Backend ↗
-                                                                          ↓
-                                                                   Supabase (async persist)
+                                                          ↕                       ↓
+                                                   /deals endpoint          Supabase (async persist)
+                                                   (closed deal history)
 ```
 
 ## GitHub Repository
@@ -32,16 +33,18 @@ https://github.com/amakki-a11y/coverage-manager
 coverage-manager/
 ├── src/
 │   ├── CoverageManager.Core/           # Domain models + engines
-│   │   ├── Models/                     # Position, SymbolMapping, ExposureSummary, etc.
-│   │   └── Engines/                    # PositionManager, ExposureEngine, PriceCache
+│   │   ├── Models/                     # Position, SymbolMapping, ExposureSummary, SymbolPnL, ClosedDeal
+│   │   └── Engines/                    # PositionManager, ExposureEngine, PriceCache, DealStore
 │   ├── CoverageManager.Connector/      # MT5 Manager API connection
 │   │   └── MockMT5Connection.cs        # Simulated MT5 for dev/testing
 │   ├── CoverageManager.Api/            # ASP.NET Core host
 │   │   ├── Controllers/                # Coverage, Exposure, SymbolMapping
 │   │   └── Services/                   # SupabaseService, ExposureBroadcastService
 │   └── CoverageManager.Tests/          # MSTest unit tests (27 tests)
-├── collector/                           # Python FastAPI collector
+├── collector/                           # Python FastAPI collector (MT5 Terminal connection)
+│   └── main.py                         # FastAPI app with /positions, /deals, /health endpoints
 ├── web/                                 # React + TypeScript + Vite dashboard
+│   └── src/components/                 # ExposureTable, PnLPanel, PositionsTable, etc.
 ├── CoverageManager.sln
 └── CLAUDE.md
 ```
@@ -77,6 +80,8 @@ npm run dev
 cd collector
 pip install -r requirements.txt
 uvicorn main:app --host 0.0.0.0 --port 8100
+# Connects to fXGROW coverage account (login 96900, server 194.164.176.137:443)
+# Requires MT5 Terminal running with "Allow algorithmic trading" enabled
 ```
 
 ### Tests
@@ -90,9 +95,32 @@ dotnet test CoverageManager.sln
 - **In-memory state:** ConcurrentDictionary for thread-safe position store
 - **WebSocket push:** Throttled broadcast to prevent browser flooding
 - **Symbol normalization:** Contract size conversion (e.g., 1500 GOLD lots = 15 XAUUSD B-Book lots)
+- **Coverage mirrors client direction:** Clients sell → broker hedges by selling on LP
+- **Net Exposure:** `BBookNet - CoverageNet` (not addition, since coverage mirrors direction)
+- **To Cover:** `BBookNet - CoverageNet` → negative = SELL more, positive = BUY more
+
+## Exposure Table Layout
+- **Two rows per symbol:** Open (live positions) + Closed (today's deals)
+- **Three sections:** Clients (blue) | Coverage (teal) | Summary
+- **Closed row columns:** Buy Volume, Sell Volume, Total Volume, P&L
+- **B-Book closed deals:** From `/api/exposure/pnl` (DealStore)
+- **Coverage closed deals:** From Python collector `/deals` endpoint (MT5 `history_deals_get`)
+- **Symbol mapping:** Coverage symbols (XAUUSD-, US30.c) → canonical → B-Book symbols via `/api/mappings`
+
+## API Endpoints
+### C# Backend (port 5000)
+- `GET /api/exposure/summary` — Live exposure aggregation (WebSocket also available)
+- `GET /api/exposure/pnl` — B-Book realized P&L by symbol (buyVolume, sellVolume, netPnL)
+- `GET /api/mappings` — Symbol mapping table (B-Book ↔ Coverage)
+- `WS /ws` — Real-time exposure updates
+
+### Python Collector (port 8100)
+- `GET /positions` — Current coverage open positions
+- `GET /deals?from=YYYY-MM-DD&to=YYYY-MM-DD` — Coverage closed deal history (buyVolume, sellVolume)
+- `GET /health` — Connection status + account info
 
 ## Phase Status
 - [x] Phase 1: Live Exposure View (complete)
-- [ ] Phase 2: P&L Tracking (closed trades, daily/monthly summaries)
+- [x] Phase 2: P&L Tracking (closed trades with buy/sell volume split, coverage P&L toggle)
 - [ ] Phase 3: Risk Alerts (news events, threshold warnings)
-- [ ] Phase 4: Hedge Execution (one-click hedging via LP terminal)
+- [ ] Phase 4: Hedge Execution (one-click hedging via LP terminal — mt5.order_send() ready)

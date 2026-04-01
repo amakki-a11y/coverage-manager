@@ -1,21 +1,54 @@
 """
 Coverage Manager — Python Collector
-Reads positions from MT5 terminal, POSTs to C# backend.
-Phase 4 adds order execution endpoint.
+Reads coverage (LP) positions from MT5 terminal, POSTs to C# backend.
+Fetches account credentials from the backend API on startup.
 """
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
+from fastapi.middleware.cors import CORSMiddleware
 import MetaTrader5 as mt5
 import httpx
 import asyncio
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone, timedelta
 
 # Config
-API_URL = "http://YOUR_VPS_IP:5000/api/coverage/positions"
+BACKEND_URL = "http://localhost:5000"
 POLL_INTERVAL = 0.1  # 100ms
+
+
+async def fetch_coverage_account():
+    """Fetch the active coverage account from the C# backend."""
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        res = await client.get(f"{BACKEND_URL}/api/settings/accounts")
+        res.raise_for_status()
+        accounts = res.json()
+        for acc in accounts:
+            if acc.get("account_type") == "coverage" and acc.get("is_active"):
+                return acc
+    return None
+
+
+def init_mt5(account):
+    """Initialize MT5 terminal with coverage account credentials."""
+    login = int(account["login"])
+    server = account["server"]
+    password = account["password"]
+
+    print(f"Connecting to MT5: login={login}, server={server}")
+
+    if not mt5.initialize(login=login, server=server, password=password):
+        error = mt5.last_error()
+        raise RuntimeError(f"MT5 init failed: {error}")
+
+    info = mt5.terminal_info()
+    acc_info = mt5.account_info()
+    print(f"MT5 connected: {info.name}")
+    print(f"Account: {acc_info.login} on {acc_info.server}, balance={acc_info.balance}")
 
 
 async def position_loop():
     """Read MT5 positions every 100ms and POST to backend."""
+    url = f"{BACKEND_URL}/api/coverage/positions"
     async with httpx.AsyncClient(timeout=2.0) as client:
         while True:
             try:
@@ -31,9 +64,9 @@ async def position_loop():
                         "swap": p.swap,
                         "ticket": p.ticket
                     } for p in positions]
-                    await client.post(API_URL, json=data)
+                    await client.post(url, json=data)
                 else:
-                    await client.post(API_URL, json=[])
+                    await client.post(url, json=[])
             except Exception as e:
                 print(f"Error: {e}")
             await asyncio.sleep(POLL_INTERVAL)
@@ -41,10 +74,21 @@ async def position_loop():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Initialize MT5
-    if not mt5.initialize():
-        raise RuntimeError(f"MT5 init failed: {mt5.last_error()}")
-    print(f"MT5 connected: {mt5.terminal_info().name}")
+    # Try to attach to already-running MT5 terminal first
+    if mt5.initialize():
+        acc = mt5.account_info()
+        info = mt5.terminal_info()
+        print(f"MT5 attached to running terminal: {info.name}")
+        print(f"Account: {acc.login} on {acc.server}, balance={acc.balance}")
+    else:
+        # Fall back to credentials from backend
+        account = await fetch_coverage_account()
+        if account is None:
+            print("WARNING: No active coverage account found and no MT5 terminal running.")
+            print("Add a coverage account via the Settings tab and restart the collector.")
+            yield
+            return
+        init_mt5(account)
 
     # Start position polling loop
     task = asyncio.create_task(position_loop())
@@ -54,12 +98,19 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Coverage Manager Collector", lifespan=lifespan)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
 @app.get("/health")
 def health():
     info = mt5.terminal_info()
-    return {"status": "ok", "terminal": info.name if info else "disconnected"}
+    acc = mt5.account_info()
+    return {
+        "status": "ok" if info else "disconnected",
+        "terminal": info.name if info else None,
+        "login": acc.login if acc else None,
+        "server": acc.server if acc else None,
+    }
 
 
 @app.get("/positions")
@@ -78,3 +129,55 @@ def get_positions():
         "swap": p.swap,
         "ticket": p.ticket
     } for p in positions]
+
+
+@app.get("/deals")
+def get_deals(
+    from_date: str = Query(..., alias="from", description="Start date YYYY-MM-DD"),
+    to_date: str = Query(..., alias="to", description="End date YYYY-MM-DD"),
+):
+    """Get closed deals from coverage account for a date range."""
+    dt_from = datetime.strptime(from_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    # MT5 history_deals_get 'to' is exclusive, so add 1 day to include the end date
+    dt_to = datetime.strptime(to_date, "%Y-%m-%d").replace(tzinfo=timezone.utc) + timedelta(days=1)
+
+    deals = mt5.history_deals_get(dt_from, dt_to)
+    if deals is None:
+        return {"deals": [], "symbols": []}
+
+    # Filter closed deals only: entry=1 (OUT), 2 (INOUT), 3 (OUT_BY)
+    closed = [d for d in deals if d.entry in (1, 2, 3) and d.symbol]
+
+    # Build per-symbol P&L summary
+    symbol_map: dict = {}
+    for d in closed:
+        s = symbol_map.setdefault(d.symbol, {
+            "symbol": d.symbol,
+            "dealCount": 0,
+            "totalProfit": 0.0,
+            "totalCommission": 0.0,
+            "totalSwap": 0.0,
+            "totalFee": 0.0,
+            "totalVolume": 0.0,
+            "buyVolume": 0.0,
+            "sellVolume": 0.0,
+        })
+        s["dealCount"] += 1
+        s["totalProfit"] += d.profit
+        s["totalCommission"] += d.commission
+        s["totalSwap"] += d.swap
+        s["totalFee"] += d.fee
+        s["totalVolume"] += d.volume
+        if d.type == 0:  # BUY
+            s["buyVolume"] += d.volume
+        else:  # SELL
+            s["sellVolume"] += d.volume
+
+    symbols = list(symbol_map.values())
+    for s in symbols:
+        s["netPnL"] = s["totalProfit"] + s["totalCommission"] + s["totalSwap"] + s["totalFee"]
+
+    return {
+        "totalDeals": len(closed),
+        "symbols": sorted(symbols, key=lambda x: abs(x["netPnL"]), reverse=True),
+    }

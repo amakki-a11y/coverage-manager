@@ -2,6 +2,7 @@ using System.Net.WebSockets;
 using Serilog;
 using CoverageManager.Core.Engines;
 using CoverageManager.Api.Services;
+using CoverageManager.Connector;
 
 Log.Logger = new LoggerConfiguration()
     .MinimumLevel.Information()
@@ -20,10 +21,12 @@ try
     var positionManager = new PositionManager();
     var priceCache = new PriceCache();
     var exposureEngine = new ExposureEngine(positionManager);
+    var dealStore = new DealStore();
 
     builder.Services.AddSingleton(positionManager);
     builder.Services.AddSingleton(priceCache);
     builder.Services.AddSingleton(exposureEngine);
+    builder.Services.AddSingleton(dealStore);
 
     // Supabase HTTP client
     builder.Services.AddHttpClient<SupabaseService>();
@@ -35,6 +38,35 @@ try
 
     // Broadcast service (WebSocket push)
     builder.Services.AddSingleton<ExposureBroadcastService>();
+
+    // MT5 Manager connection (reads accounts from Supabase, connects, snapshots positions)
+    builder.Services.AddSingleton<MT5ManagerConnection>(sp =>
+    {
+        var supabase = sp.GetRequiredService<SupabaseService>();
+        var broadcast = sp.GetRequiredService<ExposureBroadcastService>();
+        return new MT5ManagerConnection(
+            sp.GetRequiredService<ILogger<MT5ManagerConnection>>(),
+            positionManager,
+            priceCache,
+            dealStore,
+            async () => await supabase.GetAccountSettingsAsync(),
+            () => broadcast.MarkDirty());
+    });
+    builder.Services.AddHostedService(sp => sp.GetRequiredService<MT5ManagerConnection>());
+
+    // MT5 Coverage connection (LP account — reads coverage positions)
+    builder.Services.AddSingleton<MT5CoverageConnection>(sp =>
+    {
+        var supabase = sp.GetRequiredService<SupabaseService>();
+        var broadcast = sp.GetRequiredService<ExposureBroadcastService>();
+        return new MT5CoverageConnection(
+            sp.GetRequiredService<ILogger<MT5CoverageConnection>>(),
+            positionManager,
+            priceCache,
+            async () => await supabase.GetAccountSettingsAsync(),
+            () => broadcast.MarkDirty());
+    });
+    builder.Services.AddHostedService(sp => sp.GetRequiredService<MT5CoverageConnection>());
 
     builder.Services.AddControllers();
     builder.Services.AddEndpointsApiExplorer();

@@ -79,6 +79,24 @@ public class PositionManager
         }
     }
 
+    /// <summary>
+    /// Replace all B-Book positions atomically. Removes closed positions, adds/updates open ones.
+    /// </summary>
+    public void SnapshotBBookPositions(Dictionary<string, Position> snapshot)
+    {
+        // Remove old bbook positions not in the new snapshot
+        var bbookKeys = _positions.Keys.Where(k => k.StartsWith("bbook:")).ToList();
+        foreach (var k in bbookKeys)
+        {
+            if (!snapshot.ContainsKey(k))
+                _positions.TryRemove(k, out _);
+        }
+
+        // Add/update from snapshot (applies mapping)
+        foreach (var (key, position) in snapshot)
+            UpdateBBookPosition(key, position);
+    }
+
     public void RemoveBBookPosition(string key)
     {
         _positions.TryRemove(key, out _);
