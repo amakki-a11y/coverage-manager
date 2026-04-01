@@ -177,7 +177,25 @@ def get_deals(
     for s in symbols:
         s["netPnL"] = s["totalProfit"] + s["totalCommission"] + s["totalSwap"] + s["totalFee"]
 
+    # Also compute raw totals for all deals (for debugging/comparison with MT5 History tab)
+    all_with_symbol = [d for d in deals if d.symbol]
+    all_profit = sum(d.profit for d in all_with_symbol)
+    all_commission = sum(d.commission for d in all_with_symbol)
+    all_swap = sum(d.swap for d in all_with_symbol)
+    all_fee = sum(d.fee for d in all_with_symbol)
+
     return {
         "totalDeals": len(closed),
         "symbols": sorted(symbols, key=lambda x: abs(x["netPnL"]), reverse=True),
+        "debug": {
+            "allDealsCount": len(deals),
+            "closedDealsCount": len(closed),
+            "allProfit": round(all_profit, 2),
+            "allCommission": round(all_commission, 2),
+            "allSwap": round(all_swap, 2),
+            "allFee": round(all_fee, 2),
+            "allNet": round(all_profit + all_commission + all_swap + all_fee, 2),
+            "closedProfit": round(sum(d.profit for d in closed), 2),
+            "closedNet": round(sum(s["netPnL"] for s in symbols), 2),
+        }
     }

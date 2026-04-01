@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { THEME } from '../theme';
-import type { ExposureSummary } from '../types';
+import type { ExposureSummary, PriceQuote } from '../types';
 
 interface ExposureTableProps {
   summaries: ExposureSummary[];
+  prices: PriceQuote[];
 }
 
 interface ClosedSymbol {
@@ -19,29 +20,11 @@ interface ClosedSymbol {
   sellVolume: number;
 }
 
-const secBorder = `2px solid rgba(255,255,255,0.12)`;
-const rowBorder = `1px solid ${THEME.border}`;
-
 const c: React.CSSProperties = {
   padding: '6px 10px',
   fontFamily: 'monospace',
-  fontSize: 13,
+  fontSize: 12,
   textAlign: 'right',
-  whiteSpace: 'nowrap',
-};
-
-const hdr: React.CSSProperties = {
-  ...c,
-  fontSize: 9,
-  fontWeight: 600,
-  textTransform: 'uppercase',
-  letterSpacing: 0.5,
-  fontFamily: 'inherit',
-  color: THEME.t3,
-  borderBottom: rowBorder,
-  position: 'sticky',
-  background: THEME.bg2,
-  zIndex: 1,
   whiteSpace: 'nowrap',
 };
 
@@ -50,9 +33,33 @@ function todayStr() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-export function ExposureTable({ summaries }: ExposureTableProps) {
+export function ExposureTable({ summaries, prices }: ExposureTableProps) {
+  // Build price lookup by symbol
+  const priceMap: Record<string, PriceQuote> = {};
+  for (const p of prices) priceMap[p.symbol] = p;
   const [bbClosedMap, setBbClosedMap] = useState<Record<string, ClosedSymbol>>({});
   const [covClosedMap, setCovClosedMap] = useState<Record<string, ClosedSymbol>>({});
+  const [showGrid, setShowGrid] = useState(() => {
+    return localStorage.getItem('exposureGrid') !== 'false';
+  });
+
+  // Theme-dependent styles (must be inside component so they update on theme change)
+  const secBorder = `2px solid ${THEME.border}`;
+  const rowBorder = `1px solid ${THEME.border}`;
+  const hdr: React.CSSProperties = {
+    ...c,
+    fontSize: 9,
+    fontWeight: 600,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    fontFamily: 'inherit',
+    color: THEME.t3,
+    borderBottom: rowBorder,
+    position: 'sticky',
+    background: THEME.bg2,
+    zIndex: 1,
+    whiteSpace: 'nowrap',
+  };
 
   useEffect(() => {
     const today = todayStr();
@@ -133,7 +140,7 @@ export function ExposureTable({ summaries }: ExposureTableProps) {
     ...c,
     textAlign: 'left',
     fontFamily: 'inherit',
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: 600,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
@@ -141,8 +148,42 @@ export function ExposureTable({ summaries }: ExposureTableProps) {
     padding: '6px 6px',
   };
 
+  const gridBorder = showGrid ? `2px solid ${THEME.t3}` : 'none';
+  const gridSecBorder = showGrid ? secBorder : 'none';
+  const gc: React.CSSProperties = showGrid ? { borderLeft: `1px solid ${THEME.border}`, borderBottom: `1px solid ${THEME.border}` } : {};
+
+  const toggleGrid = () => {
+    setShowGrid(prev => {
+      const next = !prev;
+      localStorage.setItem('exposureGrid', String(next));
+      return next;
+    });
+  };
+
   return (
     <div style={{ overflow: 'auto', flex: 1 }}>
+      {/* Toolbar */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 8,
+        padding: '4px 12px', background: THEME.bg2,
+        borderBottom: `1px solid ${THEME.border}`,
+      }}>
+        <button
+          onClick={toggleGrid}
+          style={{
+            background: showGrid ? THEME.bg3 : 'transparent',
+            border: `1px solid ${THEME.border}`,
+            borderRadius: 4,
+            padding: '3px 10px',
+            cursor: 'pointer',
+            fontSize: 11,
+            fontWeight: 600,
+            color: showGrid ? THEME.t1 : THEME.t3,
+          }}
+        >
+          Grid
+        </button>
+      </div>
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
           {/* Group headers */}
@@ -151,7 +192,7 @@ export function ExposureTable({ summaries }: ExposureTableProps) {
             <th style={{ ...hdr, width: 50, borderBottom: 'none', top: 0, zIndex: 2 }} rowSpan={2}></th>
             <th style={{ ...hdr, textAlign: 'center', color: THEME.blue, borderLeft: secBorder, borderBottom: 'none', fontSize: 11, fontWeight: 700, letterSpacing: 1, top: 0, zIndex: 2 }} colSpan={4}>Clients</th>
             <th style={{ ...hdr, textAlign: 'center', color: THEME.teal, borderLeft: secBorder, borderBottom: 'none', fontSize: 11, fontWeight: 700, letterSpacing: 1, top: 0, zIndex: 2 }} colSpan={4}>Coverage</th>
-            <th style={{ ...hdr, textAlign: 'center', color: THEME.t2, borderLeft: secBorder, borderBottom: 'none', fontSize: 11, fontWeight: 700, letterSpacing: 1, top: 0, zIndex: 2 }} colSpan={4}>Summary</th>
+            <th style={{ ...hdr, textAlign: 'center', color: THEME.t2, borderLeft: secBorder, borderBottom: 'none', fontSize: 11, fontWeight: 700, letterSpacing: 1, top: 0, zIndex: 2 }} colSpan={3}>Summary</th>
           </tr>
           {/* Sub headers */}
           <tr>
@@ -163,8 +204,7 @@ export function ExposureTable({ summaries }: ExposureTableProps) {
             <th style={{ ...hdr, top: 26 }}>Sell</th>
             <th style={{ ...hdr, top: 26 }}>Net</th>
             <th style={{ ...hdr, top: 26 }}>P&L</th>
-            <th style={{ ...hdr, borderLeft: secBorder, top: 26 }}>Net Exp</th>
-            <th style={{ ...hdr, top: 26 }}>To Cover</th>
+            <th style={{ ...hdr, borderLeft: secBorder, top: 26 }}>To Cover</th>
             <th style={{ ...hdr, top: 26 }}>Net P&L</th>
             <th style={{ ...hdr, top: 26 }}>Hedge</th>
           </tr>
@@ -175,57 +215,62 @@ export function ExposureTable({ summaries }: ExposureTableProps) {
             const bb = bbClosedMap[s.canonicalSymbol];
             const cv = covClosedMap[s.canonicalSymbol];
             const hasClosed = bb || cv;
-            const hedgeBg = hr >= 80 ? 'transparent' : hr >= 50 ? 'rgba(255,186,66,0.05)' : 'rgba(255,82,82,0.06)';
-
             return (
               <React.Fragment key={s.canonicalSymbol}>
                 {/* OPEN row */}
-                <tr style={{ background: hedgeBg, borderTop: rowBorder }}>
-                  <td rowSpan={hasClosed ? 2 : 1} style={{
-                    ...c, textAlign: 'left', color: THEME.t1, fontWeight: 700, fontFamily: 'inherit', fontSize: 13,
-                    verticalAlign: 'middle', borderBottom: rowBorder,
+                <tr style={{ borderTop: gridBorder }}>
+                  <td rowSpan={2} style={{
+                    ...c, ...gc, textAlign: 'left', color: THEME.t1, fontWeight: 700, fontFamily: 'inherit',
+                    verticalAlign: 'middle', borderLeft: 'none',
                   }}>
                     {s.canonicalSymbol}
+                    {(() => {
+                      const price = priceMap[s.canonicalSymbol];
+                      if (!price) return null;
+                      return (
+                        <div style={{ fontSize: 11, fontWeight: 400, fontFamily: 'monospace', color: THEME.t3, marginTop: 2 }}>
+                          {price.bid}
+                        </div>
+                      );
+                    })()}
                   </td>
-                  <td style={{ ...typeCell, color: THEME.blue }}>open</td>
-                  <td style={{ ...c, color: THEME.green, borderLeft: secBorder }}>{fmt(s.bBookBuyVolume)}</td>
-                  <td style={{ ...c, color: THEME.red }}>{fmt(s.bBookSellVolume)}</td>
-                  <td style={{ ...c, color: pc(s.bBookNetVolume), fontWeight: 600 }}>{fmt(s.bBookNetVolume)}</td>
-                  <td style={{ ...c, color: pc(s.bBookPnL) }}>{fp(s.bBookPnL)}</td>
-                  <td style={{ ...c, color: THEME.green, borderLeft: secBorder }}>{fmt(s.coverageBuyVolume)}</td>
-                  <td style={{ ...c, color: THEME.red }}>{fmt(s.coverageSellVolume)}</td>
-                  <td style={{ ...c, color: pc(s.coverageNetVolume), fontWeight: 600 }}>{fmt(s.coverageNetVolume)}</td>
-                  <td style={{ ...c, color: pc(s.coveragePnL) }}>{fp(s.coveragePnL)}</td>
-                  <td style={{ ...c, borderLeft: secBorder, color: pc(s.netVolume), fontWeight: 700 }}>{fmt(s.netVolume)}</td>
-                  <td style={{ ...c, color: THEME.amber, fontWeight: 600 }}>{calcToCover(s.bBookNetVolume, s.coverageNetVolume)}</td>
-                  <td style={{ ...c, color: pc(s.netPnL), fontWeight: 700 }}>{fp(s.netPnL)}</td>
-                  <td style={{ ...c, color: hedgeColor(hr), fontWeight: 600 }}>{hr.toFixed(0)}%</td>
+                  <td style={{ ...typeCell, ...gc, color: THEME.blue }}>open</td>
+                  <td style={{ ...c, ...gc, color: THEME.green, borderLeft: gridSecBorder }}>{fmt(s.bBookBuyVolume)}</td>
+                  <td style={{ ...c, ...gc, color: THEME.red }}>{fmt(s.bBookSellVolume)}</td>
+                  <td style={{ ...c, ...gc, color: pc(s.bBookNetVolume), fontWeight: 600 }}>{fmt(s.bBookNetVolume)}</td>
+                  <td style={{ ...c, ...gc, color: pc(s.bBookPnL) }}>{fp(s.bBookPnL)}</td>
+                  <td style={{ ...c, ...gc, color: THEME.green, borderLeft: gridSecBorder }}>{fmt(s.coverageBuyVolume)}</td>
+                  <td style={{ ...c, ...gc, color: THEME.red }}>{fmt(s.coverageSellVolume)}</td>
+                  <td style={{ ...c, ...gc, color: pc(s.coverageNetVolume), fontWeight: 600 }}>{fmt(s.coverageNetVolume)}</td>
+                  <td style={{ ...c, ...gc, color: pc(s.coveragePnL) }}>{fp(s.coveragePnL)}</td>
+                  <td style={{ ...c, ...gc, borderLeft: gridSecBorder, color: toCoverColor(toCoverValue(s.bBookNetVolume, s.coverageNetVolume)), fontWeight: 600 }}>{fmtToCover(toCoverValue(s.bBookNetVolume, s.coverageNetVolume))}</td>
+                  <td style={{ ...c, ...gc, color: pc(s.netPnL), fontWeight: 700 }}>{fp(s.netPnL)}</td>
+                  <td style={{ ...c, ...gc, color: hedgeColor(hr), fontWeight: 600 }}>{hr.toFixed(0)}%</td>
                 </tr>
-                {/* CLOSED row */}
-                {hasClosed && (
-                  <tr style={{ background: 'rgba(255,255,255,0.015)', borderBottom: rowBorder }}>
-                    <td style={{ ...typeCell, color: THEME.t3 }}>closed</td>
+                {/* CLOSED row — always shown for consistent row height */}
+                <tr style={{ background: 'rgba(255,255,255,0.015)', borderBottom: gridBorder }}>
+                    <td style={{ ...typeCell, ...gc, color: THEME.t3 }}>closed</td>
                     {/* Clients closed */}
-                    <td style={{ ...c, color: THEME.green, fontSize: 11, borderLeft: secBorder }}>{bb ? fmt(bb.buyVolume) : ''}</td>
-                    <td style={{ ...c, color: THEME.red, fontSize: 11 }}>{bb ? fmt(bb.sellVolume) : ''}</td>
-                    <td style={{ ...c, color: THEME.t3, fontSize: 11 }}>{bb ? fmt(bb.totalVolume) : ''}</td>
-                    <td style={{ ...c, color: bb ? pc(bb.netPnL) : THEME.t3, fontSize: 11, fontWeight: 600 }}>
+                    <td style={{ ...c, ...gc, color: THEME.green, borderLeft: gridSecBorder }}>{bb ? fmt(bb.buyVolume) : ''}</td>
+                    <td style={{ ...c, ...gc, color: THEME.red }}>{bb ? fmt(bb.sellVolume) : ''}</td>
+                    <td style={{ ...c, ...gc, color: THEME.t3 }}>{bb ? fmt(bb.totalVolume) : ''}</td>
+                    <td style={{ ...c, ...gc, color: bb ? pc(bb.netPnL) : THEME.t3, fontWeight: 600 }}>
                       {bb ? fp(bb.netPnL) : ''}
                     </td>
                     {/* Coverage closed */}
-                    <td style={{ ...c, color: THEME.green, fontSize: 11, borderLeft: secBorder }}>{cv ? fmt(cv.buyVolume) : ''}</td>
-                    <td style={{ ...c, color: THEME.red, fontSize: 11 }}>{cv ? fmt(cv.sellVolume) : ''}</td>
-                    <td style={{ ...c, color: THEME.t3, fontSize: 11 }}>{cv ? fmt(cv.totalVolume) : ''}</td>
-                    <td style={{ ...c, color: cv ? pc(cv.netPnL) : THEME.t3, fontSize: 11, fontWeight: 600 }}>
+                    <td style={{ ...c, ...gc, color: THEME.green, borderLeft: gridSecBorder }}>{cv ? fmt(cv.buyVolume) : ''}</td>
+                    <td style={{ ...c, ...gc, color: THEME.red }}>{cv ? fmt(cv.sellVolume) : ''}</td>
+                    <td style={{ ...c, ...gc, color: THEME.t3 }}>{cv ? fmt(cv.totalVolume) : ''}</td>
+                    <td style={{ ...c, ...gc, color: cv ? pc(cv.netPnL) : THEME.t3, fontWeight: 600 }}>
                       {cv ? fp(cv.netPnL) : ''}
                     </td>
                     {/* Summary closed */}
-                    <td style={{ ...c, borderLeft: secBorder }} colSpan={3}></td>
-                    <td style={{ ...c, color: pc((bb?.netPnL ?? 0) + (cv?.netPnL ?? 0)), fontSize: 11, fontWeight: 600 }}>
-                      {fp((bb?.netPnL ?? 0) + (cv?.netPnL ?? 0))}
+                    <td style={{ ...c, ...gc, borderLeft: gridSecBorder }}></td>
+                    <td style={{ ...c, ...gc }}></td>
+                    <td style={{ ...c, ...gc, color: pc((bb?.netPnL ?? 0) + (cv?.netPnL ?? 0)), fontWeight: 600 }}>
+                      {(bb || cv) ? fp((bb?.netPnL ?? 0) + (cv?.netPnL ?? 0)) : ''}
                     </td>
                   </tr>
-                )}
               </React.Fragment>
             );
           })}
@@ -233,31 +278,35 @@ export function ExposureTable({ summaries }: ExposureTableProps) {
         <tfoot>
           {/* Closed totals */}
           <tr style={{ background: 'rgba(255,255,255,0.02)', borderTop: `2px solid ${THEME.border}` }}>
-            <td style={{ ...c, textAlign: 'left', fontFamily: 'inherit', fontSize: 11, color: THEME.t3, fontWeight: 600 }}>TOTAL</td>
-            <td style={{ ...typeCell, color: THEME.t3 }}>closed</td>
-            <td style={{ ...c, borderLeft: secBorder }} colSpan={3}></td>
-            <td style={{ ...c, color: pc(closedBBPnL), fontSize: 11, fontWeight: 600 }}>{fp(closedBBPnL)}</td>
-            <td style={{ ...c, borderLeft: secBorder }} colSpan={3}></td>
-            <td style={{ ...c, color: pc(closedCovPnL), fontSize: 11, fontWeight: 600 }}>{fp(closedCovPnL)}</td>
-            <td style={{ ...c, borderLeft: secBorder }} colSpan={3}></td>
-            <td style={{ ...c, color: pc(closedBBPnL + closedCovPnL), fontSize: 11, fontWeight: 700 }}>{fp(closedBBPnL + closedCovPnL)}</td>
+            <td style={{ ...c, ...gc, textAlign: 'left', fontFamily: 'inherit', color: THEME.t3, fontWeight: 600, borderLeft: 'none' }}>TOTAL</td>
+            <td style={{ ...typeCell, ...gc, color: THEME.t3 }}>closed</td>
+            <td style={{ ...c, ...gc, borderLeft: gridSecBorder }}></td>
+            <td style={{ ...c, ...gc }}></td>
+            <td style={{ ...c, ...gc }}></td>
+            <td style={{ ...c, ...gc, color: pc(closedBBPnL), fontWeight: 600 }}>{fp(closedBBPnL)}</td>
+            <td style={{ ...c, ...gc, borderLeft: gridSecBorder }}></td>
+            <td style={{ ...c, ...gc }}></td>
+            <td style={{ ...c, ...gc }}></td>
+            <td style={{ ...c, ...gc, color: pc(closedCovPnL), fontWeight: 600 }}>{fp(closedCovPnL)}</td>
+            <td style={{ ...c, ...gc, borderLeft: gridSecBorder }}></td>
+            <td style={{ ...c, ...gc }}></td>
+            <td style={{ ...c, ...gc, color: pc(closedBBPnL + closedCovPnL), fontWeight: 700 }}>{fp(closedBBPnL + closedCovPnL)}</td>
           </tr>
           {/* Open totals */}
           <tr style={{ background: THEME.bg3 }}>
-            <td style={{ ...c, textAlign: 'left', fontFamily: 'inherit', fontSize: 11, color: THEME.t2, fontWeight: 600 }}>TOTAL</td>
-            <td style={{ ...typeCell, color: THEME.blue }}>open</td>
-            <td style={{ ...c, color: THEME.green, borderLeft: secBorder }}>{fmt(openTotals.bbBuy)}</td>
-            <td style={{ ...c, color: THEME.red }}>{fmt(openTotals.bbSell)}</td>
-            <td style={{ ...c, color: pc(openTotals.bbNet), fontWeight: 600 }}>{fmt(openTotals.bbNet)}</td>
-            <td style={{ ...c, color: pc(openTotals.bbPnL) }}>{fp(openTotals.bbPnL)}</td>
-            <td style={{ ...c, color: THEME.green, borderLeft: secBorder }}>{fmt(openTotals.covBuy)}</td>
-            <td style={{ ...c, color: THEME.red }}>{fmt(openTotals.covSell)}</td>
-            <td style={{ ...c, color: pc(openTotals.covNet), fontWeight: 600 }}>{fmt(openTotals.covNet)}</td>
-            <td style={{ ...c, color: pc(openTotals.covPnL) }}>{fp(openTotals.covPnL)}</td>
-            <td style={{ ...c, borderLeft: secBorder, color: pc(openTotals.netVol), fontWeight: 700 }}>{fmt(openTotals.netVol)}</td>
-            <td style={{ ...c, color: THEME.amber, fontWeight: 600 }}>{calcToCover(openTotals.bbNet, openTotals.covNet)}</td>
-            <td style={{ ...c, color: pc(openTotals.netPnL), fontWeight: 700 }}>{fp(openTotals.netPnL)}</td>
-            <td style={c} />
+            <td style={{ ...c, ...gc, textAlign: 'left', fontFamily: 'inherit', color: THEME.t2, fontWeight: 600, borderLeft: 'none' }}>TOTAL</td>
+            <td style={{ ...typeCell, ...gc, color: THEME.blue }}>open</td>
+            <td style={{ ...c, ...gc, color: THEME.green, borderLeft: gridSecBorder }}>{fmt(openTotals.bbBuy)}</td>
+            <td style={{ ...c, ...gc, color: THEME.red }}>{fmt(openTotals.bbSell)}</td>
+            <td style={{ ...c, ...gc, color: pc(openTotals.bbNet), fontWeight: 600 }}>{fmt(openTotals.bbNet)}</td>
+            <td style={{ ...c, ...gc, color: pc(openTotals.bbPnL) }}>{fp(openTotals.bbPnL)}</td>
+            <td style={{ ...c, ...gc, color: THEME.green, borderLeft: gridSecBorder }}>{fmt(openTotals.covBuy)}</td>
+            <td style={{ ...c, ...gc, color: THEME.red }}>{fmt(openTotals.covSell)}</td>
+            <td style={{ ...c, ...gc, color: pc(openTotals.covNet), fontWeight: 600 }}>{fmt(openTotals.covNet)}</td>
+            <td style={{ ...c, ...gc, color: pc(openTotals.covPnL) }}>{fp(openTotals.covPnL)}</td>
+            <td style={{ ...c, ...gc, borderLeft: gridSecBorder, color: toCoverColor(toCoverValue(openTotals.bbNet, openTotals.covNet)), fontWeight: 600 }}>{fmtToCover(toCoverValue(openTotals.bbNet, openTotals.covNet))}</td>
+            <td style={{ ...c, ...gc, color: pc(openTotals.netPnL), fontWeight: 700 }}>{fp(openTotals.netPnL)}</td>
+            <td style={{ ...c, ...gc }} />
           </tr>
         </tfoot>
       </table>
@@ -279,12 +328,19 @@ function pc(v: number | undefined): string {
   return n > 0 ? THEME.green : n < 0 ? THEME.red : THEME.t2;
 }
 
-function calcToCover(bbNet: number | undefined, covNet: number | undefined): string {
-  const bb = bbNet ?? 0;
-  const cov = covNet ?? 0;
-  const remaining = bb - cov;
-  if (Math.abs(remaining) < 0.005) return '—';
-  return (remaining < 0 ? 'SELL ' : 'BUY ') + Math.abs(remaining).toFixed(2);
+function toCoverValue(bbNet: number | undefined, covNet: number | undefined): number {
+  return (bbNet ?? 0) - (covNet ?? 0);
+}
+
+function fmtToCover(v: number): string {
+  if (Math.abs(v) < 0.005) return '';
+  if (v < 0) return '-' + Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function toCoverColor(v: number): string {
+  if (Math.abs(v) < 0.005) return THEME.t3;
+  return v < 0 ? THEME.red : THEME.green;
 }
 
 function hedgeColor(r: number): string {

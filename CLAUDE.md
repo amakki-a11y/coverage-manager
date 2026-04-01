@@ -101,12 +101,24 @@ dotnet test CoverageManager.sln
 - **To Cover:** `BBookNet - CoverageNet` → negative = SELL more, positive = BUY more
 
 ## Exposure Table Layout
-- **Two rows per symbol:** Open (live positions) + Closed (today's deals)
+- **Two rows per symbol:** Open (live positions) + Closed (today's deals, always shown)
 - **Three sections:** Clients (blue) | Coverage (teal) | Summary
 - **Closed row columns:** Buy Volume, Sell Volume, Total Volume, P&L
 - **B-Book closed deals:** From `/api/exposure/pnl` (DealStore)
 - **Coverage closed deals:** From Python collector `/deals` endpoint (MT5 `history_deals_get`)
 - **Symbol mapping:** Coverage symbols (XAUUSD-, US30.c) → canonical → B-Book symbols via `/api/mappings`
+- **To Cover column:** `BBookNet - CoverageNet` — green for buy (positive), red with `-` prefix for sell (negative), no BUY/SELL text
+- **Grid toggle:** Optional vertical + horizontal grid lines (persisted in localStorage)
+- **Bold symbol dividers:** Horizontal borders between symbol groups are 2px bold
+- **Bid price:** Shown under each symbol name
+- **Uniform font size:** All data cells use 12px
+
+## UI Features
+- **Dark/Light theme toggle:** ThemeContext with mutable THEME object (Object.assign pattern)
+- **Theme persistence:** Saved to localStorage, applied on load
+- **Theme-reactive styles:** All theme-dependent styles computed inside components (not module-level) to update on theme toggle
+- **P&L Panel:** Shows client perspective (positive = clients profited), NOT inverted for broker view
+- **Coverage P&L:** Respects date range picker
 
 ## API Endpoints
 ### C# Backend (port 5000)

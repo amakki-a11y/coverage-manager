@@ -170,7 +170,7 @@ export function PnLPanel() {
       }
       setCoverageData(result);
     } catch { /* ignore */ }
-  }, [fromDate, toDate]);
+  }, [fromDate, toDate, data]);
 
   const loadRange = useCallback(async () => {
     setLoading(true);
@@ -207,8 +207,7 @@ export function PnLPanel() {
   const formatDate = (dateStr: string) => {
     const d = new Date(dateStr);
     const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    return `${days[d.getUTCDay()]} ${d.getUTCDate()} ${months[d.getUTCMonth()]}`;
+    return `${days[d.getUTCDay()]} ${d.getUTCDate()}`;
   };
 
   return (
@@ -279,8 +278,7 @@ export function PnLPanel() {
         <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
           <thead>
             <tr>
-              <th style={{ ...headerStyle, textAlign: 'left', width: 140 }}>Date / Symbol</th>
-              <th style={headerStyle}>Deals</th>
+              <th style={{ ...headerStyle, textAlign: 'left', width: 140 }}>Symbol</th>
               <th style={headerStyle}>Volume</th>
               <th style={headerStyle}>Profit</th>
               <th style={headerStyle}>Commission</th>
@@ -293,27 +291,39 @@ export function PnLPanel() {
             </tr>
           </thead>
           <tbody>
-            {(data.daily ?? []).map((day) => {
-              const isExpanded = expandedDay === day.date;
-              return (
-                <DayRow
-                  key={day.date}
-                  day={day}
-                  isExpanded={isExpanded}
-                  formatDate={formatDate}
-                  onToggle={() => setExpandedDay(isExpanded ? null : day.date)}
-                  showCoverage={showCoverage}
-                  coverageData={coverageData}
-                />
-              );
-            })}
+            {data.symbols.map((s) => (
+              <tr key={s.symbol} style={{ borderBottom: `1px solid ${THEME.border}` }}>
+                <td style={{ ...cellStyle, textAlign: 'left', color: THEME.t1, fontWeight: 600, fontFamily: 'inherit' }}>
+                  {s.symbol}
+                </td>
+                <td style={{ ...cellStyle, color: THEME.t2 }}>{s.totalVolume.toFixed(2)}</td>
+                <td style={{ ...cellStyle, color: pnlColor(s.totalProfit) }}>{fmtPnl(s.totalProfit)}</td>
+                <td style={{ ...cellStyle, color: s.totalCommission < 0 ? THEME.red : THEME.t2 }}>
+                  {fmtPnl(s.totalCommission)}
+                </td>
+                <td style={{ ...cellStyle, color: pnlColor(s.totalSwap) }}>{fmtPnl(s.totalSwap)}</td>
+                <td style={{ ...cellStyle, color: pnlColor(s.netPnL), fontWeight: 700 }}>{fmtPnl(s.netPnL)}</td>
+                {showCoverage && (() => {
+                  const cov = coverageData[s.symbol];
+                  const covPnL = cov?.netPnL ?? 0;
+                  const combined = s.netPnL + covPnL;
+                  return <>
+                    <td style={{ ...cellStyle, borderLeft: `1px solid ${THEME.border}`, color: covPnL !== 0 ? pnlColor(covPnL) : THEME.t3 }}>
+                      {covPnL !== 0 ? fmtPnl(covPnL) : '—'}
+                    </td>
+                    <td style={{ ...cellStyle, color: covPnL !== 0 ? pnlColor(combined) : pnlColor(s.netPnL), fontWeight: 600 }}>
+                      {covPnL !== 0 ? fmtPnl(combined) : fmtPnl(s.netPnL)}
+                    </td>
+                  </>;
+                })()}
+              </tr>
+            ))}
           </tbody>
           <tfoot>
             <tr style={{ borderTop: `2px solid ${THEME.border}`, background: THEME.bg3 }}>
               <td style={{ ...cellStyle, textAlign: 'left', color: THEME.t2, fontWeight: 700, fontFamily: 'inherit' }}>
                 TOTAL
               </td>
-              <td style={{ ...cellStyle, color: THEME.t2 }}>{grandTotal.deals}</td>
               <td style={{ ...cellStyle, color: THEME.t2 }}>{grandTotal.volume.toFixed(2)}</td>
               <td style={{ ...cellStyle, color: pnlColor(grandTotal.profit) }}>{fmtPnl(grandTotal.profit)}</td>
               <td style={{ ...cellStyle, color: grandTotal.commission < 0 ? THEME.red : THEME.t2 }}>
