@@ -49,15 +49,24 @@ coverage-manager/
 └── CLAUDE.md
 ```
 
-## Supabase Tables (8)
+## Supabase Tables (11)
 1. `symbol_mappings` — B-Book ↔ LP symbol mapping + contract sizes
 2. `positions` — Open positions snapshot
-3. `deals` — Deal history (Phase 2)
-4. `exposure_snapshots` — Periodic exposure captures
-5. `pl_summary` — P&L summary (Phase 2)
-6. `hedge_executions` — Hedge audit trail (Phase 4)
-7. `economic_events` — Economic calendar (Phase 3)
-8. `risk_thresholds` — Risk limits per symbol (Phase 3)
+3. `deals` — Deal history with dedup on (source, deal_id), includes direction/fee
+4. `trading_accounts` — Mirror of all MT5 accounts (B-Book + Coverage), unique on (source, login)
+5. `trade_audit_log` — Tracks deal modifications (price, volume, profit changes) with old/new values
+6. `exposure_snapshots` — Periodic exposure captures
+7. `pl_summary` — P&L summary (Phase 2)
+8. `hedge_executions` — Hedge audit trail (Phase 4)
+9. `economic_events` — Economic calendar (Phase 3)
+10. `risk_thresholds` — Risk limits per symbol (Phase 3)
+11. `account_settings` — MT5 Manager and Coverage account credentials
+
+## Data Sync Architecture
+- **DataSyncService** (background): Syncs deals to Supabase every 30s with change detection
+- **On startup:** Loads today's deals from Supabase into in-memory DealStore (survives restarts)
+- **Change detection:** Compares incoming deals vs stored, logs modifications to `trade_audit_log`
+- **Batch upserts:** 500 records per batch for accounts and deals
 
 ## Running Locally
 

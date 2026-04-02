@@ -68,6 +68,13 @@ try
     });
     builder.Services.AddHostedService(sp => sp.GetRequiredService<MT5CoverageConnection>());
 
+    // Data sync service (persists deals to Supabase, detects modifications)
+    builder.Services.AddHostedService<DataSyncService>(sp =>
+        new DataSyncService(
+            sp.GetRequiredService<SupabaseService>(),
+            dealStore,
+            sp.GetRequiredService<ILogger<DataSyncService>>()));
+
     builder.Services.AddControllers();
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddSwaggerGen();

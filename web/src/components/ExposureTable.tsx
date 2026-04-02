@@ -1,6 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { THEME } from '../theme';
 import type { ExposureSummary, PriceQuote } from '../types';
+
+type SortField = 'custom' | 'symbol' | 'bbNet' | 'bbPnL' | 'covNet' | 'covPnL' | 'netPnL' | 'hedge' | 'toCover';
 
 interface ExposureTableProps {
   summaries: ExposureSummary[];
@@ -24,7 +26,8 @@ const c: React.CSSProperties = {
   padding: '6px 10px',
   fontFamily: 'monospace',
   fontSize: 12,
-  textAlign: 'right',
+  textAlign: 'center',
+  verticalAlign: 'middle',
   whiteSpace: 'nowrap',
 };
 
@@ -34,14 +37,48 @@ function todayStr() {
 }
 
 export function ExposureTable({ summaries, prices }: ExposureTableProps) {
-  // Build price lookup by symbol
+  // Build price lookup by symbol (exact match + strip trailing - for canonical matching)
   const priceMap: Record<string, PriceQuote> = {};
-  for (const p of prices) priceMap[p.symbol] = p;
+  for (const p of prices) {
+    priceMap[p.symbol] = p;
+    // Also index by stripped symbol (e.g. "XAUUSD-" → "XAUUSD")
+    const stripped = p.symbol.replace(/[-.]$/, '');
+    if (stripped !== p.symbol && !priceMap[stripped]) priceMap[stripped] = p;
+  }
+  // Helper: find price for a canonical symbol
+  const findPrice = (sym: string): PriceQuote | undefined => {
+    return priceMap[sym] || priceMap[sym.replace(/[-.]$/, '')];
+  };
+
+  // Track price direction (up/down/flat)
+  const prevPrices = useRef<Record<string, number>>({});
+  const priceDir = useRef<Record<string, 'up' | 'down' | 'flat'>>({});
+  for (const p of prices) {
+    const prev = prevPrices.current[p.symbol];
+    if (prev !== undefined && p.bid !== prev) {
+      priceDir.current[p.symbol] = p.bid > prev ? 'up' : 'down';
+    }
+    prevPrices.current[p.symbol] = p.bid;
+  }
+
   const [bbClosedMap, setBbClosedMap] = useState<Record<string, ClosedSymbol>>({});
   const [covClosedMap, setCovClosedMap] = useState<Record<string, ClosedSymbol>>({});
+  const [closedFrom, setClosedFrom] = useState(todayStr);
+  const [closedTo, setClosedTo] = useState(todayStr);
   const [showGrid, setShowGrid] = useState(() => {
     return localStorage.getItem('exposureGrid') !== 'false';
   });
+  const [sortField, setSortField] = useState<SortField>(() => {
+    return (localStorage.getItem('exposureSort') as SortField) || 'custom';
+  });
+  const [sortAsc, setSortAsc] = useState(() => {
+    return localStorage.getItem('exposureSortAsc') !== 'false';
+  });
+  const [customOrder, setCustomOrder] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem('exposureOrder') || '[]'); } catch { return []; }
+  });
+  const dragSymbol = useRef<string | null>(null);
+  const dragOverSymbol = useRef<string | null>(null);
 
   // Theme-dependent styles (must be inside component so they update on theme change)
   const secBorder = `2px solid ${THEME.border}`;
@@ -62,12 +99,11 @@ export function ExposureTable({ summaries, prices }: ExposureTableProps) {
   };
 
   useEffect(() => {
-    const today = todayStr();
     const fetchClosed = async () => {
       try {
         const [bbRes, covRes, mapRes] = await Promise.all([
           fetch('http://localhost:5000/api/exposure/pnl'),
-          fetch(`http://localhost:8100/deals?from=${today}&to=${today}`),
+          fetch(`http://localhost:8100/deals?from=${closedFrom}&to=${closedTo}`),
           fetch('http://localhost:5000/api/mappings'),
         ]);
 
@@ -114,7 +150,7 @@ export function ExposureTable({ summaries, prices }: ExposureTableProps) {
     fetchClosed();
     const interval = setInterval(fetchClosed, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [closedFrom, closedTo]);
 
   // Totals
   const openTotals = summaries.reduce(
@@ -138,7 +174,7 @@ export function ExposureTable({ summaries, prices }: ExposureTableProps) {
 
   const typeCell: React.CSSProperties = {
     ...c,
-    textAlign: 'left',
+    textAlign: 'center',
     fontFamily: 'inherit',
     fontSize: 12,
     fontWeight: 600,
@@ -158,6 +194,109 @@ export function ExposureTable({ summaries, prices }: ExposureTableProps) {
       localStorage.setItem('exposureGrid', String(next));
       return next;
     });
+  };
+
+  // Sort logic
+  const handleSort = (field: SortField) => {
+    if (field === sortField && field !== 'custom') {
+      const next = !sortAsc;
+      setSortAsc(next);
+      localStorage.setItem('exposureSortAsc', String(next));
+    } else {
+      setSortField(field);
+      setSortAsc(field === 'symbol');
+      localStorage.setItem('exposureSort', field);
+      localStorage.setItem('exposureSortAsc', String(field === 'symbol'));
+    }
+  };
+
+  const sortedSummaries = React.useMemo(() => {
+    const arr = [...summaries];
+    if (sortField === 'custom') {
+      if (customOrder.length === 0) return arr;
+      const orderMap = new Map(customOrder.map((s, i) => [s, i]));
+      arr.sort((a, b) => {
+        const ai = orderMap.get(a.canonicalSymbol) ?? 9999;
+        const bi = orderMap.get(b.canonicalSymbol) ?? 9999;
+        return ai - bi;
+      });
+      return arr;
+    }
+    const dir = sortAsc ? 1 : -1;
+    arr.sort((a, b) => {
+      let av = 0, bv = 0;
+      switch (sortField) {
+        case 'symbol': return dir * a.canonicalSymbol.localeCompare(b.canonicalSymbol);
+        case 'bbNet': av = a.bBookNetVolume ?? 0; bv = b.bBookNetVolume ?? 0; break;
+        case 'bbPnL': av = a.bBookPnL ?? 0; bv = b.bBookPnL ?? 0; break;
+        case 'covNet': av = a.coverageNetVolume ?? 0; bv = b.coverageNetVolume ?? 0; break;
+        case 'covPnL': av = a.coveragePnL ?? 0; bv = b.coveragePnL ?? 0; break;
+        case 'netPnL': av = a.netPnL ?? 0; bv = b.netPnL ?? 0; break;
+        case 'hedge': av = a.hedgeRatio ?? 0; bv = b.hedgeRatio ?? 0; break;
+        case 'toCover':
+          av = (a.bBookNetVolume ?? 0) - (a.coverageNetVolume ?? 0);
+          bv = (b.bBookNetVolume ?? 0) - (b.coverageNetVolume ?? 0);
+          break;
+      }
+      return dir * (av - bv);
+    });
+    return arr;
+  }, [summaries, sortField, sortAsc, customOrder]);
+
+  // Drag and drop handlers
+  const handleDragStart = useCallback((sym: string) => {
+    dragSymbol.current = sym;
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent, sym: string) => {
+    e.preventDefault();
+    dragOverSymbol.current = sym;
+  }, []);
+
+  const handleDrop = useCallback(() => {
+    const from = dragSymbol.current;
+    const to = dragOverSymbol.current;
+    if (!from || !to || from === to) return;
+
+    const currentOrder = customOrder.length > 0
+      ? [...customOrder]
+      : sortedSummaries.map(s => s.canonicalSymbol);
+
+    // Ensure both symbols exist in the order
+    if (!currentOrder.includes(from)) currentOrder.push(from);
+    if (!currentOrder.includes(to)) currentOrder.push(to);
+
+    const fromIdx = currentOrder.indexOf(from);
+    const toIdx = currentOrder.indexOf(to);
+    currentOrder.splice(fromIdx, 1);
+    currentOrder.splice(toIdx, 0, from);
+
+    setCustomOrder(currentOrder);
+    localStorage.setItem('exposureOrder', JSON.stringify(currentOrder));
+    setSortField('custom');
+    localStorage.setItem('exposureSort', 'custom');
+
+    dragSymbol.current = null;
+    dragOverSymbol.current = null;
+  }, [customOrder, sortedSummaries]);
+
+  const sortArrow = (field: SortField) => {
+    if (sortField !== field) return '';
+    return sortAsc ? ' \u25B2' : ' \u25BC';
+  };
+
+  const sortBtn: React.CSSProperties = {
+    background: 'transparent',
+    border: 'none',
+    cursor: 'pointer',
+    padding: 0,
+    font: 'inherit',
+    color: 'inherit',
+    fontWeight: 'inherit',
+    fontSize: 'inherit',
+    textTransform: 'inherit' as React.CSSProperties['textTransform'],
+    letterSpacing: 'inherit',
+    whiteSpace: 'nowrap',
   };
 
   return (
@@ -183,13 +322,87 @@ export function ExposureTable({ summaries, prices }: ExposureTableProps) {
         >
           Grid
         </button>
+        <div style={{ borderLeft: `1px solid ${THEME.border}`, height: 20, margin: '0 4px' }} />
+        <span style={{ color: THEME.t3, fontSize: 11, fontWeight: 600 }}>Sort:</span>
+        <select
+          value={sortField}
+          onChange={e => handleSort(e.target.value as SortField)}
+          style={{
+            background: THEME.bg3,
+            border: `1px solid ${THEME.border}`,
+            borderRadius: 4,
+            padding: '3px 8px',
+            fontSize: 11,
+            color: THEME.t1,
+            fontFamily: 'inherit',
+            cursor: 'pointer',
+          }}
+        >
+          <option value="custom">Custom (drag)</option>
+          <option value="symbol">Symbol</option>
+          <option value="bbNet">Client Net</option>
+          <option value="bbPnL">Client P&L</option>
+          <option value="covNet">Coverage Net</option>
+          <option value="covPnL">Coverage P&L</option>
+          <option value="toCover">To Cover</option>
+          <option value="netPnL">Net P&L</option>
+          <option value="hedge">Hedge %</option>
+        </select>
+        <button
+          onClick={() => { setSortAsc(p => { const n = !p; localStorage.setItem('exposureSortAsc', String(n)); return n; }); }}
+          style={{
+            background: 'transparent',
+            border: `1px solid ${THEME.border}`,
+            borderRadius: 4,
+            padding: '3px 8px',
+            cursor: 'pointer',
+            fontSize: 11,
+            fontWeight: 600,
+            color: THEME.t3,
+          }}
+          title={sortAsc ? 'Ascending' : 'Descending'}
+        >
+          {sortAsc ? '\u25B2' : '\u25BC'}
+        </button>
+        <div style={{ borderLeft: `1px solid ${THEME.border}`, height: 20, margin: '0 4px' }} />
+        <span style={{ color: THEME.t3, fontSize: 11, fontWeight: 600 }}>Closed:</span>
+        <input
+          type="date"
+          value={closedFrom}
+          onChange={e => setClosedFrom(e.target.value)}
+          style={{
+            background: THEME.bg3,
+            border: `1px solid ${THEME.border}`,
+            borderRadius: 4,
+            padding: '3px 8px',
+            fontSize: 11,
+            color: THEME.t1,
+            fontFamily: 'inherit',
+          }}
+        />
+        <span style={{ color: THEME.t3, fontSize: 11 }}>to</span>
+        <input
+          type="date"
+          value={closedTo}
+          onChange={e => setClosedTo(e.target.value)}
+          style={{
+            background: THEME.bg3,
+            border: `1px solid ${THEME.border}`,
+            borderRadius: 4,
+            padding: '3px 8px',
+            fontSize: 11,
+            color: THEME.t1,
+            fontFamily: 'inherit',
+          }}
+        />
       </div>
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
           {/* Group headers */}
           <tr>
-            <th style={{ ...hdr, width: 80, textAlign: 'left', borderBottom: 'none', top: 0, zIndex: 2 }} rowSpan={2}></th>
+            <th style={{ ...hdr, width: 80, borderBottom: 'none', top: 0, zIndex: 2 }} rowSpan={2}></th>
             <th style={{ ...hdr, width: 50, borderBottom: 'none', top: 0, zIndex: 2 }} rowSpan={2}></th>
+
             <th style={{ ...hdr, textAlign: 'center', color: THEME.blue, borderLeft: secBorder, borderBottom: 'none', fontSize: 11, fontWeight: 700, letterSpacing: 1, top: 0, zIndex: 2 }} colSpan={4}>Clients</th>
             <th style={{ ...hdr, textAlign: 'center', color: THEME.teal, borderLeft: secBorder, borderBottom: 'none', fontSize: 11, fontWeight: 700, letterSpacing: 1, top: 0, zIndex: 2 }} colSpan={4}>Coverage</th>
             <th style={{ ...hdr, textAlign: 'center', color: THEME.t2, borderLeft: secBorder, borderBottom: 'none', fontSize: 11, fontWeight: 700, letterSpacing: 1, top: 0, zIndex: 2 }} colSpan={3}>Summary</th>
@@ -210,7 +423,7 @@ export function ExposureTable({ summaries, prices }: ExposureTableProps) {
           </tr>
         </thead>
         <tbody>
-          {summaries.map((s) => {
+          {sortedSummaries.map((s) => {
             const hr = s.hedgeRatio ?? 0;
             const bb = bbClosedMap[s.canonicalSymbol];
             const cv = covClosedMap[s.canonicalSymbol];
@@ -218,23 +431,31 @@ export function ExposureTable({ summaries, prices }: ExposureTableProps) {
             return (
               <React.Fragment key={s.canonicalSymbol}>
                 {/* OPEN row */}
-                <tr style={{ borderTop: gridBorder }}>
+                <tr
+                  style={{ borderTop: gridBorder }}
+                  draggable
+                  onDragStart={() => handleDragStart(s.canonicalSymbol)}
+                  onDragOver={(e) => handleDragOver(e, s.canonicalSymbol)}
+                  onDrop={handleDrop}
+                >
                   <td rowSpan={2} style={{
-                    ...c, ...gc, textAlign: 'left', color: THEME.t1, fontWeight: 700, fontFamily: 'inherit',
-                    verticalAlign: 'middle', borderLeft: 'none',
+                    ...c, ...gc, color: THEME.t1, fontWeight: 700, fontFamily: 'inherit',
+                    borderLeft: 'none', cursor: sortField === 'custom' ? 'grab' : 'default',
                   }}>
                     {s.canonicalSymbol}
                     {(() => {
-                      const price = priceMap[s.canonicalSymbol];
+                      const price = findPrice(s.canonicalSymbol);
                       if (!price) return null;
+                      const dir = priceDir.current[price.symbol] || 'flat';
+                      const dirColor = dir === 'up' ? THEME.green : dir === 'down' ? THEME.red : THEME.t3;
                       return (
-                        <div style={{ fontSize: 11, fontWeight: 400, fontFamily: 'monospace', color: THEME.t3, marginTop: 2 }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, fontFamily: 'monospace', color: dirColor, marginTop: 2 }}>
                           {price.bid}
                         </div>
                       );
                     })()}
                   </td>
-                  <td style={{ ...typeCell, ...gc, color: THEME.blue }}>open</td>
+                  <td style={{ ...typeCell, ...gc, color: THEME.blue }}>O</td>
                   <td style={{ ...c, ...gc, color: THEME.green, borderLeft: gridSecBorder }}>{fmt(s.bBookBuyVolume)}</td>
                   <td style={{ ...c, ...gc, color: THEME.red }}>{fmt(s.bBookSellVolume)}</td>
                   <td style={{ ...c, ...gc, color: pc(s.bBookNetVolume), fontWeight: 600 }}>{fmt(s.bBookNetVolume)}</td>
@@ -248,8 +469,12 @@ export function ExposureTable({ summaries, prices }: ExposureTableProps) {
                   <td style={{ ...c, ...gc, color: hedgeColor(hr), fontWeight: 600 }}>{hr.toFixed(0)}%</td>
                 </tr>
                 {/* CLOSED row — always shown for consistent row height */}
-                <tr style={{ background: 'rgba(255,255,255,0.015)', borderBottom: gridBorder }}>
-                    <td style={{ ...typeCell, ...gc, color: THEME.t3 }}>closed</td>
+                <tr
+                  style={{ background: 'rgba(255,255,255,0.015)', borderBottom: gridBorder }}
+                  onDragOver={(e) => handleDragOver(e, s.canonicalSymbol)}
+                  onDrop={handleDrop}
+                >
+                    <td style={{ ...typeCell, ...gc, color: THEME.t3 }}>C</td>
                     {/* Clients closed */}
                     <td style={{ ...c, ...gc, color: THEME.green, borderLeft: gridSecBorder }}>{bb ? fmt(bb.buyVolume) : ''}</td>
                     <td style={{ ...c, ...gc, color: THEME.red }}>{bb ? fmt(bb.sellVolume) : ''}</td>
@@ -276,26 +501,10 @@ export function ExposureTable({ summaries, prices }: ExposureTableProps) {
           })}
         </tbody>
         <tfoot>
-          {/* Closed totals */}
-          <tr style={{ background: 'rgba(255,255,255,0.02)', borderTop: `2px solid ${THEME.border}` }}>
-            <td style={{ ...c, ...gc, textAlign: 'left', fontFamily: 'inherit', color: THEME.t3, fontWeight: 600, borderLeft: 'none' }}>TOTAL</td>
-            <td style={{ ...typeCell, ...gc, color: THEME.t3 }}>closed</td>
-            <td style={{ ...c, ...gc, borderLeft: gridSecBorder }}></td>
-            <td style={{ ...c, ...gc }}></td>
-            <td style={{ ...c, ...gc }}></td>
-            <td style={{ ...c, ...gc, color: pc(closedBBPnL), fontWeight: 600 }}>{fp(closedBBPnL)}</td>
-            <td style={{ ...c, ...gc, borderLeft: gridSecBorder }}></td>
-            <td style={{ ...c, ...gc }}></td>
-            <td style={{ ...c, ...gc }}></td>
-            <td style={{ ...c, ...gc, color: pc(closedCovPnL), fontWeight: 600 }}>{fp(closedCovPnL)}</td>
-            <td style={{ ...c, ...gc, borderLeft: gridSecBorder }}></td>
-            <td style={{ ...c, ...gc }}></td>
-            <td style={{ ...c, ...gc, color: pc(closedBBPnL + closedCovPnL), fontWeight: 700 }}>{fp(closedBBPnL + closedCovPnL)}</td>
-          </tr>
           {/* Open totals */}
-          <tr style={{ background: THEME.bg3 }}>
-            <td style={{ ...c, ...gc, textAlign: 'left', fontFamily: 'inherit', color: THEME.t2, fontWeight: 600, borderLeft: 'none' }}>TOTAL</td>
-            <td style={{ ...typeCell, ...gc, color: THEME.blue }}>open</td>
+          <tr style={{ background: THEME.bg3, borderTop: `2px solid ${THEME.border}` }}>
+            <td style={{ ...c, ...gc, fontFamily: 'inherit', color: THEME.t2, fontWeight: 600, borderLeft: 'none' }}>TOTAL</td>
+            <td style={{ ...typeCell, ...gc, color: THEME.blue }}>O</td>
             <td style={{ ...c, ...gc, color: THEME.green, borderLeft: gridSecBorder }}>{fmt(openTotals.bbBuy)}</td>
             <td style={{ ...c, ...gc, color: THEME.red }}>{fmt(openTotals.bbSell)}</td>
             <td style={{ ...c, ...gc, color: pc(openTotals.bbNet), fontWeight: 600 }}>{fmt(openTotals.bbNet)}</td>
@@ -307,6 +516,22 @@ export function ExposureTable({ summaries, prices }: ExposureTableProps) {
             <td style={{ ...c, ...gc, borderLeft: gridSecBorder, color: toCoverColor(toCoverValue(openTotals.bbNet, openTotals.covNet)), fontWeight: 600 }}>{fmtToCover(toCoverValue(openTotals.bbNet, openTotals.covNet))}</td>
             <td style={{ ...c, ...gc, color: pc(openTotals.netPnL), fontWeight: 700 }}>{fp(openTotals.netPnL)}</td>
             <td style={{ ...c, ...gc }} />
+          </tr>
+          {/* Closed totals */}
+          <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
+            <td style={{ ...c, ...gc, fontFamily: 'inherit', color: THEME.t3, fontWeight: 600, borderLeft: 'none' }}>TOTAL</td>
+            <td style={{ ...typeCell, ...gc, color: THEME.t3 }}>C</td>
+            <td style={{ ...c, ...gc, borderLeft: gridSecBorder }}></td>
+            <td style={{ ...c, ...gc }}></td>
+            <td style={{ ...c, ...gc }}></td>
+            <td style={{ ...c, ...gc, color: pc(closedBBPnL), fontWeight: 600 }}>{fp(closedBBPnL)}</td>
+            <td style={{ ...c, ...gc, borderLeft: gridSecBorder }}></td>
+            <td style={{ ...c, ...gc }}></td>
+            <td style={{ ...c, ...gc }}></td>
+            <td style={{ ...c, ...gc, color: pc(closedCovPnL), fontWeight: 600 }}>{fp(closedCovPnL)}</td>
+            <td style={{ ...c, ...gc, borderLeft: gridSecBorder }}></td>
+            <td style={{ ...c, ...gc }}></td>
+            <td style={{ ...c, ...gc, color: pc(closedBBPnL + closedCovPnL), fontWeight: 700 }}>{fp(closedBBPnL + closedCovPnL)}</td>
           </tr>
         </tfoot>
       </table>
