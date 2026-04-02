@@ -50,7 +50,8 @@ try
             priceCache,
             dealStore,
             async () => await supabase.GetAccountSettingsAsync(),
-            () => broadcast.MarkDirty());
+            () => broadcast.MarkDirty(),
+            async accounts => await supabase.UpsertTradingAccountsAsync(accounts));
     });
     builder.Services.AddHostedService(sp => sp.GetRequiredService<MT5ManagerConnection>());
 

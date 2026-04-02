@@ -51,3 +51,25 @@ public sealed record RawTick
     public required double Ask { get; init; }
     public required long TimeMsc { get; init; }
 }
+
+/// <summary>
+/// Raw account data from MT5 UserGet.
+/// Captures key fields for syncing to Supabase trading_accounts table.
+/// </summary>
+public sealed record RawAccount
+{
+    public required ulong Login { get; init; }
+    public required string Name { get; init; }
+    public required string Group { get; init; }
+    public required uint Leverage { get; init; }
+    public required double Balance { get; init; }
+    public required double Equity { get; init; }
+    public required double Margin { get; init; }
+    public required double FreeMargin { get; init; }
+    public required string Currency { get; init; }
+    public required long RegistrationTime { get; init; }
+    public required long LastTradeTime { get; init; }
+    public required string Comment { get; init; }
+    public required double BalancePrevDay { get; init; }
+    public required double EquityPrevDay { get; init; }
+}

@@ -259,6 +259,62 @@ public sealed class MT5ApiReal : IMT5Api
         catch { return null; }
     }
 
+    public RawAccount? GetUserAccount(ulong login)
+    {
+        if (_manager == null) return null;
+        try
+        {
+            // Get user info (name, group, leverage, balance, etc.)
+            var user = _manager.UserCreate();
+            if (user == null) return null;
+
+            var res = _manager.UserGet(login, user);
+            if (res != MTRetCode.MT_RET_OK)
+            {
+                user.Dispose();
+                return null;
+            }
+
+            // Get live account data (equity, margin, free margin)
+            double equity = 0, margin = 0, freeMargin = 0;
+            var acct = _manager.UserCreateAccount();
+            if (acct != null)
+            {
+                var acctRes = _manager.UserAccountGet(login, acct);
+                if (acctRes == MTRetCode.MT_RET_OK)
+                {
+                    equity = acct.Equity();
+                    margin = acct.Margin();
+                    freeMargin = acct.MarginFree();
+                }
+                acct.Dispose();
+            }
+
+            // Currency comes from group settings — default to USD
+            string currency = "USD";
+
+            var account = new RawAccount
+            {
+                Login = user.Login(),
+                Name = user.Name(),
+                Group = user.Group(),
+                Leverage = user.Leverage(),
+                Balance = user.Balance(),
+                Equity = equity,
+                Margin = margin,
+                FreeMargin = freeMargin,
+                Currency = currency,
+                RegistrationTime = (long)user.Registration(),
+                LastTradeTime = (long)user.LastAccess(),
+                Comment = user.Comment()
+            };
+
+            user.Dispose();
+            return account;
+        }
+        catch { return null; }
+    }
+
     internal void FireTick(RawTick tick) => OnTick?.Invoke(tick);
     internal void FireDealAdd(RawDeal deal) => OnDealAdd?.Invoke(deal);
 

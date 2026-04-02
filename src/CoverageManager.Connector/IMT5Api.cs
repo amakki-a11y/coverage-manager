@@ -31,4 +31,7 @@ public interface IMT5Api : IDisposable
 
     // Price queries
     RawTick? GetTickLast(string symbol);
+
+    // Account queries
+    RawAccount? GetUserAccount(ulong login);
 }

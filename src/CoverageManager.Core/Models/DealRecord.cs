@@ -9,6 +9,7 @@ namespace CoverageManager.Core.Models;
 public class DealRecord
 {
     [JsonPropertyName("id")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public Guid? Id { get; set; }
 
     [JsonPropertyName("source")]
@@ -60,5 +61,6 @@ public class DealRecord
     public DateTime DealTime { get; set; }
 
     [JsonPropertyName("created_at")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public DateTime? CreatedAt { get; set; }
 }

@@ -14,6 +14,7 @@ public class ExposureBroadcastService : IDisposable
 {
     private readonly ExposureEngine _exposureEngine;
     private readonly PriceCache _priceCache;
+    private readonly DealStore _dealStore;
     private readonly ConcurrentDictionary<string, WebSocket> _clients = new();
     private readonly ILogger<ExposureBroadcastService> _logger;
     private readonly Timer _broadcastTimer;
@@ -28,11 +29,13 @@ public class ExposureBroadcastService : IDisposable
     public ExposureBroadcastService(
         ExposureEngine exposureEngine,
         PriceCache priceCache,
+        DealStore dealStore,
         IConfiguration config,
         ILogger<ExposureBroadcastService> logger)
     {
         _exposureEngine = exposureEngine;
         _priceCache = priceCache;
+        _dealStore = dealStore;
         _logger = logger;
         _maxUpdatesPerSecond = config.GetValue("WebSocket:MaxUpdatesPerSecond", 10);
 
@@ -64,6 +67,7 @@ public class ExposureBroadcastService : IDisposable
         {
             var exposure = _exposureEngine.CalculateExposure();
             var prices = _priceCache.GetAll();
+            var pnl = _dealStore.GetPnLBySymbol();
 
             var message = new
             {
@@ -72,6 +76,8 @@ public class ExposureBroadcastService : IDisposable
                 {
                     exposure,
                     prices,
+                    pnl,
+                    totalDeals = _dealStore.DealCount,
                     timestamp = DateTime.UtcNow
                 }
             };

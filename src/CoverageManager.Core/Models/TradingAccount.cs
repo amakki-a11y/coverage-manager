@@ -9,6 +9,7 @@ namespace CoverageManager.Core.Models;
 public class TradingAccount
 {
     [JsonPropertyName("id")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public Guid? Id { get; set; }
 
     [JsonPropertyName("source")]
@@ -42,9 +43,11 @@ public class TradingAccount
     public string Currency { get; set; } = "USD";
 
     [JsonPropertyName("registration_time")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public DateTime? RegistrationTime { get; set; }
 
     [JsonPropertyName("last_trade_time")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public DateTime? LastTradeTime { get; set; }
 
     [JsonPropertyName("status")]
@@ -57,6 +60,7 @@ public class TradingAccount
     public DateTime SyncedAt { get; set; } = DateTime.UtcNow;
 
     [JsonPropertyName("created_at")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public DateTime? CreatedAt { get; set; }
 
     [JsonPropertyName("updated_at")]

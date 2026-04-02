@@ -41,25 +41,36 @@ public class DealStore
 
     /// <summary>
     /// Get realized P&L summary grouped by symbol.
-    /// Only includes deals with Entry=OUT (1) — actual closes that carry P&L.
+    /// Volume includes ALL deals (IN + OUT) to match MT5 Manager totals.
+    /// P&L only from OUT deals (only closing deals carry profit/loss).
     /// </summary>
-    public IReadOnlyList<SymbolPnL> GetPnLBySymbol()
+    public IReadOnlyList<SymbolPnL> GetPnLBySymbol(DateTime? from = null, DateTime? to = null)
     {
-        return _deals.Values
-            .Where(d => d.Entry == 1 || d.Entry == 2 || d.Entry == 3) // OUT, INOUT, OUT_BY
+        var allDeals = _deals.Values
             .Where(d => !string.IsNullOrEmpty(d.Symbol))
+            .Where(d => from == null || d.Time >= from.Value)
+            .Where(d => to == null || d.Time < to.Value.AddDays(1))
+            .ToList();
+
+        return allDeals
             .GroupBy(d => d.Symbol)
-            .Select(g => new SymbolPnL
+            .Select(g =>
             {
-                Symbol = g.Key,
-                DealCount = g.Count(),
-                TotalProfit = g.Sum(d => d.Profit),
-                TotalCommission = g.Sum(d => d.Commission),
-                TotalSwap = g.Sum(d => d.Swap),
-                TotalFee = g.Sum(d => d.Fee),
-                TotalVolume = g.Sum(d => d.VolumeLots),
-                BuyVolume = g.Where(d => d.Direction == "BUY").Sum(d => d.VolumeLots),
-                SellVolume = g.Where(d => d.Direction == "SELL").Sum(d => d.VolumeLots)
+                var outDeals = g.Where(d => d.Entry == 1 || d.Entry == 2 || d.Entry == 3).ToList();
+                return new SymbolPnL
+                {
+                    Symbol = g.Key,
+                    DealCount = g.Count(),
+                    // P&L only from OUT deals (closes carry profit)
+                    TotalProfit = outDeals.Sum(d => d.Profit),
+                    TotalCommission = g.Sum(d => d.Commission), // Commission on both IN + OUT
+                    TotalSwap = outDeals.Sum(d => d.Swap),
+                    TotalFee = g.Sum(d => d.Fee), // Fee on both IN + OUT
+                    // Volume from ALL deals (IN + OUT) — matches MT5 Manager
+                    TotalVolume = g.Sum(d => d.VolumeLots),
+                    BuyVolume = g.Where(d => d.Direction == "BUY").Sum(d => d.VolumeLots),
+                    SellVolume = g.Where(d => d.Direction == "SELL").Sum(d => d.VolumeLots)
+                };
             })
             .OrderByDescending(p => Math.Abs(p.NetPnL))
             .ToList()
@@ -72,7 +83,6 @@ public class DealStore
     public IReadOnlyList<DailyPnL> GetPnLByDay()
     {
         return _deals.Values
-            .Where(d => d.Entry == 1 || d.Entry == 2 || d.Entry == 3)
             .Where(d => !string.IsNullOrEmpty(d.Symbol))
             .GroupBy(d => d.Time.Date)
             .OrderByDescending(g => g.Key)
@@ -80,23 +90,27 @@ public class DealStore
             {
                 Date = dayGroup.Key,
                 DealCount = dayGroup.Count(),
-                TotalProfit = dayGroup.Sum(d => d.Profit),
+                TotalProfit = dayGroup.Where(d => d.Entry == 1 || d.Entry == 2 || d.Entry == 3).Sum(d => d.Profit),
                 TotalCommission = dayGroup.Sum(d => d.Commission),
-                TotalSwap = dayGroup.Sum(d => d.Swap),
+                TotalSwap = dayGroup.Where(d => d.Entry == 1 || d.Entry == 2 || d.Entry == 3).Sum(d => d.Swap),
                 TotalFee = dayGroup.Sum(d => d.Fee),
                 Symbols = dayGroup
                     .GroupBy(d => d.Symbol)
-                    .Select(sg => new SymbolPnL
+                    .Select(sg =>
                     {
-                        Symbol = sg.Key,
-                        DealCount = sg.Count(),
-                        TotalProfit = sg.Sum(d => d.Profit),
-                        TotalCommission = sg.Sum(d => d.Commission),
-                        TotalSwap = sg.Sum(d => d.Swap),
-                        TotalFee = sg.Sum(d => d.Fee),
-                        TotalVolume = sg.Sum(d => d.VolumeLots),
-                        BuyVolume = sg.Where(d => d.Direction == "BUY").Sum(d => d.VolumeLots),
-                        SellVolume = sg.Where(d => d.Direction == "SELL").Sum(d => d.VolumeLots)
+                        var outDeals = sg.Where(d => d.Entry == 1 || d.Entry == 2 || d.Entry == 3).ToList();
+                        return new SymbolPnL
+                        {
+                            Symbol = sg.Key,
+                            DealCount = sg.Count(),
+                            TotalProfit = outDeals.Sum(d => d.Profit),
+                            TotalCommission = sg.Sum(d => d.Commission),
+                            TotalSwap = outDeals.Sum(d => d.Swap),
+                            TotalFee = sg.Sum(d => d.Fee),
+                            TotalVolume = sg.Sum(d => d.VolumeLots),
+                            BuyVolume = sg.Where(d => d.Direction == "BUY").Sum(d => d.VolumeLots),
+                            SellVolume = sg.Where(d => d.Direction == "SELL").Sum(d => d.VolumeLots)
+                        };
                     })
                     .OrderByDescending(p => Math.Abs(p.NetPnL))
                     .ToList()

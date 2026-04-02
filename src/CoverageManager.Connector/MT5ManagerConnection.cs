@@ -18,14 +18,17 @@ public sealed class MT5ManagerConnection : BackgroundService
     private readonly DealStore _dealStore;
     private readonly Func<Task<List<AccountSettings>>> _getAccounts;
     private readonly Action _onUpdate;
+    private readonly Func<IEnumerable<TradingAccount>, Task>? _syncAccounts;
 
     private IMT5Api? _api;
     private ulong[] _logins = [];
     private long _tickCount;
+    private DateTime _lastAccountSync = DateTime.MinValue;
 
     private const int InitialBackoffMs = 1000;
     private const int MaxBackoffMs = 60000;
     private const int PositionSnapshotIntervalMs = 500;
+    private const int AccountSyncIntervalMinutes = 5;
 
     public bool IsConnected => _api?.IsConnected ?? false;
     public string? ConnectedServer { get; private set; }
@@ -38,7 +41,8 @@ public sealed class MT5ManagerConnection : BackgroundService
         PriceCache priceCache,
         DealStore dealStore,
         Func<Task<List<AccountSettings>>> getAccounts,
-        Action onUpdate)
+        Action onUpdate,
+        Func<IEnumerable<TradingAccount>, Task>? syncAccounts = null)
     {
         _logger = logger;
         _positionManager = positionManager;
@@ -46,6 +50,7 @@ public sealed class MT5ManagerConnection : BackgroundService
         _dealStore = dealStore;
         _getAccounts = getAccounts;
         _onUpdate = onUpdate;
+        _syncAccounts = syncAccounts;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -131,12 +136,32 @@ public sealed class MT5ManagerConnection : BackgroundService
                 // Backfill today's closed deals
                 BackfillDeals(logins, new DateTimeOffset(DateTime.UtcNow.Date, TimeSpan.Zero), DateTimeOffset.UtcNow);
 
+                // Initial account sync to Supabase
+                await SyncAccountsToSupabaseAsync(logins, "bbook");
+
                 backoffMs = InitialBackoffMs;
 
                 // Position snapshot loop
                 while (!stoppingToken.IsCancellationRequested && _api.IsConnected)
                 {
                     SnapshotPositions(logins);
+
+                    // Periodic account re-sync + refresh login list for new accounts
+                    if ((DateTime.UtcNow - _lastAccountSync).TotalMinutes >= AccountSyncIntervalMinutes)
+                    {
+                        var freshLogins = _api.GetUserLogins(managerAccount.GroupMask);
+                        if (freshLogins.Length > 0 && freshLogins.Length != logins.Length)
+                        {
+                            _logger.LogInformation("Login list updated: {Old} → {New} logins",
+                                logins.Length, freshLogins.Length);
+                            logins = freshLogins;
+                            _logins = logins;
+                            LoginCount = logins.Length;
+                        }
+
+                        await SyncAccountsToSupabaseAsync(logins, "bbook");
+                    }
+
                     await Task.Delay(PositionSnapshotIntervalMs, stoppingToken);
                 }
 
@@ -169,6 +194,57 @@ public sealed class MT5ManagerConnection : BackgroundService
         }
 
         _logger.LogInformation("MT5 Manager connection service stopped");
+    }
+
+    private async Task SyncAccountsToSupabaseAsync(ulong[] logins, string source)
+    {
+        if (_api == null || !_api.IsConnected || _syncAccounts == null) return;
+
+        try
+        {
+            var accounts = new List<TradingAccount>();
+
+            foreach (var login in logins)
+            {
+                var raw = _api.GetUserAccount(login);
+                if (raw == null) continue;
+
+                accounts.Add(new TradingAccount
+                {
+                    Source = source,
+                    Login = (long)raw.Login,
+                    Name = raw.Name,
+                    GroupName = raw.Group,
+                    Leverage = (int)raw.Leverage,
+                    Balance = (decimal)raw.Balance,
+                    Equity = (decimal)raw.Equity,
+                    Margin = (decimal)raw.Margin,
+                    FreeMargin = (decimal)raw.FreeMargin,
+                    Currency = raw.Currency,
+                    RegistrationTime = raw.RegistrationTime > 0
+                        ? DateTimeOffset.FromUnixTimeSeconds(raw.RegistrationTime).UtcDateTime
+                        : null,
+                    LastTradeTime = raw.LastTradeTime > 0
+                        ? DateTimeOffset.FromUnixTimeSeconds(raw.LastTradeTime).UtcDateTime
+                        : null,
+                    Comment = raw.Comment,
+                    SyncedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                });
+            }
+
+            if (accounts.Count > 0)
+            {
+                await _syncAccounts(accounts);
+                _logger.LogInformation("Synced {Count} {Source} trading accounts to Supabase", accounts.Count, source);
+            }
+
+            _lastAccountSync = DateTime.UtcNow;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to sync accounts to Supabase");
+        }
     }
 
     private void SnapshotPositions(ulong[] logins)
@@ -230,8 +306,12 @@ public sealed class MT5ManagerConnection : BackgroundService
 
     private void OnDealReceived(RawDeal raw)
     {
+        // Skip balance/credit deals (Action=2) — not real trades
+        if (raw.Action >= 2) return;
+
         var deal = ConvertDeal(raw);
         _dealStore.AddDeal(deal);
+        _onUpdate(); // Trigger WebSocket push so closed row updates in real-time
         _logger.LogDebug("Deal received: #{DealId} {Symbol} {Entry} P&L={Profit}",
             raw.DealId, raw.Symbol, raw.Entry, raw.Profit);
     }
@@ -260,6 +340,9 @@ public sealed class MT5ManagerConnection : BackgroundService
                 var deals = _api.RequestDeals(login, from, to);
                 foreach (var raw in deals)
                 {
+                    // Skip balance/credit deals (Action=2) — not real trades
+                    if (raw.Action >= 2) continue;
+
                     _dealStore.AddDeal(ConvertDeal(raw));
                     totalDeals++;
                 }
@@ -285,12 +368,18 @@ public sealed class MT5ManagerConnection : BackgroundService
 
     private static ClosedDeal ConvertDeal(RawDeal raw)
     {
+        // For IN deals (Entry=0): Action directly maps to direction (BUY/SELL)
+        // For OUT deals (Entry=1,3): Action is the CLOSING side, so we keep it as-is
+        //   because the deal's Action represents what happened (bought to close / sold to close)
+        //   MT5 Manager shows the deal action, not the original position direction
+        var direction = raw.Action == 0 ? "BUY" : "SELL";
+
         return new ClosedDeal
         {
             DealId = raw.DealId,
             Login = raw.Login,
             Symbol = raw.Symbol,
-            Direction = raw.Action == 0 ? "BUY" : "SELL",
+            Direction = direction,
             VolumeLots = (decimal)raw.VolumeLots,
             Price = (decimal)raw.Price,
             Profit = (decimal)raw.Profit,

@@ -102,7 +102,7 @@ export function ExposureTable({ summaries, prices }: ExposureTableProps) {
     const fetchClosed = async () => {
       try {
         const [bbRes, covRes, mapRes] = await Promise.all([
-          fetch('http://localhost:5000/api/exposure/pnl'),
+          fetch(`http://localhost:5000/api/exposure/pnl?from=${closedFrom}&to=${closedTo}`),
           fetch(`http://localhost:8100/deals?from=${closedFrom}&to=${closedTo}`),
           fetch('http://localhost:5000/api/mappings'),
         ]);
@@ -112,8 +112,12 @@ export function ExposureTable({ summaries, prices }: ExposureTableProps) {
         if (bbRes.ok) {
           const bb = await bbRes.json();
           for (const s of (bb.symbols ?? []) as ClosedSymbol[]) {
+            // Store with both raw key and canonical key (strip trailing - or .)
+            const canonical = s.symbol.replace(/[-.]$/, '');
             bbMap[s.symbol] = s;
+            bbMap[canonical] = s;
             bbSymbols.push(s.symbol);
+            bbSymbols.push(canonical);
           }
         }
         setBbClosedMap(bbMap);

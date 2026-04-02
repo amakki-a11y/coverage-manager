@@ -198,7 +198,7 @@ public class SupabaseService
             {
                 var json = JsonSerializer.Serialize(chunk, JsonOptions);
                 var content = new StringContent(json, Encoding.UTF8, "application/json");
-                var request = new HttpRequestMessage(HttpMethod.Post, $"{_url}/rest/v1/trading_accounts")
+                var request = new HttpRequestMessage(HttpMethod.Post, $"{_url}/rest/v1/trading_accounts?on_conflict=source,login")
                 {
                     Content = content
                 };
@@ -227,11 +227,30 @@ public class SupabaseService
         {
             var fromStr = from.ToString("yyyy-MM-ddTHH:mm:ss");
             var toStr = to.ToString("yyyy-MM-ddTHH:mm:ss");
-            var response = await _http.GetAsync(
-                $"{_url}/rest/v1/deals?source=eq.{source}&deal_time=gte.{fromStr}&deal_time=lte.{toStr}&select=*&order=deal_time");
-            response.EnsureSuccessStatusCode();
-            var json = await response.Content.ReadAsStringAsync();
-            return JsonSerializer.Deserialize<List<DealRecord>>(json, JsonOptions) ?? [];
+            var allDeals = new List<DealRecord>();
+            var pageSize = 1000; // Supabase default max-rows is 1000
+            var offset = 0;
+
+            while (true)
+            {
+                var request = new HttpRequestMessage(HttpMethod.Get,
+                    $"{_url}/rest/v1/deals?source=eq.{source}&deal_time=gte.{fromStr}&deal_time=lte.{toStr}&select=*&order=deal_time&limit={pageSize}&offset={offset}");
+                request.Headers.Add("Prefer", "count=exact");
+
+                var response = await _http.SendAsync(request);
+                response.EnsureSuccessStatusCode();
+                var json = await response.Content.ReadAsStringAsync();
+                var page = JsonSerializer.Deserialize<List<DealRecord>>(json, JsonOptions) ?? [];
+
+                allDeals.AddRange(page);
+
+                if (page.Count < pageSize) break; // Last page
+                offset += pageSize;
+            }
+
+            _logger.LogInformation("Fetched {Count} deals from Supabase for {Source} ({From} to {To})",
+                allDeals.Count, source, fromStr, toStr);
+            return allDeals;
         }
         catch (Exception ex)
         {
@@ -252,7 +271,7 @@ public class SupabaseService
             {
                 var json = JsonSerializer.Serialize(chunk, JsonOptions);
                 var content = new StringContent(json, Encoding.UTF8, "application/json");
-                var request = new HttpRequestMessage(HttpMethod.Post, $"{_url}/rest/v1/deals")
+                var request = new HttpRequestMessage(HttpMethod.Post, $"{_url}/rest/v1/deals?on_conflict=source,deal_id")
                 {
                     Content = content
                 };
