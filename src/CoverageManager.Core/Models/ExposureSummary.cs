@@ -26,7 +26,7 @@ public class ExposureSummary
 
     // Hedge ratio: how much of B-Book is covered by LP
     public decimal HedgeRatio => BBookNetVolume == 0 ? 100
-        : Math.Min(100, Math.Abs(CoverageNetVolume / BBookNetVolume) * 100);
+        : Math.Abs(CoverageNetVolume / BBookNetVolume) * 100;
 
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }

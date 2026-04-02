@@ -306,7 +306,9 @@ public sealed class MT5ApiReal : IMT5Api
                 Currency = currency,
                 RegistrationTime = (long)user.Registration(),
                 LastTradeTime = (long)user.LastAccess(),
-                Comment = user.Comment()
+                Comment = user.Comment(),
+                BalancePrevDay = 0,
+                EquityPrevDay = 0
             };
 
             user.Dispose();

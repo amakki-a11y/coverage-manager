@@ -33,7 +33,7 @@ https://github.com/amakki-a11y/coverage-manager
 coverage-manager/
 ├── src/
 │   ├── CoverageManager.Core/           # Domain models + engines
-│   │   ├── Models/                     # Position, SymbolMapping, ExposureSummary, SymbolPnL, ClosedDeal, TradingAccount, DealRecord, TradeAuditEntry
+│   │   ├── Models/                     # Position, SymbolMapping, ExposureSummary, SymbolPnL, ClosedDeal, TradingAccount, DealRecord, TradeAuditEntry, PriceQuote, SymbolExposure, TradeRecord
 │   │   └── Engines/                    # PositionManager, ExposureEngine, PriceCache, DealStore
 │   ├── CoverageManager.Connector/      # MT5 Manager API connection
 │   │   ├── IMT5Api.cs                  # Interface (Initialize, Connect, OnTick, OnDealAdd, GetPositions, GetUserLogins, GetUserAccount, RequestDeals)
@@ -43,13 +43,45 @@ coverage-manager/
 │   │   ├── RawTypes.cs                 # RawDeal, RawPosition, RawTick, RawAccount
 │   │   └── Libs/                       # MetaQuotes native DLLs
 │   ├── CoverageManager.Api/            # ASP.NET Core host
-│   │   ├── Controllers/                # Coverage, Exposure, SymbolMapping, Accounts
+│   │   ├── Controllers/                # Coverage, Exposure, Compare, SymbolMapping, Accounts, Settings
 │   │   └── Services/                   # SupabaseService, ExposureBroadcastService, DataSyncService
 │   └── CoverageManager.Tests/          # MSTest unit tests (27 tests)
+│       ├── ExposureEngineTests.cs
+│       ├── PositionManagerTests.cs
+│       ├── PriceCacheTests.cs
+│       ├── SymbolMappingTests.cs
+│       └── UnitTest1.cs
 ├── collector/                           # Python FastAPI collector (MT5 Terminal connection)
 │   └── main.py                         # FastAPI app with /positions, /deals, /health endpoints
 ├── web/                                 # React + TypeScript + Vite dashboard
-│   └── src/components/                 # ExposureTable, PnLPanel, PositionsTable, etc.
+│   └── src/
+│       ├── ThemeContext.tsx             # Dark/Light theme context provider
+│       ├── theme.ts                    # Theme definitions
+│       ├── types/index.ts              # Shared TypeScript types
+│       ├── types/compare.ts            # SymbolExposure, TradeRecord types for Compare tab
+│       ├── hooks/useExposureSocket.ts  # WebSocket hook for real-time exposure data
+│       ├── hooks/usePositionsCompare.ts # Polling hook for Compare tab (500ms exposure, 5s trades)
+│       ├── components/
+│       │   ├── ExposureTable.tsx        # Main exposure grid (open + closed rows, date picker, sort, drag)
+│       │   ├── PnLPanel.tsx            # P&L summary panel
+│       │   ├── PositionsGrid.tsx       # Raw positions view (with open time column)
+│       │   ├── TotalBar.tsx            # Footer totals bar (locale-formatted numbers)
+│       │   ├── SettingsPanel.tsx       # Account settings UI
+│       │   └── SymbolMappingAdmin.tsx  # Symbol mapping management
+│       └── pages/
+│           └── PositionsCompare/        # Compare tab — side-by-side client vs coverage analysis
+│               ├── index.tsx            # Tab entry, layout shell (left panel + right panel)
+│               ├── LeftPanel/
+│               │   ├── index.tsx        # Compact list + expand/collapse + resizable drag handle
+│               │   ├── SymbolRow.tsx    # Single row: symbol, hedge%, net CLI/COV/Δ, P&L CLI/COV/Δ
+│               │   └── ExpandedTable.tsx # Full-width table matching Exposure layout (O/C rows, date picker, bid prices)
+│               └── RightPanel/
+│                   ├── index.tsx        # Empty state + detail view container
+│                   ├── DetailHeader.tsx # Symbol name, vol, P&L, hedge pill
+│                   ├── SummaryCards.tsx # 5 metric cards (Avg Entry, Avg Exit, Volume, P&L, Net Combined)
+│                   ├── PriceChart.tsx   # Canvas price timeline chart (entry/exit markers, sparkline)
+│                   ├── VolPnlChart.tsx  # Canvas volume bars + cumulative P&L lines
+│                   └── CompareTable.tsx # Comparison metrics table (Trades, Volume, Win Rate, P&L)
 ├── CoverageManager.sln
 └── CLAUDE.md
 ```
@@ -142,12 +174,29 @@ dotnet test CoverageManager.sln
 - **Sort & reorder:** Sort dropdown + drag-and-drop symbol reordering (persisted in localStorage)
 - **Open/Closed labels:** "O" and "C" shorthand
 
+## Positions Compare Tab
+- **Split layout:** Resizable left panel (drag handle) + right detail panel
+- **Left panel compact:** Each row shows Symbol | Hedge% | Net (CLI/COV/Δ) | P&L (CLI/COV/Δ)
+- **Left panel expanded:** Full table matching Exposure layout with Open/Closed rows, bid prices, date picker, To Cover, Hedge%
+- **Right panel detail:** Shows when a symbol is selected — DetailHeader, 5 SummaryCards, PriceChart (Canvas), VolPnlChart (Canvas), CompareTable
+- **Canvas charts:** PriceChart (entry/exit markers, teal sparkline), VolPnlChart (hourly volume bars, cumulative P&L lines)
+- **Charts debounced:** Redraw on symbol change + ResizeObserver, 200ms minimum interval
+- **Drag reorder:** Symbols can be drag-reordered in compact mode (persisted to localStorage)
+- **Panel resize:** Left panel width adjustable by dragging right edge (persisted to localStorage)
+- **Hedge % colors:** green >= 80%, amber >= 50%, red < 50%
+- **Entry Δ colors:** positive (client paid more) = red, negative = green
+- **Data source:** Polls `/api/compare/exposure` every 500ms, `/api/compare/trades` every 5s
+
 ## UI Features
 - **Dark/Light theme toggle:** ThemeContext with mutable THEME object (Object.assign pattern)
 - **Theme persistence:** Saved to localStorage, applied on load
 - **Theme-reactive styles:** All theme-dependent styles computed inside components (not module-level) to update on theme toggle
 - **P&L Panel:** Shows client perspective (positive = clients profited), NOT inverted for broker view
 - **Coverage P&L:** Respects date range picker
+- **TotalBar numbers:** Locale-formatted with thousand separators for readability
+- **Positions grid:** Open time column, single volume column (removed redundant normalized column)
+- **Case-insensitive symbol lookup:** Price and closed deal lookups use toUpperCase() fallback (handles MT5 mixed-case like Ut100- vs UT100-)
+- **Hedge ratio uncapped:** HedgeRatio can exceed 100% when coverage exceeds client exposure
 
 ## API Endpoints
 ### C# Backend (port 5000)
@@ -163,6 +212,8 @@ dotnet test CoverageManager.sln
 - `GET /api/accounts/audit` — Query trade audit log
 - `GET /api/accounts/deals?source=&from=&to=` — Query historical deals from Supabase
 - `POST /api/accounts/backfill-deals?from=&to=` — Backfill deals from MT5 to Supabase
+- `GET /api/compare/exposure` — Full snapshot of symbol exposures for Compare tab
+- `GET /api/compare/trades?symbol=&from=` — Trade history for Compare charts
 - `WS /ws` — Real-time exposure + prices + P&L updates
 
 ### Python Collector (port 8100)
@@ -174,5 +225,6 @@ dotnet test CoverageManager.sln
 - [x] Phase 1: Live Exposure View (complete)
 - [x] Phase 2: P&L Tracking (closed trades with buy/sell volume split, coverage P&L toggle, date range filtering)
 - [x] Phase 2.5: Data Persistence (trading accounts + deals synced to Supabase, audit trail, historical backfill)
+- [x] Phase 2.7: Positions Compare (side-by-side client vs coverage analysis with charts, resizable panels, drag reorder)
 - [ ] Phase 3: Risk Alerts (news events, threshold warnings)
 - [ ] Phase 4: Hedge Execution (one-click hedging via LP terminal — mt5.order_send() ready)

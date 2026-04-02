@@ -34,7 +34,7 @@ export function TotalBar({ summaries, connected }: TotalBarProps) {
         <div>
           <div style={{ color: THEME.t3, fontSize: 10, textTransform: 'uppercase' }}>Unhedged</div>
           <div style={{ color: THEME.amber, fontSize: 16, fontFamily: 'monospace', fontWeight: 600 }}>
-            {totalUnhedged.toFixed(2)}
+            {totalUnhedged.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -62,7 +62,7 @@ function Metric({ label, value, highlight }: { label: string; value: number; hig
         fontFamily: 'monospace',
         fontWeight: highlight ? 700 : 600,
       }}>
-        {value >= 0 ? '+' : ''}{value.toFixed(2)}
+        {value >= 0 ? '+' : ''}{value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
       </div>
     </div>
   );

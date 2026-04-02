@@ -42,12 +42,12 @@ export function PositionsGrid({ positions }: PositionsGridProps) {
             <th style={{ ...headerStyle, textAlign: 'left' }}>Login</th>
             <th style={{ ...headerStyle, textAlign: 'left' }}>Symbol</th>
             <th style={{ ...headerStyle, textAlign: 'left' }}>Dir</th>
-            <th style={headerStyle}>Vol (raw)</th>
-            <th style={headerStyle}>Vol (norm)</th>
+            <th style={headerStyle}>Volume</th>
             <th style={headerStyle}>Open Price</th>
             <th style={headerStyle}>Current</th>
             <th style={headerStyle}>P&L</th>
             <th style={headerStyle}>Swap</th>
+            <th style={headerStyle}>Open Time</th>
           </tr>
         </thead>
         <tbody>
@@ -77,13 +77,15 @@ export function PositionsGrid({ positions }: PositionsGridProps) {
                 {p.direction}
               </td>
               <td style={{ ...cellStyle, color: THEME.t1 }}>{p.volumeLots.toFixed(2)}</td>
-              <td style={{ ...cellStyle, color: THEME.t2 }}>{p.volumeNormalized.toFixed(2)}</td>
               <td style={{ ...cellStyle, color: THEME.t2 }}>{p.openPrice.toFixed(5)}</td>
               <td style={{ ...cellStyle, color: THEME.t1 }}>{p.currentPrice.toFixed(5)}</td>
               <td style={{ ...cellStyle, color: p.profit >= 0 ? THEME.green : THEME.red, fontWeight: 600 }}>
                 {p.profit >= 0 ? '+' : ''}{p.profit.toFixed(2)}
               </td>
               <td style={{ ...cellStyle, color: THEME.t3 }}>{p.swap.toFixed(2)}</td>
+              <td style={{ ...cellStyle, color: THEME.t2, fontSize: 11 }}>
+                {p.openTime ? new Date(p.openTime).toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—'}
+              </td>
             </tr>
           ))}
           {sorted.length === 0 && (

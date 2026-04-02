@@ -47,7 +47,8 @@ export function ExposureTable({ summaries, prices }: ExposureTableProps) {
   }
   // Helper: find price for a canonical symbol
   const findPrice = (sym: string): PriceQuote | undefined => {
-    return priceMap[sym] || priceMap[sym.replace(/[-.]$/, '')];
+    return priceMap[sym] || priceMap[sym.replace(/[-.]$/, '')] ||
+      priceMap[sym.toUpperCase()] || priceMap[sym.toUpperCase().replace(/[-.]$/, '')];
   };
 
   // Track price direction (up/down/flat)
@@ -115,7 +116,9 @@ export function ExposureTable({ summaries, prices }: ExposureTableProps) {
             // Store with both raw key and canonical key (strip trailing - or .)
             const canonical = s.symbol.replace(/[-.]$/, '');
             bbMap[s.symbol] = s;
+            bbMap[s.symbol.toUpperCase()] = s;
             bbMap[canonical] = s;
+            bbMap[canonical.toUpperCase()] = s;
             bbSymbols.push(s.symbol);
             bbSymbols.push(canonical);
           }
@@ -429,8 +432,8 @@ export function ExposureTable({ summaries, prices }: ExposureTableProps) {
         <tbody>
           {sortedSummaries.map((s) => {
             const hr = s.hedgeRatio ?? 0;
-            const bb = bbClosedMap[s.canonicalSymbol];
-            const cv = covClosedMap[s.canonicalSymbol];
+            const bb = bbClosedMap[s.canonicalSymbol] || bbClosedMap[s.canonicalSymbol.toUpperCase()];
+            const cv = covClosedMap[s.canonicalSymbol] || covClosedMap[s.canonicalSymbol.toUpperCase()];
             const hasClosed = bb || cv;
             return (
               <React.Fragment key={s.canonicalSymbol}>
