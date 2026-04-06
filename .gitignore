@@ -24,6 +24,12 @@ dist/
 .idea/
 *.swp
 
+# Environment
+.env
+
+# Task Master
+.taskmaster/templates/
+
 # OS
 .DS_Store
 Thumbs.db

@@ -259,6 +259,35 @@ public class SupabaseService
         }
     }
 
+    public async Task<DateTime?> GetLastDealTimeAsync(string source)
+    {
+        try
+        {
+            var request = new HttpRequestMessage(HttpMethod.Get,
+                $"{_url}/rest/v1/deals?source=eq.{source}&select=deal_time&order=deal_time.desc&limit=1");
+
+            var response = await _http.SendAsync(request);
+            response.EnsureSuccessStatusCode();
+            var json = await response.Content.ReadAsStringAsync();
+            var rows = JsonSerializer.Deserialize<List<Dictionary<string, JsonElement>>>(json, JsonOptions) ?? [];
+
+            if (rows.Count > 0 && rows[0].TryGetValue("deal_time", out var dt))
+            {
+                var lastTime = dt.GetDateTime();
+                _logger.LogInformation("Last deal time in Supabase for {Source}: {Time}", source, lastTime);
+                return lastTime;
+            }
+
+            _logger.LogInformation("No deals found in Supabase for {Source}", source);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get last deal time from Supabase");
+            return null;
+        }
+    }
+
     public async Task<int> UpsertDealsAsync(IEnumerable<DealRecord> deals)
     {
         try
@@ -408,6 +437,137 @@ public class SupabaseService
             _logger.LogError(ex, "Failed to insert audit entries");
         }
     }
+
+    // ── Alert Rules ──
+
+    public async Task<List<RiskThreshold>> GetAlertRulesAsync()
+    {
+        try
+        {
+            var response = await _http.GetAsync($"{_url}/rest/v1/alert_rules?select=*&order=created_at");
+            response.EnsureSuccessStatusCode();
+            var json = await response.Content.ReadAsStringAsync();
+            return JsonSerializer.Deserialize<List<RiskThreshold>>(json, JsonOptions) ?? [];
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to fetch alert rules from Supabase");
+            return [];
+        }
+    }
+
+    public async Task<RiskThreshold?> UpsertAlertRuleAsync(RiskThreshold rule)
+    {
+        try
+        {
+            rule.UpdatedAt = DateTime.UtcNow;
+            var json = JsonSerializer.Serialize(rule, JsonOptions);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            var request = new HttpRequestMessage(HttpMethod.Post, $"{_url}/rest/v1/alert_rules")
+            {
+                Content = content
+            };
+            request.Headers.Add("Prefer", "resolution=merge-duplicates,return=representation");
+
+            var response = await _http.SendAsync(request);
+            response.EnsureSuccessStatusCode();
+            var result = await response.Content.ReadAsStringAsync();
+            var list = JsonSerializer.Deserialize<List<RiskThreshold>>(result, JsonOptions);
+            return list?.FirstOrDefault();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to upsert alert rule");
+            return null;
+        }
+    }
+
+    public async Task<bool> DeleteAlertRuleAsync(Guid id)
+    {
+        try
+        {
+            var response = await _http.DeleteAsync($"{_url}/rest/v1/alert_rules?id=eq.{id}");
+            return response.IsSuccessStatusCode;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to delete alert rule {Id}", id);
+            return false;
+        }
+    }
+
+    // ── Alert Events ──
+
+    public async Task<int> InsertAlertEventsAsync(IEnumerable<AlertEvent> events)
+    {
+        try
+        {
+            var list = events.ToList();
+            if (list.Count == 0) return 0;
+
+            var json = JsonSerializer.Serialize(list, JsonOptions);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            var request = new HttpRequestMessage(HttpMethod.Post, $"{_url}/rest/v1/alert_events")
+            {
+                Content = content
+            };
+
+            var response = await _http.SendAsync(request);
+            if (!response.IsSuccessStatusCode)
+            {
+                var err = await response.Content.ReadAsStringAsync();
+                _logger.LogWarning("Alert events insert failed: {Error}", err);
+                return 0;
+            }
+            return list.Count;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to insert alert events");
+            return 0;
+        }
+    }
+
+    public async Task<List<AlertEvent>> GetAlertEventsAsync(bool unacknowledgedOnly = false, int limit = 100)
+    {
+        try
+        {
+            var filter = unacknowledgedOnly ? "&acknowledged=eq.false" : "";
+            var response = await _http.GetAsync(
+                $"{_url}/rest/v1/alert_events?select=*{filter}&order=triggered_at.desc&limit={limit}");
+            response.EnsureSuccessStatusCode();
+            var json = await response.Content.ReadAsStringAsync();
+            return JsonSerializer.Deserialize<List<AlertEvent>>(json, JsonOptions) ?? [];
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to fetch alert events");
+            return [];
+        }
+    }
+
+    public async Task<bool> AcknowledgeAlertEventAsync(Guid id)
+    {
+        try
+        {
+            var body = JsonSerializer.Serialize(new { acknowledged = true, acknowledged_at = DateTime.UtcNow }, JsonOptions);
+            var content = new StringContent(body, Encoding.UTF8, "application/json");
+            var request = new HttpRequestMessage(HttpMethod.Patch, $"{_url}/rest/v1/alert_events?id=eq.{id}")
+            {
+                Content = content
+            };
+
+            var response = await _http.SendAsync(request);
+            return response.IsSuccessStatusCode;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to acknowledge alert event {Id}", id);
+            return false;
+        }
+    }
+
+    // ── Audit Log ──
 
     public async Task<List<TradeAuditEntry>> GetAuditLogAsync(DateTime? from = null, string? symbol = null, long? login = null)
     {

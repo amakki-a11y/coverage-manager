@@ -65,11 +65,27 @@ export interface AccountSettings {
   updated_at: string;
 }
 
+export interface AlertEvent {
+  id: string;
+  threshold_id: string;
+  trigger_type: string;
+  symbol: string;
+  severity: 'info' | 'warning' | 'critical';
+  message: string;
+  threshold_value: number;
+  actual_value: number;
+  triggered_at: string;
+  acknowledged: boolean;
+  acknowledged_at?: string;
+}
+
 export interface ExposureMessage {
   type: 'exposure_update';
   data: {
     exposure: ExposureSummary[];
     prices: PriceQuote[];
+    alerts?: AlertEvent[];
+    alertCount: number;
     timestamp: string;
   };
 }

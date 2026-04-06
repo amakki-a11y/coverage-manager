@@ -5,6 +5,7 @@ import { SummaryCards } from './SummaryCards';
 import { PriceChart } from './PriceChart';
 import { VolPnlChart } from './VolPnlChart';
 import { CompareTable } from './CompareTable';
+import { LoginsWidget } from './LoginsWidget';
 
 interface RightPanelProps {
   selectedSymbol: string | null;
@@ -66,9 +67,10 @@ export function RightPanel({ selectedSymbol, symbolData, trades }: RightPanelPro
           </div>
         </div>
 
-        {/* Right: Compare table (30%) */}
-        <div style={{ flex: 3, marginLeft: 8, minWidth: 200 }}>
+        {/* Right: Compare table + Logins (30%) */}
+        <div style={{ flex: 3, marginLeft: 8, minWidth: 200, overflow: 'auto' }}>
           <CompareTable data={symbolData} trades={symbolTrades} />
+          <LoginsWidget symbol={selectedSymbol} />
         </div>
       </div>
     </div>

@@ -86,10 +86,10 @@ coverage-manager/
 └── CLAUDE.md
 ```
 
-## Supabase Tables (11)
+## Supabase Tables (13)
 1. `symbol_mappings` — B-Book ↔ LP symbol mapping + contract sizes
 2. `positions` — Open positions snapshot
-3. `deals` — Deal history with dedup on (source, deal_id), includes direction/fee/entry. 192K+ deals persisted.
+3. `deals` — Deal history with dedup on (source, deal_id), includes direction/fee/entry. 202K+ deals persisted.
 4. `trading_accounts` — Mirror of all MT5 accounts (B-Book + Coverage), unique on (source, login). Auto-synced every 5min.
 5. `trade_audit_log` — Tracks deal modifications (price, volume, profit changes) with old/new values
 6. `exposure_snapshots` — Periodic exposure captures
@@ -98,10 +98,13 @@ coverage-manager/
 9. `economic_events` — Economic calendar (Phase 3)
 10. `risk_thresholds` — Risk limits per symbol (Phase 3)
 11. `account_settings` — MT5 Manager and Coverage account credentials
+12. `alert_rules` — Configurable alert thresholds (trigger type, operator, value, severity)
+13. `alert_events` — Fired alert notifications (symbol, severity, threshold vs actual value, acknowledged)
 
 ## Data Sync Architecture
 - **DataSyncService** (background): Syncs deals to Supabase every 30s with change detection
-- **On startup:** Loads today's deals from Supabase into in-memory DealStore (survives restarts)
+- **On startup:** Loads deals from Supabase into in-memory DealStore (survives restarts)
+- **Auto-backfill on startup:** Queries last deal time from Supabase, detects gap if app was down, backfills missed deals from MT5 Manager API automatically (no manual backfill needed)
 - **Account sync:** MT5ManagerConnection syncs all trading accounts to Supabase on connect + every 5 minutes
 - **Login refresh:** Periodically re-fetches `GetUserLogins()` to detect new accounts (every 5 min)
 - **Change detection:** Compares incoming deals vs stored, logs modifications to `trade_audit_log`

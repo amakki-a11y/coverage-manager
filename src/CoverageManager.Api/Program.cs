@@ -23,10 +23,13 @@ try
     var exposureEngine = new ExposureEngine(positionManager);
     var dealStore = new DealStore();
 
+    var alertEngine = new AlertEngine(exposureEngine, positionManager);
+
     builder.Services.AddSingleton(positionManager);
     builder.Services.AddSingleton(priceCache);
     builder.Services.AddSingleton(exposureEngine);
     builder.Services.AddSingleton(dealStore);
+    builder.Services.AddSingleton(alertEngine);
 
     // Supabase HTTP client
     builder.Services.AddHttpClient<SupabaseService>();
@@ -51,7 +54,8 @@ try
             dealStore,
             async () => await supabase.GetAccountSettingsAsync(),
             () => broadcast.MarkDirty(),
-            async accounts => await supabase.UpsertTradingAccountsAsync(accounts));
+            async accounts => await supabase.UpsertTradingAccountsAsync(accounts),
+            async source => await supabase.GetLastDealTimeAsync(source));
     });
     builder.Services.AddHostedService(sp => sp.GetRequiredService<MT5ManagerConnection>());
 
@@ -94,6 +98,14 @@ try
 
     var app = builder.Build();
 
+    // Wire alert persistence into broadcast service
+    {
+        var broadcast = app.Services.GetRequiredService<ExposureBroadcastService>();
+        var supabaseForAlerts = app.Services.GetRequiredService<SupabaseService>();
+        broadcast.SetAlertPersistCallback(async alerts =>
+            await supabaseForAlerts.InsertAlertEventsAsync(alerts));
+    }
+
     // Load symbol mappings from Supabase on startup
     using (var scope = app.Services.CreateScope())
     {
@@ -101,6 +113,16 @@ try
         var mappings = await supabase.GetMappingsAsync();
         positionManager.LoadMappings(mappings);
         Log.Information("Loaded {Count} symbol mappings from Supabase", mappings.Count);
+
+        var alertRules = await supabase.GetAlertRulesAsync();
+        alertEngine.LoadThresholds(alertRules);
+        Log.Information("Loaded {Count} alert rules from Supabase", alertRules.Count);
+
+        if (alertRules.Count > 0)
+        {
+            var broadcast = app.Services.GetRequiredService<ExposureBroadcastService>();
+            broadcast.MarkDirty();
+        }
     }
 
     if (app.Environment.IsDevelopment())

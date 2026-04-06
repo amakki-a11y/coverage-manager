@@ -30,8 +30,8 @@ function hedgeColor(pct: number): string {
   return THEME.red;
 }
 
-function pc(v: number): string {
-  return v >= 0 ? THEME.green : THEME.red;
+function nc(v: number): string {
+  return v >= 0 ? THEME.blue : THEME.red;
 }
 
 function fp(v: number): string {
@@ -68,6 +68,7 @@ const cellBase: React.CSSProperties = {
 };
 
 export function ExpandedTable({ symbols, selectedSymbol, onSelect }: ExpandedTableProps) {
+  const [showClosed, setShowClosed] = useState(true);
   const [closedFrom, setClosedFrom] = useState(todayStr);
   const [closedTo, setClosedTo] = useState(todayStr);
   const [bbClosedMap, setBbClosedMap] = useState<Record<string, ClosedSymbol>>({});
@@ -210,25 +211,37 @@ export function ExpandedTable({ symbols, selectedSymbol, onSelect }: ExpandedTab
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
-      {/* Date range picker */}
+      {/* Date range picker + closed toggle */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px',
         borderBottom: `1px solid ${THEME.border}`, flexShrink: 0,
       }}>
-        <span style={{ color: THEME.t3, fontSize: 11, fontWeight: 600 }}>Closed:</span>
-        <input
-          type="date"
-          value={closedFrom}
-          onChange={e => setClosedFrom(e.target.value)}
-          style={{ fontSize: 11, fontFamily: 'monospace', background: THEME.bg3, color: THEME.t1, border: `1px solid ${THEME.border}`, borderRadius: 4, padding: '2px 6px' }}
-        />
-        <span style={{ color: THEME.t3, fontSize: 11 }}>to</span>
-        <input
-          type="date"
-          value={closedTo}
-          onChange={e => setClosedTo(e.target.value)}
-          style={{ fontSize: 11, fontFamily: 'monospace', background: THEME.bg3, color: THEME.t1, border: `1px solid ${THEME.border}`, borderRadius: 4, padding: '2px 6px' }}
-        />
+        <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={showClosed}
+            onChange={e => setShowClosed(e.target.checked)}
+            style={{ cursor: 'pointer', accentColor: THEME.teal }}
+          />
+          <span style={{ color: THEME.t3, fontSize: 11, fontWeight: 600 }}>Closed</span>
+        </label>
+        {showClosed && (
+          <>
+            <input
+              type="date"
+              value={closedFrom}
+              onChange={e => setClosedFrom(e.target.value)}
+              style={{ fontSize: 11, fontFamily: 'monospace', background: THEME.bg3, color: THEME.t1, border: `1px solid ${THEME.border}`, borderRadius: 4, padding: '2px 6px' }}
+            />
+            <span style={{ color: THEME.t3, fontSize: 11 }}>to</span>
+            <input
+              type="date"
+              value={closedTo}
+              onChange={e => setClosedTo(e.target.value)}
+              style={{ fontSize: 11, fontFamily: 'monospace', background: THEME.bg3, color: THEME.t1, border: `1px solid ${THEME.border}`, borderRadius: 4, padding: '2px 6px' }}
+            />
+          </>
+        )}
       </div>
 
       <div style={{ overflow: 'auto', flex: 1 }}>
@@ -277,7 +290,7 @@ export function ExpandedTable({ symbols, selectedSymbol, onSelect }: ExpandedTab
                     onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.02)'}
                     onMouseLeave={e => e.currentTarget.style.background = s.symbol === selectedSymbol ? 'rgba(20,184,166,0.06)' : 'transparent'}
                   >
-                    <td rowSpan={2} style={{
+                    <td rowSpan={showClosed ? 2 : 1} style={{
                       ...c, ...gc, color: THEME.t1, fontWeight: 700, fontFamily: 'inherit',
                       borderLeft: 'none', textAlign: 'left',
                     }}>
@@ -289,21 +302,22 @@ export function ExpandedTable({ symbols, selectedSymbol, onSelect }: ExpandedTab
                       )}
                     </td>
                     <td style={{ ...typeCell, ...gc, color: THEME.blue }}>O</td>
-                    <td style={{ ...c, ...gc, color: THEME.green, borderLeft: gridSecBorder }}>{fmt(s.clientBuyVolume)}</td>
-                    <td style={{ ...c, ...gc, color: THEME.red }}>{fmt(s.clientSellVolume)}</td>
-                    <td style={{ ...c, ...gc, color: pc(s.clientNetVolume), fontWeight: 600 }}>{fmt(s.clientNetVolume)}</td>
-                    <td style={{ ...c, ...gc, color: pc(s.clientPnl) }}>{fp(s.clientPnl)}</td>
-                    <td style={{ ...c, ...gc, color: THEME.green, borderLeft: gridSecBorder }}>{fmt(s.coverageBuyVolume)}</td>
-                    <td style={{ ...c, ...gc, color: THEME.red }}>{fmt(s.coverageSellVolume)}</td>
-                    <td style={{ ...c, ...gc, color: pc(s.coverageNetVolume), fontWeight: 600 }}>{fmt(s.coverageNetVolume)}</td>
-                    <td style={{ ...c, ...gc, color: pc(s.coveragePnl) }}>{fp(s.coveragePnl)}</td>
-                    <td style={{ ...c, ...gc, borderLeft: gridSecBorder, color: toCoverColor(toCoverValue(s.clientNetVolume, s.coverageNetVolume)), fontWeight: 600 }}>
+                    <td style={{ ...c, ...gc, color: THEME.t1, borderLeft: gridSecBorder }}>{fmt(s.clientBuyVolume)}</td>
+                    <td style={{ ...c, ...gc, color: THEME.t1 }}>{fmt(s.clientSellVolume)}</td>
+                    <td style={{ ...c, ...gc, color: nc(s.clientNetVolume), fontWeight: 600 }}>{fmt(s.clientNetVolume)}</td>
+                    <td style={{ ...c, ...gc, color: nc(s.clientPnl) }}>{fp(s.clientPnl)}</td>
+                    <td style={{ ...c, ...gc, color: THEME.t1, borderLeft: gridSecBorder }}>{fmt(s.coverageBuyVolume)}</td>
+                    <td style={{ ...c, ...gc, color: THEME.t1 }}>{fmt(s.coverageSellVolume)}</td>
+                    <td style={{ ...c, ...gc, color: nc(s.coverageNetVolume), fontWeight: 600 }}>{fmt(s.coverageNetVolume)}</td>
+                    <td style={{ ...c, ...gc, color: nc(s.coveragePnl) }}>{fp(s.coveragePnl)}</td>
+                    <td style={{ ...c, ...gc, borderLeft: gridSecBorder, color: nc(toCoverValue(s.clientNetVolume, s.coverageNetVolume)), fontWeight: 600 }}>
                       {fmtToCover(toCoverValue(s.clientNetVolume, s.coverageNetVolume))}
                     </td>
-                    <td style={{ ...c, ...gc, color: pc(s.netPnl), fontWeight: 700 }}>{fp(s.netPnl)}</td>
+                    <td style={{ ...c, ...gc, color: nc(s.netPnl), fontWeight: 700 }}>{fp(s.netPnl)}</td>
                     <td style={{ ...c, ...gc, color: hedgeColor(hr), fontWeight: 600 }}>{hr.toFixed(0)}%</td>
                   </tr>
                   {/* CLOSED row */}
+                  {showClosed && (
                   <tr
                     onClick={() => onSelect(s.symbol)}
                     style={{
@@ -314,26 +328,27 @@ export function ExpandedTable({ symbols, selectedSymbol, onSelect }: ExpandedTab
                   >
                     <td style={{ ...typeCell, ...gc, color: THEME.t3 }}>C</td>
                     {/* Clients closed */}
-                    <td style={{ ...c, ...gc, color: THEME.green, borderLeft: gridSecBorder }}>{bb ? fmt(bb.buyVolume) : ''}</td>
-                    <td style={{ ...c, ...gc, color: THEME.red }}>{bb ? fmt(bb.sellVolume) : ''}</td>
-                    <td style={{ ...c, ...gc, color: THEME.t3 }}>{bb ? fmt(bb.totalVolume) : ''}</td>
-                    <td style={{ ...c, ...gc, color: bb ? pc(bb.netPnL) : THEME.t3, fontWeight: 600 }}>
+                    <td style={{ ...c, ...gc, color: THEME.t1, borderLeft: gridSecBorder }}>{bb ? fmt(bb.buyVolume) : ''}</td>
+                    <td style={{ ...c, ...gc, color: THEME.t1 }}>{bb ? fmt(bb.sellVolume) : ''}</td>
+                    <td style={{ ...c, ...gc, color: THEME.t1 }}>{bb ? fmt(bb.totalVolume) : ''}</td>
+                    <td style={{ ...c, ...gc, color: bb ? nc(bb.netPnL) : THEME.t3, fontWeight: 600 }}>
                       {bb ? fp(bb.netPnL) : ''}
                     </td>
                     {/* Coverage closed */}
-                    <td style={{ ...c, ...gc, color: THEME.green, borderLeft: gridSecBorder }}>{cv ? fmt(cv.buyVolume) : ''}</td>
-                    <td style={{ ...c, ...gc, color: THEME.red }}>{cv ? fmt(cv.sellVolume) : ''}</td>
-                    <td style={{ ...c, ...gc, color: THEME.t3 }}>{cv ? fmt(cv.totalVolume) : ''}</td>
-                    <td style={{ ...c, ...gc, color: cv ? pc(cv.netPnL) : THEME.t3, fontWeight: 600 }}>
+                    <td style={{ ...c, ...gc, color: THEME.t1, borderLeft: gridSecBorder }}>{cv ? fmt(cv.buyVolume) : ''}</td>
+                    <td style={{ ...c, ...gc, color: THEME.t1 }}>{cv ? fmt(cv.sellVolume) : ''}</td>
+                    <td style={{ ...c, ...gc, color: THEME.t1 }}>{cv ? fmt(cv.totalVolume) : ''}</td>
+                    <td style={{ ...c, ...gc, color: cv ? nc(cv.netPnL) : THEME.t3, fontWeight: 600 }}>
                       {cv ? fp(cv.netPnL) : ''}
                     </td>
                     {/* Summary closed */}
                     <td style={{ ...c, ...gc, borderLeft: gridSecBorder }}></td>
-                    <td style={{ ...c, ...gc, color: pc((bb?.netPnL ?? 0) + (cv?.netPnL ?? 0)), fontWeight: 600 }}>
+                    <td style={{ ...c, ...gc, color: nc((bb?.netPnL ?? 0) + (cv?.netPnL ?? 0)), fontWeight: 600 }}>
                       {(bb || cv) ? fp((bb?.netPnL ?? 0) + (cv?.netPnL ?? 0)) : ''}
                     </td>
                     <td style={{ ...c, ...gc }}></td>
                   </tr>
+                  )}
                 </React.Fragment>
               );
             })}

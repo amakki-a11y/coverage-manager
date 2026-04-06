@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { ThemeProvider, useTheme } from './ThemeContext';
 import { THEME } from './theme';
 import { useExposureSocket } from './hooks/useExposureSocket';
@@ -9,6 +9,9 @@ import { SymbolMappingAdmin } from './components/SymbolMappingAdmin';
 import { SettingsPanel } from './components/SettingsPanel';
 import { PnLPanel } from './components/PnLPanel';
 import { PositionsCompare } from './pages/PositionsCompare';
+import { AlertToast } from './components/AlertToast';
+import { AlertBanner } from './components/AlertBanner';
+import { AlertHistory } from './components/AlertHistory';
 import type { Position } from './types';
 
 type Tab = 'exposure' | 'positions' | 'pnl' | 'compare' | 'mappings' | 'settings';
@@ -16,8 +19,19 @@ type Tab = 'exposure' | 'positions' | 'pnl' | 'compare' | 'mappings' | 'settings
 function AppContent() {
   const { theme, mode, toggleTheme } = useTheme();
   const [tab, setTab] = useState<Tab>('exposure');
-  const { exposureSummaries, prices, connected } = useExposureSocket();
+  const { exposureSummaries, prices, connected, newAlerts, alertCount } = useExposureSocket();
   const [positions, setPositions] = useState<Position[]>([]);
+  const [showAlertHistory, setShowAlertHistory] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(() => {
+    const saved = localStorage.getItem('alertSound');
+    return saved !== 'false';
+  });
+
+  const acknowledgeAlert = useCallback(async (id: string) => {
+    try {
+      await fetch(`http://localhost:5000/api/alerts/${id}/acknowledge`, { method: 'POST' });
+    } catch { /* ignore */ }
+  }, []);
 
   const tabStyle = (active: boolean): React.CSSProperties => ({
     padding: '8px 20px',
@@ -55,6 +69,7 @@ function AppContent() {
       fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
     }}>
       <TotalBar summaries={exposureSummaries} connected={connected} />
+      <AlertBanner alertCount={alertCount} onShowHistory={() => setShowAlertHistory(true)} />
 
       <div style={{
         display: 'flex',
@@ -69,10 +84,70 @@ function AppContent() {
         <button style={tabStyle(tab === 'mappings')} onClick={() => setTab('mappings')}>Mappings</button>
         <button style={tabStyle(tab === 'settings')} onClick={() => setTab('settings')}>Settings</button>
 
+        {/* Alert bell + badge */}
+        <button
+          onClick={() => setShowAlertHistory(true)}
+          style={{
+            marginLeft: 'auto',
+            position: 'relative',
+            background: 'transparent',
+            border: `1px solid ${alertCount > 0 ? theme.amber : theme.border}`,
+            borderRadius: 6,
+            padding: '4px 10px',
+            cursor: 'pointer',
+            fontSize: 14,
+            color: alertCount > 0 ? theme.amber : theme.t2,
+          }}
+          title={`${alertCount} unacknowledged alerts`}
+        >
+          {'\uD83D\uDD14'}
+          {alertCount > 0 && (
+            <span style={{
+              position: 'absolute',
+              top: -6,
+              right: -6,
+              background: theme.red,
+              color: '#fff',
+              fontSize: 9,
+              fontWeight: 700,
+              borderRadius: '50%',
+              width: 16,
+              height: 16,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}>
+              {alertCount > 9 ? '9+' : alertCount}
+            </span>
+          )}
+        </button>
+
+        {/* Sound toggle */}
+        <button
+          onClick={() => {
+            const next = !soundEnabled;
+            setSoundEnabled(next);
+            localStorage.setItem('alertSound', String(next));
+          }}
+          style={{
+            background: 'transparent',
+            border: `1px solid ${theme.border}`,
+            borderRadius: 6,
+            padding: '4px 10px',
+            cursor: 'pointer',
+            fontSize: 14,
+            color: soundEnabled ? theme.t2 : theme.t3,
+            marginLeft: 6,
+          }}
+          title={soundEnabled ? 'Mute alert sounds' : 'Enable alert sounds'}
+        >
+          {soundEnabled ? '\uD83D\uDD0A' : '\uD83D\uDD07'}
+        </button>
+
         <button
           onClick={toggleTheme}
           style={{
-            marginLeft: 'auto',
+            marginLeft: 6,
             marginRight: 12,
             background: 'transparent',
             border: `1px solid ${theme.border}`,
@@ -96,6 +171,11 @@ function AppContent() {
         {tab === 'mappings' && <SymbolMappingAdmin />}
         {tab === 'settings' && <SettingsPanel />}
       </div>
+
+      <AlertToast alerts={newAlerts} soundEnabled={soundEnabled} onAcknowledge={acknowledgeAlert} />
+      {showAlertHistory && (
+        <AlertHistory onClose={() => setShowAlertHistory(false)} onAcknowledge={acknowledgeAlert} />
+      )}
     </div>
   );
 }

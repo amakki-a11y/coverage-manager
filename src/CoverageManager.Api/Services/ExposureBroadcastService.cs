@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
 using CoverageManager.Core.Engines;
+using CoverageManager.Core.Models;
 
 namespace CoverageManager.Api.Services;
 
@@ -15,11 +16,15 @@ public class ExposureBroadcastService : IDisposable
     private readonly ExposureEngine _exposureEngine;
     private readonly PriceCache _priceCache;
     private readonly DealStore _dealStore;
+    private readonly AlertEngine _alertEngine;
     private readonly ConcurrentDictionary<string, WebSocket> _clients = new();
     private readonly ILogger<ExposureBroadcastService> _logger;
     private readonly Timer _broadcastTimer;
     private readonly int _maxUpdatesPerSecond;
     private bool _dirty = true;
+
+    // Callback to persist new alerts to Supabase
+    private Func<IEnumerable<AlertEvent>, Task>? _onNewAlerts;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -30,17 +35,24 @@ public class ExposureBroadcastService : IDisposable
         ExposureEngine exposureEngine,
         PriceCache priceCache,
         DealStore dealStore,
+        AlertEngine alertEngine,
         IConfiguration config,
         ILogger<ExposureBroadcastService> logger)
     {
         _exposureEngine = exposureEngine;
         _priceCache = priceCache;
         _dealStore = dealStore;
+        _alertEngine = alertEngine;
         _logger = logger;
         _maxUpdatesPerSecond = config.GetValue("WebSocket:MaxUpdatesPerSecond", 10);
 
         var interval = 1000 / _maxUpdatesPerSecond;
         _broadcastTimer = new Timer(BroadcastIfDirty, null, interval, interval);
+    }
+
+    public void SetAlertPersistCallback(Func<IEnumerable<AlertEvent>, Task> callback)
+    {
+        _onNewAlerts = callback;
     }
 
     public void AddClient(string id, WebSocket socket)
@@ -69,6 +81,16 @@ public class ExposureBroadcastService : IDisposable
             var prices = _priceCache.GetAll();
             var pnl = _dealStore.GetPnLBySymbol();
 
+            // Evaluate alert thresholds
+            var newAlerts = _alertEngine.Evaluate();
+            if (newAlerts.Count > 0)
+            {
+                _logger.LogWarning("Fired {Count} new alerts", newAlerts.Count);
+                // Persist to Supabase asynchronously
+                if (_onNewAlerts != null)
+                    _ = _onNewAlerts(newAlerts);
+            }
+
             var message = new
             {
                 type = "exposure_update",
@@ -77,6 +99,8 @@ public class ExposureBroadcastService : IDisposable
                     exposure,
                     prices,
                     pnl,
+                    alerts = newAlerts.Count > 0 ? newAlerts : null,
+                    alertCount = _alertEngine.ActiveAlertCount,
                     totalDeals = _dealStore.DealCount,
                     timestamp = DateTime.UtcNow
                 }

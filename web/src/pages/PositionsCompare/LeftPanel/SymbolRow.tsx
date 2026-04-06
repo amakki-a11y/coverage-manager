@@ -13,8 +13,8 @@ function hedgeColor(pct: number): string {
   return THEME.red;
 }
 
-function pc(v: number): string {
-  return v >= 0 ? THEME.green : THEME.red;
+function nc(v: number): string {
+  return v >= 0 ? THEME.blue : THEME.red;
 }
 
 function fmtNet(v: number): string {
@@ -69,9 +69,9 @@ export function SymbolRow({ data, isSelected, onClick }: SymbolRowProps) {
           {data.hedgePercent.toFixed(0)}%
         </span>
         <div style={{ width: 1, height: 16, background: THEME.border, flexShrink: 0 }} />
-        <span style={{ ...numStyle, color: THEME.blue }}>{fmtNet(data.clientNetVolume)}</span>
-        <span style={{ ...numStyle, color: THEME.amber }}>{fmtNet(data.coverageNetVolume)}</span>
-        <span style={{ ...numStyle, color: pc(netDiff), fontWeight: 700 }}>{fmtNet(netDiff)}</span>
+        <span style={{ ...numStyle, color: THEME.t1 }}>{fmtNet(data.clientNetVolume)}</span>
+        <span style={{ ...numStyle, color: THEME.t1 }}>{fmtNet(data.coverageNetVolume)}</span>
+        <span style={{ ...numStyle, color: nc(netDiff), fontWeight: 700 }}>{fmtNet(netDiff)}</span>
       </div>
 
       {/* Bottom line: P&L CLI / COV / Δ (aligned under net values) */}
@@ -79,9 +79,9 @@ export function SymbolRow({ data, isSelected, onClick }: SymbolRowProps) {
         <span style={{ minWidth: 80 }} />
         <span style={{ fontSize: 10, fontFamily: 'monospace', padding: '1px 6px', visibility: 'hidden' }}>00%</span>
         <div style={{ width: 1, height: 1, flexShrink: 0 }} />
-        <span style={{ ...numStyle, color: pc(data.clientPnl) }}>{fmtPnl(data.clientPnl)}</span>
-        <span style={{ ...numStyle, color: pc(data.coveragePnl) }}>{fmtPnl(data.coveragePnl)}</span>
-        <span style={{ ...numStyle, color: pc(pnlDiff), fontWeight: 700 }}>{fmtPnl(pnlDiff)}</span>
+        <span style={{ ...numStyle, color: THEME.t1 }}>{fmtPnl(data.clientPnl)}</span>
+        <span style={{ ...numStyle, color: THEME.t1 }}>{fmtPnl(data.coveragePnl)}</span>
+        <span style={{ ...numStyle, color: nc(pnlDiff), fontWeight: 700 }}>{fmtPnl(pnlDiff)}</span>
       </div>
     </div>
   );

@@ -63,7 +63,18 @@ public sealed class DataSyncService : BackgroundService
             var todayStart = DateTime.UtcNow.Date;
             var todayEnd = todayStart.AddDays(1);
 
-            var deals = await _supabase.GetDealsAsync("bbook", todayStart, todayEnd);
+            // Check if there are deals before today that need loading (gap from downtime)
+            var lastDealTime = await _supabase.GetLastDealTimeAsync("bbook");
+            var loadFrom = todayStart;
+            if (lastDealTime.HasValue && lastDealTime.Value < todayStart)
+            {
+                loadFrom = lastDealTime.Value.Date;
+                _logger.LogInformation(
+                    "Detected deals before today (last: {LastDeal}), loading from {From}",
+                    lastDealTime.Value, loadFrom);
+            }
+
+            var deals = await _supabase.GetDealsAsync("bbook", loadFrom, todayEnd);
 
             if (deals.Count > 0)
             {
@@ -84,7 +95,7 @@ public sealed class DataSyncService : BackgroundService
                 });
 
                 _dealStore.AddDeals(closedDeals);
-                _logger.LogInformation("Loaded {Count} deals from Supabase into DealStore on startup", deals.Count);
+                _logger.LogInformation("Loaded {Count} deals from Supabase into DealStore on startup (from {From})", deals.Count, loadFrom);
             }
             else
             {

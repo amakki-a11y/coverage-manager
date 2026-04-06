@@ -1,16 +1,19 @@
 import { useEffect, useReducer, useCallback, useRef } from 'react';
-import type { ExposureSummary, PriceQuote, ExposureMessage } from '../types';
+import type { ExposureSummary, PriceQuote, AlertEvent, ExposureMessage } from '../types';
 
 interface State {
   exposureSummaries: ExposureSummary[];
   prices: PriceQuote[];
   connected: boolean;
+  newAlerts: AlertEvent[];
+  alertCount: number;
 }
 
 type Action =
   | { type: 'CONNECTED' }
   | { type: 'DISCONNECTED' }
-  | { type: 'EXPOSURE_UPDATE'; payload: ExposureMessage['data'] };
+  | { type: 'EXPOSURE_UPDATE'; payload: ExposureMessage['data'] }
+  | { type: 'CLEAR_NEW_ALERTS' };
 
 function reducer(state: State, action: Action): State {
   switch (action.type) {
@@ -23,7 +26,11 @@ function reducer(state: State, action: Action): State {
         ...state,
         exposureSummaries: action.payload.exposure,
         prices: action.payload.prices,
+        newAlerts: action.payload.alerts ?? [],
+        alertCount: action.payload.alertCount ?? 0,
       };
+    case 'CLEAR_NEW_ALERTS':
+      return { ...state, newAlerts: [] };
     default:
       return state;
   }
@@ -33,6 +40,8 @@ const initialState: State = {
   exposureSummaries: [],
   prices: [],
   connected: false,
+  newAlerts: [],
+  alertCount: 0,
 };
 
 const WS_URL = 'ws://localhost:5000/ws/exposure';
@@ -86,5 +95,9 @@ export function useExposureSocket() {
     };
   }, [connect]);
 
-  return state;
+  const clearNewAlerts = useCallback(() => {
+    dispatch({ type: 'CLEAR_NEW_ALERTS' });
+  }, []);
+
+  return { ...state, clearNewAlerts };
 }

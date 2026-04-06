@@ -19,6 +19,7 @@ public sealed class MT5ManagerConnection : BackgroundService
     private readonly Func<Task<List<AccountSettings>>> _getAccounts;
     private readonly Action _onUpdate;
     private readonly Func<IEnumerable<TradingAccount>, Task>? _syncAccounts;
+    private readonly Func<string, Task<DateTime?>>? _getLastDealTime;
 
     private IMT5Api? _api;
     private ulong[] _logins = [];
@@ -42,7 +43,8 @@ public sealed class MT5ManagerConnection : BackgroundService
         DealStore dealStore,
         Func<Task<List<AccountSettings>>> getAccounts,
         Action onUpdate,
-        Func<IEnumerable<TradingAccount>, Task>? syncAccounts = null)
+        Func<IEnumerable<TradingAccount>, Task>? syncAccounts = null,
+        Func<string, Task<DateTime?>>? getLastDealTime = null)
     {
         _logger = logger;
         _positionManager = positionManager;
@@ -51,6 +53,7 @@ public sealed class MT5ManagerConnection : BackgroundService
         _getAccounts = getAccounts;
         _onUpdate = onUpdate;
         _syncAccounts = syncAccounts;
+        _getLastDealTime = getLastDealTime;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -133,8 +136,27 @@ public sealed class MT5ManagerConnection : BackgroundService
 
                 _logins = logins;
 
-                // Backfill today's closed deals
-                BackfillDeals(logins, new DateTimeOffset(DateTime.UtcNow.Date, TimeSpan.Zero), DateTimeOffset.UtcNow);
+                // Backfill closed deals — detect gap from last sync
+                var backfillFrom = new DateTimeOffset(DateTime.UtcNow.Date, TimeSpan.Zero);
+                if (_getLastDealTime != null)
+                {
+                    try
+                    {
+                        var lastDealTime = await _getLastDealTime("bbook");
+                        if (lastDealTime.HasValue && lastDealTime.Value < DateTime.UtcNow.Date)
+                        {
+                            backfillFrom = new DateTimeOffset(lastDealTime.Value, TimeSpan.Zero);
+                            _logger.LogInformation(
+                                "Gap detected: last deal in Supabase at {LastDeal}, backfilling from there instead of today",
+                                lastDealTime.Value);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to query last deal time, falling back to today");
+                    }
+                }
+                BackfillDeals(logins, backfillFrom, DateTimeOffset.UtcNow);
 
                 // Initial account sync to Supabase
                 await SyncAccountsToSupabaseAsync(logins, "bbook");

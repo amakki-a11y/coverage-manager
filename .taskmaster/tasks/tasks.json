@@ -1,0 +1,402 @@
+{
+  "tasks": [
+    {
+      "id": 1,
+      "title": "Alert Trigger Engine",
+      "description": "Build the core alert evaluation engine that checks exposure data against configurable thresholds on each WebSocket update cycle. Support trigger types: exposure threshold, hedge ratio, P&L limit, account-level exposure. Store thresholds in risk_thresholds Supabase table. Engine should be extensible for future trigger types.",
+      "phase": 3,
+      "priority": "high",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Create AlertEngine service in CoverageManager.Core",
+        "Define RiskThreshold model (symbol, trigger_type, operator, value, enabled)",
+        "Load thresholds from Supabase on startup + periodic refresh",
+        "Evaluate thresholds against live ExposureSummary on each update",
+        "Create AlertEvent model (id, trigger_type, symbol, threshold, actual_value, timestamp, acknowledged)",
+        "Store fired alerts in Supabase alert_events table",
+        "Expose GET /api/alerts (active alerts) and POST /api/alerts/{id}/acknowledge"
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Risk Thresholds Management UI",
+      "description": "Build a settings panel in the React dashboard for managing risk thresholds. CRUD operations for thresholds per symbol with trigger type, operator, and value. Uses the risk_thresholds Supabase table.",
+      "phase": 3,
+      "priority": "high",
+      "status": "pending",
+      "dependencies": [1],
+      "subtasks": [
+        "Create ThresholdsController with CRUD endpoints",
+        "Build RiskThresholds settings page in React",
+        "Table view: symbol, trigger type, operator, value, enabled toggle",
+        "Add/edit modal for threshold configuration",
+        "Delete with confirmation",
+        "Real-time validation (no duplicate triggers per symbol)"
+      ]
+    },
+    {
+      "id": 3,
+      "title": "In-App Alert Notifications",
+      "description": "Display fired alerts as toast notifications and a persistent alert banner in the dashboard. Include sound alerts. Alerts should be dismissible/acknowledgeable. Show alert count badge on the nav bar.",
+      "phase": 3,
+      "priority": "high",
+      "status": "pending",
+      "dependencies": [1],
+      "subtasks": [
+        "Push alerts via WebSocket to connected clients",
+        "Build AlertToast component (auto-dismiss after X seconds)",
+        "Build AlertBanner component (persistent until acknowledged)",
+        "Add alert sound (configurable on/off in settings)",
+        "Alert count badge on nav bar",
+        "Alert history panel (list of past alerts with timestamps)"
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Economic Calendar Integration",
+      "description": "Fetch economic events from an external source and display them in the dashboard. Alert before high-impact events (NFP, FOMC, etc.). Store events in economic_events Supabase table.",
+      "phase": 3,
+      "priority": "medium",
+      "status": "pending",
+      "dependencies": [1, 3],
+      "subtasks": [
+        "Research and select economic calendar API source",
+        "Build EconomicCalendarService to fetch and cache events",
+        "Store events in Supabase economic_events table",
+        "Create EconomicCalendar component in dashboard",
+        "Add pre-event alert trigger type to AlertEngine",
+        "Show impact indicators on exposure table (icon near affected symbols)"
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Notification Channels — Email, Slack, Telegram",
+      "description": "Build pluggable notification channel system. Each user configures which channels they want per alert type. Support Email, Slack webhook, and Telegram bot. Store channel config in Supabase.",
+      "phase": 3,
+      "priority": "medium",
+      "status": "pending",
+      "dependencies": [1, 3],
+      "subtasks": [
+        "Create INotificationChannel interface",
+        "Implement EmailChannel (SMTP or SendGrid)",
+        "Implement SlackChannel (webhook URL)",
+        "Implement TelegramChannel (bot API)",
+        "User notification preferences UI in Settings",
+        "NotificationDispatcher that routes alerts to user-configured channels",
+        "Store notification_preferences in Supabase"
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Hedge Execution — Order Sending",
+      "description": "Implement one-click hedge execution via the Python collector's mt5.order_send(). Dealer clicks 'To Cover' on a symbol, system pre-fills the order, and sends to LP account after confirmation.",
+      "phase": 4,
+      "priority": "high",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Add POST /execute endpoint to Python collector (mt5.order_send)",
+        "Create HedgeExecutionController in C# backend (proxy to collector)",
+        "Build HedgeDialog component — pre-filled volume, LP account, confirm/cancel",
+        "Add 'Hedge' button to To Cover column in ExposureTable",
+        "Support partial hedging (percentage slider or manual volume)",
+        "Handle execution errors and display fill report"
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Hedge Configuration & LP Account Management",
+      "description": "Allow dealers to configure hedge execution settings: LP account selection, confirmation toggle, default hedge percentage. Support multiple LP accounts per broker.",
+      "phase": 4,
+      "priority": "high",
+      "status": "pending",
+      "dependencies": [6],
+      "subtasks": [
+        "LP account management UI (add/edit/remove LP connections)",
+        "Default hedge settings per symbol (auto-fill %, confirmation required)",
+        "LP account health check (connection status, margin available)",
+        "Store hedge_settings in Supabase"
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Hedge Audit Trail",
+      "description": "Log every hedge execution with full details: who, when, what symbol, volume, price, fill status, slippage. Store in hedge_executions Supabase table. Display in a dedicated audit view.",
+      "phase": 4,
+      "priority": "medium",
+      "status": "pending",
+      "dependencies": [6],
+      "subtasks": [
+        "Populate hedge_executions table on each execution",
+        "Build HedgeAuditLog component (filterable by symbol, date, status)",
+        "Calculate and display slippage (requested vs filled price)",
+        "Export hedge audit to CSV"
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Pre-Trade Validation",
+      "description": "Before executing a hedge, validate: sufficient margin on LP account, symbol available for trading, market is open, volume within limits. Block execution with clear error if validation fails.",
+      "phase": 4,
+      "priority": "medium",
+      "status": "pending",
+      "dependencies": [6, 7],
+      "subtasks": [
+        "Check LP account margin before sending order",
+        "Verify symbol is tradeable on LP terminal",
+        "Check market hours (session open/closed)",
+        "Validate volume against min/max lot sizes",
+        "Display validation errors in HedgeDialog before submit"
+      ]
+    },
+    {
+      "id": 10,
+      "title": "Daily P&L Summary Report",
+      "description": "Generate daily P&L report broken down by symbol, account, and desk. Support date range selection. Query Supabase deals table with aggregation.",
+      "phase": 5,
+      "priority": "high",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Create ReportsController with GET /api/reports/pnl-summary",
+        "Aggregate P&L by symbol, by account, by day from Supabase",
+        "Build DailyPnLReport page in React",
+        "Date range picker, grouping toggles (symbol/account/day)",
+        "Totals row and running totals"
+      ]
+    },
+    {
+      "id": 11,
+      "title": "Trade History Export",
+      "description": "Export trade/deal history to CSV, Excel, and PDF formats. Support filtering by date range, symbol, account, source.",
+      "phase": 5,
+      "priority": "medium",
+      "status": "pending",
+      "dependencies": [10],
+      "subtasks": [
+        "Add export endpoints: GET /api/reports/export?format=csv|xlsx|pdf",
+        "CSV generation (server-side)",
+        "Excel generation (EPPlus or ClosedXML library)",
+        "PDF generation (QuestPDF or similar)",
+        "Download button in trade history views",
+        "Filter parameters (date, symbol, account, source)"
+      ]
+    },
+    {
+      "id": 12,
+      "title": "Hedge Effectiveness Report",
+      "description": "Report showing how well coverage matched client exposure over time. Hedge ratio history, coverage gaps, slippage analysis. Time-series chart of hedge ratio per symbol.",
+      "phase": 5,
+      "priority": "medium",
+      "status": "pending",
+      "dependencies": [8, 10],
+      "subtasks": [
+        "Store periodic hedge ratio snapshots (from exposure_snapshots)",
+        "Build HedgeEffectivenessReport page",
+        "Time-series chart: hedge ratio per symbol over time",
+        "Coverage gap analysis (periods where hedge < threshold)",
+        "Slippage summary from hedge_executions"
+      ]
+    },
+    {
+      "id": 13,
+      "title": "Account Activity Report",
+      "description": "Per-client trading summary report: trade count, volume, P&L, win rate, most traded symbols, equity curve. Reuse AccountModal data in a full report page.",
+      "phase": 5,
+      "priority": "medium",
+      "status": "pending",
+      "dependencies": [10],
+      "subtasks": [
+        "GET /api/reports/account-activity?login=&from=&to=",
+        "Build AccountActivityReport page",
+        "Metrics: trade count, volume, P&L, win rate, avg hold time",
+        "Most traded symbols breakdown",
+        "Equity curve chart (reuse from AccountModal)"
+      ]
+    },
+    {
+      "id": 14,
+      "title": "Custom Report Builder",
+      "description": "User-defined report builder: select data source, filters, columns, grouping, sorting. Save report templates. Schedule delivery via email.",
+      "phase": 5,
+      "priority": "low",
+      "status": "pending",
+      "dependencies": [10, 11, 12, 13],
+      "subtasks": [
+        "Report builder UI — drag-and-drop columns, filter rows",
+        "Data source selection (deals, positions, exposure, accounts)",
+        "Save/load report templates to Supabase",
+        "Schedule report delivery (cron + email)",
+        "Export in all formats (CSV, Excel, PDF)"
+      ]
+    },
+    {
+      "id": 15,
+      "title": "Tenant Isolation & Multi-Tenancy",
+      "description": "Implement tenant isolation so each broker has their own data, configuration, and branding. Row-level security in Supabase. Tenant context in all API requests.",
+      "phase": 6,
+      "priority": "high",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Add tenant_id column to all Supabase tables",
+        "Implement Supabase Row Level Security (RLS) policies",
+        "Tenant context middleware in C# backend",
+        "Tenant-aware queries in all services",
+        "Tenant configuration table (name, branding, settings)"
+      ]
+    },
+    {
+      "id": 16,
+      "title": "User Authentication & Role Management",
+      "description": "Implement user login, registration, and role-based access control. Roles: admin, dealer, viewer. Supabase Auth or custom JWT. Protect all API endpoints.",
+      "phase": 6,
+      "priority": "high",
+      "status": "pending",
+      "dependencies": [15],
+      "subtasks": [
+        "Setup Supabase Auth (or custom JWT auth)",
+        "Login/register pages in React",
+        "Role model: admin (full access), dealer (trade + view), viewer (read-only)",
+        "Auth middleware in C# backend (validate JWT, extract tenant + role)",
+        "Protect all API endpoints with role checks",
+        "User management UI for admins (invite, edit roles, disable)"
+      ]
+    },
+    {
+      "id": 17,
+      "title": "White-Label & Branding",
+      "description": "Allow each tenant to customize branding: logo, colors, app name. Applied via tenant config on login. Store assets in Supabase Storage.",
+      "phase": 6,
+      "priority": "low",
+      "status": "pending",
+      "dependencies": [15, 16],
+      "subtasks": [
+        "Tenant branding config (logo_url, primary_color, app_name)",
+        "Apply branding dynamically in React (ThemeContext extension)",
+        "Logo upload to Supabase Storage",
+        "Branding settings UI for tenant admins",
+        "Custom login page per tenant"
+      ]
+    },
+    {
+      "id": 18,
+      "title": "Broker Onboarding Flow",
+      "description": "Self-service onboarding: broker signs up, configures MT5 credentials, sets up symbol mappings, invites team members. Guided wizard UI.",
+      "phase": 6,
+      "priority": "medium",
+      "status": "pending",
+      "dependencies": [15, 16],
+      "subtasks": [
+        "Onboarding wizard component (multi-step form)",
+        "Step 1: Broker info (name, contact)",
+        "Step 2: MT5 Manager credentials (B-Book server)",
+        "Step 3: Coverage account setup",
+        "Step 4: Symbol mapping configuration",
+        "Step 5: Invite team members",
+        "Connection test at each MT5 step"
+      ]
+    },
+    {
+      "id": 19,
+      "title": "Multi-Server MT5 Support",
+      "description": "Support connecting to multiple MT5 servers simultaneously. Each broker can have multiple B-Book servers and multiple coverage accounts. Dynamic connection management.",
+      "phase": 7,
+      "priority": "high",
+      "status": "pending",
+      "dependencies": [15],
+      "subtasks": [
+        "Refactor MT5ManagerConnection to support multiple instances",
+        "Refactor Python collector to handle multiple coverage accounts",
+        "Connection pool manager (start/stop/health per connection)",
+        "Aggregate exposure across multiple servers",
+        "Server management UI (add/edit/remove MT5 connections)"
+      ]
+    },
+    {
+      "id": 20,
+      "title": "Public REST API for Brokers",
+      "description": "Expose a documented REST API that brokers can use to integrate programmatically. API key authentication. Rate limiting. OpenAPI/Swagger docs.",
+      "phase": 7,
+      "priority": "medium",
+      "status": "pending",
+      "dependencies": [15, 16],
+      "subtasks": [
+        "API key generation and management (per tenant)",
+        "API key auth middleware",
+        "Rate limiting per API key",
+        "Public endpoints: exposure, positions, deals, accounts, alerts",
+        "OpenAPI/Swagger documentation",
+        "API usage dashboard (calls, errors, rate limit hits)"
+      ]
+    },
+    {
+      "id": 21,
+      "title": "Webhook Event System",
+      "description": "Allow brokers to register webhook URLs for real-time event notifications: alert fired, deal closed, hedge executed, threshold breached. Retry logic for failed deliveries.",
+      "phase": 7,
+      "priority": "low",
+      "status": "pending",
+      "dependencies": [1, 20],
+      "subtasks": [
+        "Webhook registration API (URL, events, secret)",
+        "WebhookDispatcher service",
+        "Event types: alert_fired, deal_closed, hedge_executed, threshold_breached",
+        "HMAC signature for webhook payloads",
+        "Retry logic with exponential backoff",
+        "Webhook delivery log"
+      ]
+    },
+    {
+      "id": 22,
+      "title": "Docker & Cloud Deployment",
+      "description": "Containerize all services (C# backend, Python collector, React frontend) with Docker. Create docker-compose for local dev. Prepare for cloud deployment.",
+      "phase": 8,
+      "priority": "high",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Dockerfile for C# backend",
+        "Dockerfile for Python collector",
+        "Dockerfile for React frontend (nginx)",
+        "docker-compose.yml for local development",
+        "Environment variable configuration for all services",
+        "CI/CD pipeline (GitHub Actions: build, test, deploy)"
+      ]
+    },
+    {
+      "id": 23,
+      "title": "Mobile-Responsive Dashboard",
+      "description": "Make the React dashboard responsive for tablet and mobile. Priority: exposure table, P&L panel, alerts. Not a separate app — responsive CSS.",
+      "phase": 8,
+      "priority": "medium",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Responsive breakpoints (mobile < 768px, tablet 768-1024px)",
+        "ExposureTable: horizontal scroll or card layout on mobile",
+        "PnLPanel: stack cards vertically on mobile",
+        "Navigation: hamburger menu on mobile",
+        "Compare tab: stack left/right panels vertically on mobile",
+        "Touch-friendly controls (larger tap targets, swipe gestures)"
+      ]
+    },
+    {
+      "id": 24,
+      "title": "Health Monitoring & Uptime",
+      "description": "System health dashboard: MT5 connection status, collector health, WebSocket clients, Supabase connection, memory/CPU. Uptime alerts via email/Slack.",
+      "phase": 8,
+      "priority": "medium",
+      "status": "pending",
+      "dependencies": [5, 22],
+      "subtasks": [
+        "Health check endpoint: GET /api/health (all services)",
+        "System dashboard page: connection statuses, uptime, metrics",
+        "Alert on service down (MT5 disconnect, collector offline)",
+        "Uptime monitoring integration (UptimeRobot or similar)",
+        "Logging aggregation (structured logs, searchable)"
+      ]
+    }
+  ]
+}

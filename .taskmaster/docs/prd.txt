@@ -1,0 +1,91 @@
+# Coverage Manager — Product Requirements Document
+
+## Overview
+Real-time exposure management system for forex dealing desks. Shows B-Book client positions alongside LP coverage positions with symbol mapping and contract size normalization. Enables dealers to monitor risk, track P&L, and manage hedging in real-time. Designed as a multi-tenant SaaS product for brokers and financial companies.
+
+## Target Users
+- **Forex brokers** — primary customers, each with their own MT5 servers and dealing desks
+- **Dealing desk operators** — monitoring live client exposure vs coverage, executing hedges
+- **Risk managers** — reviewing P&L, hedge ratios, threshold alerts, and account activity
+- **Operations / compliance** — auditing trades, account history, and regulatory reporting
+- **Viewers** — read-only access to dashboards and reports
+
+## What's Done
+- [x] Phase 1: Live Exposure View — MT5 connector, Python collector, React dashboard, symbol mapping, Supabase schema
+- [x] Phase 2: P&L Tracking — closed deals with buy/sell volume split, coverage P&L, date range filtering
+- [x] Phase 2.5: Data Persistence — trading accounts + deals synced to Supabase, audit trail, historical backfill
+- [x] Phase 2.7: Positions Compare — side-by-side client vs coverage analysis with charts, resizable panels, drag reorder, account modal with equity curve
+
+## What Remains
+
+### Phase 3: Risk Alerts
+- [ ] Configurable alert triggers:
+  - Exposure threshold — net exposure on a symbol exceeds X lots
+  - Hedge ratio — drops below configurable % (e.g., < 50%)
+  - P&L limit — client or net P&L exceeds a threshold
+  - Economic events — alert before high-impact news (NFP, FOMC, etc.)
+  - Account-level — single client exposure too large
+  - Extensible — framework to add new trigger types later
+- [ ] Notification channels (user-configurable per alert):
+  - In-app notification (banner/toast + sound)
+  - Email
+  - Slack
+  - Telegram
+- [ ] Economic calendar integration (economic_events table ready)
+- [ ] Risk thresholds management UI (risk_thresholds table ready)
+
+### Phase 4: Hedge Execution
+- [ ] One-click hedging via LP terminal (mt5.order_send() ready in Python collector)
+- [ ] Fully dealer-configurable:
+  - Auto-fill exact "To Cover" amount or manual volume adjustment
+  - LP account selection (per broker, not hardcoded)
+  - Confirmation dialog toggle (confirm vs instant fire)
+  - Partial hedging support (e.g., hedge 50% of exposure)
+- [ ] Hedge execution audit trail (hedge_executions table ready)
+- [ ] Pre-trade validation (margin check, symbol availability)
+- [ ] Execution confirmation and fill reporting
+
+### Phase 5: Reporting & Analytics
+- [ ] Standard reports:
+  - Daily P&L summary (per symbol, per account, per desk)
+  - Trade history export (CSV / Excel / PDF)
+  - Hedge effectiveness report (coverage vs client exposure over time)
+  - Account activity report (per-client trading summary)
+- [ ] Custom report builder (user-defined filters, columns, grouping)
+- [ ] Scheduled report delivery (email)
+
+### Phase 6: Multi-Tenant & User Management
+- [ ] Tenant isolation — each broker gets their own data, config, branding
+- [ ] User management — roles (admin, dealer, viewer), login/password, permissions
+- [ ] White-label support — custom branding, logo, colors per broker
+- [ ] Onboarding flow — broker self-service setup (MT5 credentials, symbol mappings)
+
+### Phase 7: Multi-Server & API
+- [ ] Multi-server support — connect to multiple MT5 servers (multiple B-Book + multiple coverage)
+- [ ] REST API for clients — let brokers integrate programmatically
+- [ ] API key management and rate limiting
+- [ ] Webhook support for real-time event notifications
+
+### Phase 8: Deployment & Mobile
+- [ ] Cloud deployment (Docker, CI/CD pipeline)
+- [ ] Move off localhost to production infrastructure
+- [ ] Mobile-responsive dashboard
+- [ ] Dedicated mobile app (or PWA)
+- [ ] Health monitoring and uptime alerts
+
+## Constraints
+- **Solo developer** — single person building on a daily basis, must prioritize ruthlessly
+- **MT5 Manager API** — requires Windows (C# backend must run on Windows)
+- **MT5 Terminal** — required for Python collector (coverage account)
+- **Real-time data** — WebSocket throttled to 10 updates/sec to prevent browser flooding
+- **Supabase** — currently free tier, will need to scale for multi-tenant (192K+ deals already)
+- **No deadline** — building iteratively, quality over speed
+
+## Success Criteria
+- Dealers can see live exposure and make hedging decisions in under 2 seconds
+- All closed deals persisted with full audit trail
+- Compare tab provides instant per-symbol analysis with equity curves
+- Account modal shows complete client profile with positions and deal history
+- Multiple brokers can onboard and operate independently (Phase 6+)
+- Alert system catches risk events before they become losses (Phase 3)
+- One-click hedging reduces manual execution time by 90% (Phase 4)
