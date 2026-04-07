@@ -7,3 +7,4 @@ Promote to Task Master when ready to build.
 
 ## Ideas
 <!-- New ideas go below this line -->
+- [ ] check if coverage deals saved to supabase (2026-04-06)

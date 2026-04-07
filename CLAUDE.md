@@ -160,6 +160,7 @@ dotnet test CoverageManager.sln
 - **To Cover:** `BBookNet - CoverageNet` → negative = SELL more, positive = BUY more
 - **Deal callbacks trigger WebSocket:** `OnDealReceived` calls `_onUpdate()` so closed row updates in real-time
 - **Supabase as source of truth for closed deals:** PnL endpoint queries Supabase directly (not in-memory DealStore) for date-filtered historical data
+- **Deal verification:** `/api/exposure/verify` compares MT5 Manager deals vs Supabase per symbol (batched 1K logins). `fix=true` upserts missing deals. UI in Settings tab with risk warning.
 
 ## Exposure Table Layout
 - **Two rows per symbol:** Open (live positions) + Closed (date-filtered deals, always shown)
@@ -215,6 +216,7 @@ dotnet test CoverageManager.sln
 - `GET /api/accounts/audit` — Query trade audit log
 - `GET /api/accounts/deals?source=&from=&to=` — Query historical deals from Supabase
 - `POST /api/accounts/backfill-deals?from=&to=` — Backfill deals from MT5 to Supabase
+- `GET /api/exposure/verify?from=&to=&fix=false` — Compare MT5 Manager deals vs Supabase (batched 1K logins). `fix=true` upserts missing deals.
 - `GET /api/compare/exposure` — Full snapshot of symbol exposures for Compare tab
 - `GET /api/compare/trades?symbol=&from=` — Trade history for Compare charts
 - `WS /ws` — Real-time exposure + prices + P&L updates

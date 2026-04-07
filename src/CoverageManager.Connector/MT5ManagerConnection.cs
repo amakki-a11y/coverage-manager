@@ -348,6 +348,51 @@ public sealed class MT5ManagerConnection : BackgroundService
         return BackfillDeals(_logins, from, to);
     }
 
+    /// <summary>
+    /// Read-only query of MT5 deals for verification. Does NOT modify DealStore.
+    /// Processes logins in batches to avoid overloading MT5 Manager.
+    /// </summary>
+    public List<ClosedDeal> QueryDeals(DateTimeOffset from, DateTimeOffset to, int batchSize = 1000)
+    {
+        if (_api == null || !_api.IsConnected || _logins.Length == 0)
+            return [];
+
+        var result = new List<ClosedDeal>();
+        var totalBatches = (_logins.Length + batchSize - 1) / batchSize;
+
+        for (int b = 0; b < totalBatches; b++)
+        {
+            var batch = _logins.Skip(b * batchSize).Take(batchSize).ToArray();
+            var batchDeals = 0;
+
+            foreach (var login in batch)
+            {
+                try
+                {
+                    var deals = _api.RequestDeals(login, from, to);
+                    foreach (var raw in deals)
+                    {
+                        if (raw.Action >= 2) continue;
+                        result.Add(ConvertDeal(raw));
+                        batchDeals++;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "QueryDeals failed for login {Login}", login);
+                }
+            }
+
+            _logger.LogInformation("Verify batch {Batch}/{Total}: {Logins} logins, {Deals} deals",
+                b + 1, totalBatches, batch.Length, batchDeals);
+        }
+
+        _logger.LogInformation("QueryDeals complete: {Total} deals from {Logins} logins ({From:yyyy-MM-dd} to {To:yyyy-MM-dd})",
+            result.Count, _logins.Length, from, to);
+
+        return result;
+    }
+
     private int BackfillDeals(ulong[] logins, DateTimeOffset from, DateTimeOffset to)
     {
         if (_api == null || !_api.IsConnected) return 0;

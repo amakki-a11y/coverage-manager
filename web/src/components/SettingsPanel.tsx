@@ -41,6 +41,31 @@ const cardStyle: React.CSSProperties = {
   border: `1px solid ${THEME.border}`,
 };
 
+const thStyle: React.CSSProperties = {
+  padding: '8px 6px',
+  textAlign: 'center',
+  fontSize: 11,
+  fontWeight: 600,
+  color: THEME.t2,
+  textTransform: 'uppercase',
+  letterSpacing: 0.3,
+};
+
+const thSubStyle: React.CSSProperties = {
+  padding: '4px 6px',
+  textAlign: 'center',
+  fontSize: 10,
+  fontWeight: 500,
+  color: THEME.t3,
+};
+
+const tdStyle: React.CSSProperties = {
+  padding: '6px 6px',
+  textAlign: 'center',
+  fontSize: 12,
+  color: THEME.t2,
+};
+
 interface AccountFormData {
   label: string;
   server: string;
@@ -57,11 +82,38 @@ const emptyForm: AccountFormData = {
   group_mask: '*',
 };
 
+interface VerifySymbol {
+  symbol: string;
+  mt5: { buyVolume: number; sellVolume: number; pnl: number; dealCount: number } | null;
+  supabase: { buyVolume: number; sellVolume: number; pnl: number; dealCount: number } | null;
+  diff: { buyVolume: number; sellVolume: number; pnl: number; dealCount: number };
+  match: boolean;
+}
+
+interface VerifyResult {
+  from: string;
+  to: string;
+  symbols: VerifySymbol[];
+  summary: { totalSymbols: number; matched: number; mismatched: number };
+  loginsProcessed: number;
+  mt5TotalDeals: number;
+  supabaseTotalDeals: number;
+  fixed_: number;
+  elapsed: string;
+}
+
 export function SettingsPanel() {
   const [accounts, setAccounts] = useState<AccountSettings[]>([]);
   const [showForm, setShowForm] = useState<'manager' | 'coverage' | null>(null);
   const [form, setForm] = useState<AccountFormData>(emptyForm);
   const [editId, setEditId] = useState<string | null>(null);
+  const [verifyFrom, setVerifyFrom] = useState(() => new Date().toISOString().slice(0, 10));
+  const [verifyTo, setVerifyTo] = useState(() => new Date().toISOString().slice(0, 10));
+  const [verifyResult, setVerifyResult] = useState<VerifyResult | null>(null);
+  const [verifying, setVerifying] = useState(false);
+  const [verifyError, setVerifyError] = useState<string | null>(null);
+  const [fixing, setFixing] = useState(false);
+  const [fixedCount, setFixedCount] = useState<number | null>(null);
 
   const fetchAccounts = useCallback(async () => {
     try {
@@ -127,6 +179,53 @@ export function SettingsPanel() {
     setShowForm(null);
     setEditId(null);
     setForm(emptyForm);
+  };
+
+  const handleVerify = async () => {
+    setVerifying(true);
+    setVerifyError(null);
+    setVerifyResult(null);
+    try {
+      const res = await fetch(`http://localhost:5000/api/exposure/verify?from=${verifyFrom}&to=${verifyTo}`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Request failed' }));
+        setVerifyError(err.error || `HTTP ${res.status}`);
+        return;
+      }
+      setVerifyResult(await res.json());
+      setFixedCount(null);
+    } catch {
+      setVerifyError('Failed to connect to backend');
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  const handleFix = async () => {
+    if (!confirm(
+      'WARNING: This will query MT5 Manager for all logins and upsert missing deals to Supabase.\n\n' +
+      'With many logins this puts load on the MT5 server.\n' +
+      'Best to run during low-activity hours.\n\n' +
+      'Continue?'
+    )) return;
+
+    setFixing(true);
+    setVerifyError(null);
+    try {
+      const res = await fetch(`http://localhost:5000/api/exposure/verify?from=${verifyFrom}&to=${verifyTo}&fix=true`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Request failed' }));
+        setVerifyError(err.error || `HTTP ${res.status}`);
+        return;
+      }
+      const result = await res.json();
+      setVerifyResult(result);
+      setFixedCount(result.fixed_);
+    } catch {
+      setVerifyError('Failed to connect to backend');
+    } finally {
+      setFixing(false);
+    }
   };
 
   return (
@@ -208,6 +307,224 @@ export function SettingsPanel() {
           <div style={{ ...cardStyle, textAlign: 'center', color: THEME.t3, padding: 32 }}>
             No coverage accounts configured
           </div>
+        )}
+      </div>
+
+      {/* Deal Verification */}
+      <div style={{ marginTop: 32 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <div>
+            <h3 style={{ color: '#FFA726', margin: 0, fontSize: 14 }}>Deal Verification (MT5 vs Supabase)</h3>
+            <p style={{ color: THEME.t3, margin: '4px 0 0', fontSize: 12 }}>
+              Compare MT5 Manager deals against Supabase to detect missing or mismatched data
+            </p>
+          </div>
+        </div>
+
+        <div style={{ ...cardStyle, marginBottom: 12 }}>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+            <div>
+              <label style={labelStyle}>From</label>
+              <input
+                style={{ ...inputStyle, width: 150 }}
+                type="date"
+                value={verifyFrom}
+                onChange={e => setVerifyFrom(e.target.value)}
+              />
+            </div>
+            <div>
+              <label style={labelStyle}>To</label>
+              <input
+                style={{ ...inputStyle, width: 150 }}
+                type="date"
+                value={verifyTo}
+                onChange={e => setVerifyTo(e.target.value)}
+              />
+            </div>
+            <button
+              onClick={handleVerify}
+              disabled={verifying}
+              style={{
+                ...btnStyle,
+                background: verifying ? THEME.t3 : '#FFA726',
+                color: '#000',
+                padding: '8px 24px',
+                cursor: verifying ? 'wait' : 'pointer',
+              }}
+            >
+              {verifying ? 'Verifying...' : 'Run Verification'}
+            </button>
+          </div>
+
+          {verifying && (
+            <p style={{ color: THEME.t3, fontSize: 12, marginTop: 12, marginBottom: 0 }}>
+              Querying MT5 Manager (batching 1,000 logins at a time)... This may take a few minutes.
+            </p>
+          )}
+
+          {verifyError && (
+            <p style={{ color: THEME.red, fontSize: 12, marginTop: 12, marginBottom: 0 }}>
+              Error: {verifyError}
+            </p>
+          )}
+        </div>
+
+        {verifyResult && (
+          <>
+            {/* Summary */}
+            <div style={{
+              ...cardStyle,
+              marginBottom: 12,
+              display: 'flex',
+              gap: 24,
+              flexWrap: 'wrap',
+              alignItems: 'center',
+            }}>
+              <div style={{ fontSize: 13, color: THEME.t1 }}>
+                <strong>{verifyResult.summary.totalSymbols}</strong>
+                <span style={{ color: THEME.t3, marginLeft: 4 }}>symbols</span>
+              </div>
+              <div style={{ fontSize: 13, color: THEME.green }}>
+                <strong>{verifyResult.summary.matched}</strong> matched
+              </div>
+              <div style={{ fontSize: 13, color: verifyResult.summary.mismatched > 0 ? THEME.red : THEME.t3 }}>
+                <strong>{verifyResult.summary.mismatched}</strong> mismatched
+              </div>
+              <div style={{ fontSize: 12, color: THEME.t3 }}>
+                MT5: {verifyResult.mt5TotalDeals.toLocaleString()} deals
+              </div>
+              <div style={{ fontSize: 12, color: THEME.t3 }}>
+                Supabase: {verifyResult.supabaseTotalDeals.toLocaleString()} deals
+              </div>
+              <div style={{ fontSize: 12, color: THEME.t3 }}>
+                {verifyResult.loginsProcessed.toLocaleString()} logins
+              </div>
+              <div style={{ fontSize: 12, color: THEME.t3, marginLeft: 'auto' }}>
+                Elapsed: {verifyResult.elapsed}
+              </div>
+            </div>
+
+            {/* Fix Missing + Risk Warning */}
+            {verifyResult.summary.mismatched > 0 && (
+              <div style={{
+                ...cardStyle,
+                marginBottom: 12,
+                borderColor: '#FFA726',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 16,
+                flexWrap: 'wrap',
+              }}>
+                <div style={{ flex: 1, minWidth: 200 }}>
+                  <div style={{ color: '#FFA726', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+                    {verifyResult.mt5TotalDeals - verifyResult.supabaseTotalDeals} deals missing from Supabase
+                  </div>
+                  <div style={{ color: THEME.t3, fontSize: 11, lineHeight: 1.4 }}>
+                    This will re-query MT5 Manager and upsert missing deals to Supabase.
+                    With many logins this puts load on the MT5 server — best during low-activity hours.
+                  </div>
+                </div>
+                <button
+                  onClick={handleFix}
+                  disabled={fixing}
+                  style={{
+                    ...btnStyle,
+                    background: fixing ? THEME.t3 : THEME.red,
+                    color: '#fff',
+                    padding: '8px 20px',
+                    cursor: fixing ? 'wait' : 'pointer',
+                  }}
+                >
+                  {fixing ? 'Fixing...' : 'Fix Missing Deals'}
+                </button>
+              </div>
+            )}
+
+            {/* Fixed confirmation */}
+            {fixedCount !== null && (
+              <div style={{
+                ...cardStyle,
+                marginBottom: 12,
+                borderColor: THEME.green,
+                background: 'rgba(76,175,80,0.08)',
+              }}>
+                <span style={{ color: THEME.green, fontSize: 13, fontWeight: 600 }}>
+                  Fixed {fixedCount} missing deals — upserted to Supabase successfully.
+                </span>
+                {fixedCount === 0 && (
+                  <span style={{ color: THEME.t3, fontSize: 12, marginLeft: 8 }}>
+                    All deals already in sync.
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* Results Table */}
+            <div style={{ ...cardStyle, padding: 0, overflow: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, fontFamily: 'monospace' }}>
+                <thead>
+                  <tr style={{ borderBottom: `2px solid ${THEME.border}` }}>
+                    <th style={thStyle}>Symbol</th>
+                    <th style={{ ...thStyle, color: THEME.blue }} colSpan={4}>MT5 Manager</th>
+                    <th style={{ ...thStyle, color: '#FFA726' }} colSpan={4}>Supabase</th>
+                    <th style={thStyle}>Diff Deals</th>
+                    <th style={thStyle}>Status</th>
+                  </tr>
+                  <tr style={{ borderBottom: `1px solid ${THEME.border}` }}>
+                    <th style={thStyle}></th>
+                    <th style={thSubStyle}>Buy Vol</th>
+                    <th style={thSubStyle}>Sell Vol</th>
+                    <th style={thSubStyle}>Deals</th>
+                    <th style={thSubStyle}>P&L</th>
+                    <th style={thSubStyle}>Buy Vol</th>
+                    <th style={thSubStyle}>Sell Vol</th>
+                    <th style={thSubStyle}>Deals</th>
+                    <th style={thSubStyle}>P&L</th>
+                    <th style={thSubStyle}></th>
+                    <th style={thSubStyle}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {verifyResult.symbols.map(s => (
+                    <tr
+                      key={s.symbol}
+                      style={{
+                        borderBottom: `1px solid ${THEME.border}`,
+                        background: s.match ? 'transparent' : 'rgba(255,82,82,0.08)',
+                      }}
+                    >
+                      <td style={{ ...tdStyle, fontWeight: 600, color: THEME.t1 }}>{s.symbol}</td>
+                      <td style={{ ...tdStyle, color: THEME.green }}>{s.mt5?.buyVolume.toFixed(2) ?? '—'}</td>
+                      <td style={{ ...tdStyle, color: THEME.red }}>{s.mt5?.sellVolume.toFixed(2) ?? '—'}</td>
+                      <td style={tdStyle}>{s.mt5?.dealCount.toLocaleString() ?? '—'}</td>
+                      <td style={{ ...tdStyle, color: (s.mt5?.pnl ?? 0) >= 0 ? THEME.green : THEME.red }}>
+                        {s.mt5?.pnl.toFixed(2) ?? '—'}
+                      </td>
+                      <td style={{ ...tdStyle, color: THEME.green }}>{s.supabase?.buyVolume.toFixed(2) ?? '—'}</td>
+                      <td style={{ ...tdStyle, color: THEME.red }}>{s.supabase?.sellVolume.toFixed(2) ?? '—'}</td>
+                      <td style={tdStyle}>{s.supabase?.dealCount.toLocaleString() ?? '—'}</td>
+                      <td style={{ ...tdStyle, color: (s.supabase?.pnl ?? 0) >= 0 ? THEME.green : THEME.red }}>
+                        {s.supabase?.pnl.toFixed(2) ?? '—'}
+                      </td>
+                      <td style={{
+                        ...tdStyle,
+                        fontWeight: s.diff.dealCount !== 0 ? 700 : 400,
+                        color: s.diff.dealCount !== 0 ? THEME.red : THEME.t3,
+                      }}>
+                        {s.diff.dealCount !== 0 ? `${s.diff.dealCount > 0 ? '+' : ''}${s.diff.dealCount}` : '0'}
+                      </td>
+                      <td style={{ ...tdStyle, textAlign: 'center' }}>
+                        {s.match
+                          ? <span style={{ color: THEME.green, fontSize: 14 }}>OK</span>
+                          : <span style={{ color: THEME.red, fontSize: 14, fontWeight: 700 }}>DIFF</span>
+                        }
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
     </div>

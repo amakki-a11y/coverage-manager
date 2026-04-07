@@ -250,4 +250,138 @@ public class ExposureController : ControllerBase
             daily
         });
     }
+
+    /// <summary>
+    /// GET /api/exposure/verify?from=&to= — Compare MT5 Manager deals vs Supabase.
+    /// Batches logins (1000/batch) to avoid overloading MT5. Manual trigger only.
+    /// </summary>
+    [HttpGet("verify")]
+    public async Task<IActionResult> VerifyDeals(
+        [FromQuery] DateTime? from = null,
+        [FromQuery] DateTime? to = null,
+        [FromQuery] bool fix = false)
+    {
+        if (!_mt5Connection.IsConnected)
+            return StatusCode(503, new { error = "MT5 not connected" });
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var fromDate = from ?? DateTime.UtcNow.Date;
+        var toDate = (to ?? DateTime.UtcNow.Date).AddDays(1);
+        var fromOffset = new DateTimeOffset(fromDate, TimeSpan.Zero);
+        var toOffset = new DateTimeOffset(toDate, TimeSpan.Zero);
+
+        // 1. Query MT5 Manager (batched, read-only)
+        var mt5Deals = _mt5Connection.QueryDeals(fromOffset, toOffset);
+
+        // 2. Query Supabase
+        var supaDeals = await _supabase.GetDealsAsync("bbook", fromDate, toDate);
+        var supaTradeDeals = supaDeals.Where(d => d.Action <= 1 && !string.IsNullOrEmpty(d.Symbol)).ToList();
+
+        // Fix: find deals in MT5 but not in Supabase, upsert them
+        var fixedCount = 0;
+        if (fix)
+        {
+            var supaDealIds = new HashSet<long>(supaTradeDeals.Select(d => d.DealId));
+            var missingDeals = mt5Deals
+                .Where(d => !supaDealIds.Contains((long)d.DealId))
+                .Select(d => new DealRecord
+                {
+                    DealId = (long)d.DealId,
+                    Source = "bbook",
+                    Login = (long)d.Login,
+                    Symbol = d.Symbol,
+                    CanonicalSymbol = d.Symbol,
+                    Direction = d.Direction,
+                    Action = d.Direction == "BUY" ? 0 : 1,
+                    Entry = (int)d.Entry,
+                    Volume = d.VolumeLots,
+                    Price = d.Price,
+                    Profit = d.Profit,
+                    Commission = d.Commission,
+                    Swap = d.Swap,
+                    Fee = d.Fee,
+                    DealTime = d.Time
+                })
+                .ToList();
+
+            if (missingDeals.Count > 0)
+            {
+                await _supabase.UpsertDealsAsync(missingDeals);
+                fixedCount = missingDeals.Count;
+            }
+        }
+
+        // 3. Aggregate MT5 by symbol
+        var mt5BySymbol = mt5Deals
+            .GroupBy(d => d.Symbol)
+            .ToDictionary(g => g.Key, g =>
+            {
+                var outDeals = g.Where(d => d.Entry == 1 || d.Entry == 2 || d.Entry == 3);
+                return new
+                {
+                    buyVolume = g.Where(d => d.Direction == "BUY").Sum(d => d.VolumeLots),
+                    sellVolume = g.Where(d => d.Direction == "SELL").Sum(d => d.VolumeLots),
+                    pnl = outDeals.Sum(d => d.Profit + d.Commission + d.Swap + d.Fee),
+                    dealCount = g.Count()
+                };
+            });
+
+        // 4. Aggregate Supabase by symbol
+        var supaBySymbol = supaTradeDeals
+            .GroupBy(d => d.Symbol)
+            .ToDictionary(g => g.Key, g =>
+            {
+                var outDeals = g.Where(d => d.Entry == 1 || d.Entry == 2 || d.Entry == 3);
+                return new
+                {
+                    buyVolume = g.Where(d => d.Direction == "BUY").Sum(d => d.Volume),
+                    sellVolume = g.Where(d => d.Direction == "SELL").Sum(d => d.Volume),
+                    pnl = outDeals.Sum(d => d.Profit + d.Commission + d.Swap + d.Fee),
+                    dealCount = g.Count()
+                };
+            });
+
+        // 5. Compare
+        var allSymbols = mt5BySymbol.Keys.Union(supaBySymbol.Keys).OrderBy(s => s).ToList();
+        var symbols = allSymbols.Select(symbol =>
+        {
+            var mt5 = mt5BySymbol.GetValueOrDefault(symbol);
+            var supa = supaBySymbol.GetValueOrDefault(symbol);
+
+            var diffBuy = (mt5?.buyVolume ?? 0) - (supa?.buyVolume ?? 0);
+            var diffSell = (mt5?.sellVolume ?? 0) - (supa?.sellVolume ?? 0);
+            var diffPnl = (mt5?.pnl ?? 0) - (supa?.pnl ?? 0);
+            var diffCount = (mt5?.dealCount ?? 0) - (supa?.dealCount ?? 0);
+
+            return new
+            {
+                symbol,
+                mt5 = mt5 != null ? new { mt5.buyVolume, mt5.sellVolume, mt5.pnl, mt5.dealCount } : null,
+                supabase = supa != null ? new { supa.buyVolume, supa.sellVolume, supa.pnl, supa.dealCount } : null,
+                diff = new { buyVolume = diffBuy, sellVolume = diffSell, pnl = diffPnl, dealCount = diffCount },
+                match = Math.Abs(diffBuy) < 0.01m && Math.Abs(diffSell) < 0.01m && diffCount == 0
+            };
+        }).ToList();
+
+        sw.Stop();
+        var matched = symbols.Count(s => s.match);
+
+        return Ok(new
+        {
+            from = fromDate.ToString("yyyy-MM-dd"),
+            to = (toDate.AddDays(-1)).ToString("yyyy-MM-dd"),
+            symbols,
+            summary = new
+            {
+                totalSymbols = symbols.Count,
+                matched,
+                mismatched = symbols.Count - matched
+            },
+            loginsProcessed = _mt5Connection.LoginCount,
+            mt5TotalDeals = mt5Deals.Count,
+            supabaseTotalDeals = supaTradeDeals.Count,
+            fixed_ = fixedCount,
+            elapsed = sw.Elapsed.ToString(@"hh\:mm\:ss")
+        });
+    }
 }
