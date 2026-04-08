@@ -86,7 +86,7 @@ coverage-manager/
 └── CLAUDE.md
 ```
 
-## Supabase Tables (13)
+## Supabase Tables (14)
 1. `symbol_mappings` — B-Book ↔ LP symbol mapping + contract sizes
 2. `positions` — Open positions snapshot
 3. `deals` — Deal history with dedup on (source, deal_id), includes direction/fee/entry. 202K+ deals persisted.
@@ -100,6 +100,7 @@ coverage-manager/
 11. `account_settings` — MT5 Manager and Coverage account credentials
 12. `alert_rules` — Configurable alert thresholds (trigger type, operator, value, severity)
 13. `alert_events` — Fired alert notifications (symbol, severity, threshold vs actual value, acknowledged)
+14. `moved_accounts` — Logins removed from MT5 Manager, deals kept in Supabase but excluded from dashboard
 
 ## Data Sync Architecture
 - **DataSyncService** (background): Syncs deals to Supabase every 30s with change detection
