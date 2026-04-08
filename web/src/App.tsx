@@ -167,7 +167,7 @@ function AppContent() {
         {tab === 'exposure' && <ExposureTable summaries={exposureSummaries} prices={prices} />}
         {tab === 'positions' && <PositionsGrid positions={positions} />}
         {tab === 'pnl' && <PnLPanel />}
-        {tab === 'compare' && <PositionsCompare />}
+        {tab === 'compare' && <PositionsCompare prices={prices} />}
         {tab === 'mappings' && <SymbolMappingAdmin />}
         {tab === 'settings' && <SettingsPanel />}
       </div>

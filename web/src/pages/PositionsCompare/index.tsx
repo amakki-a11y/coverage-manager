@@ -2,8 +2,9 @@ import { THEME } from '../../theme';
 import { usePositionsCompare } from '../../hooks/usePositionsCompare';
 import { LeftPanel } from './LeftPanel';
 import { RightPanel } from './RightPanel';
+import type { PriceQuote } from '../../types';
 
-export function PositionsCompare() {
+export function PositionsCompare({ prices = [] }: { prices?: PriceQuote[] }) {
   const {
     symbols,
     trades,
@@ -29,6 +30,7 @@ export function PositionsCompare() {
         symbols={symbols}
         selectedSymbol={selectedSymbol}
         onSelect={setSelectedSymbol}
+        prices={prices}
       />
       <RightPanel
         selectedSymbol={selectedSymbol}

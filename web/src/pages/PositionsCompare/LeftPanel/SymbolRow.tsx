@@ -1,3 +1,4 @@
+import { useState, useRef, useEffect } from 'react';
 import { THEME } from '../../../theme';
 import type { SymbolExposure } from '../../../types/compare';
 
@@ -5,6 +6,7 @@ interface SymbolRowProps {
   data: SymbolExposure;
   isSelected: boolean;
   onClick: () => void;
+  price?: number;
 }
 
 function hedgeColor(pct: number): string {
@@ -29,60 +31,157 @@ function fmtPnl(v: number): string {
   return `${sign}$${abs.toFixed(0)}`;
 }
 
-const numStyle: React.CSSProperties = {
-  fontFamily: 'monospace',
-  fontSize: 11,
+function fmtPrice(p: number): string {
+  if (p >= 1000) return p.toFixed(1);
+  if (p >= 100) return p.toFixed(2);
+  if (p >= 10) return p.toFixed(3);
+  if (p >= 1) return p.toFixed(4);
+  return p.toFixed(5);
+}
+
+const lbl: React.CSSProperties = {
+  fontSize: 9,
   fontWeight: 600,
-  flex: 1,
-  textAlign: 'right',
+  textTransform: 'uppercase',
+  letterSpacing: 0.4,
+  color: THEME.t3,
+  marginBottom: 2,
 };
 
-export function SymbolRow({ data, isSelected, onClick }: SymbolRowProps) {
+function Cell({ label, value, color }: { label: string; value: string; color: string }) {
+  return (
+    <div style={{ flex: 1, minWidth: 0, textAlign: 'center' }}>
+      <div style={lbl}>{label}</div>
+      <div style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 600, color }}>{value}</div>
+    </div>
+  );
+}
+
+export function SymbolRow({ data, isSelected, onClick, price }: SymbolRowProps) {
+  const [expanded, setExpanded] = useState(false);
+  const prevPrice = useRef(price);
+  const [priceDir, setPriceDir] = useState<'up' | 'down' | 'none'>('none');
+
+  useEffect(() => {
+    if (price != null && prevPrice.current != null && price !== prevPrice.current) {
+      setPriceDir(price > prevPrice.current ? 'up' : 'down');
+      const t = setTimeout(() => setPriceDir('none'), 1500);
+      prevPrice.current = price;
+      return () => clearTimeout(t);
+    }
+    prevPrice.current = price;
+  }, [price]);
+
   const netDiff = data.clientNetVolume - data.coverageNetVolume;
   const pnlDiff = data.netPnl;
+  const hc = hedgeColor(data.hedgePercent);
+  const priceColor = priceDir === 'up' ? THEME.green : priceDir === 'down' ? THEME.red : THEME.t3;
+
+  const toggleExpand = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setExpanded(prev => !prev);
+  };
 
   return (
     <div
       onClick={onClick}
       style={{
-        padding: '6px 10px',
         borderBottom: `1px solid ${THEME.border}`,
         cursor: 'pointer',
-        background: isSelected ? 'rgba(20,184,166,0.08)' : 'transparent',
-        borderLeft: isSelected ? `2px solid ${THEME.teal}` : '2px solid transparent',
+        background: isSelected ? `${THEME.teal}11` : 'transparent',
+        borderLeft: isSelected ? `3px solid ${THEME.teal}` : '3px solid transparent',
         transition: 'background 0.15s',
       }}
-      onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = `rgba(255,255,255,0.02)`; }}
+      onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = `${THEME.t3}08`; }}
       onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = 'transparent'; }}
     >
-      {/* Top line: Symbol | Hedge% | Net CLI / COV / Δ */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span style={{ fontFamily: 'monospace', fontWeight: 700, color: THEME.t1, fontSize: 13, minWidth: 80 }}>
-          {data.symbol}
-        </span>
-        <span style={{
-          fontSize: 10, fontWeight: 700, fontFamily: 'monospace',
-          padding: '1px 6px', borderRadius: 3, whiteSpace: 'nowrap',
-          background: `${hedgeColor(data.hedgePercent)}22`,
-          color: hedgeColor(data.hedgePercent),
-        }}>
-          {data.hedgePercent.toFixed(0)}%
-        </span>
-        <div style={{ width: 1, height: 16, background: THEME.border, flexShrink: 0 }} />
-        <span style={{ ...numStyle, color: THEME.t1 }}>{fmtNet(data.clientNetVolume)}</span>
-        <span style={{ ...numStyle, color: THEME.t1 }}>{fmtNet(data.coverageNetVolume)}</span>
-        <span style={{ ...numStyle, color: nc(netDiff), fontWeight: 700 }}>{fmtNet(netDiff)}</span>
+      {/* Header row */}
+      <div
+        onClick={toggleExpand}
+        style={{ padding: '8px 10px', display: 'flex', alignItems: 'center', gap: 8 }}
+      >
+        {/* Symbol + Price stacked */}
+        <div style={{ minWidth: 90 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontFamily: 'monospace', fontWeight: 700, color: THEME.t1, fontSize: 13 }}>
+              {data.symbol}
+            </span>
+            <span style={{
+              fontSize: 9, fontWeight: 700, fontFamily: 'monospace',
+              padding: '1px 6px', borderRadius: 8,
+              background: `${hc}18`, color: hc,
+            }}>
+              {data.hedgePercent.toFixed(0)}%
+            </span>
+          </div>
+          {price != null && price > 0 && (
+            <div style={{
+              fontFamily: 'monospace', fontSize: 11, marginTop: 2,
+              color: priceColor, fontWeight: priceDir !== 'none' ? 700 : 400,
+              transition: 'color 0.3s',
+            }}>
+              {fmtPrice(price)}
+            </div>
+          )}
+        </div>
+
+        {/* Spacer */}
+        <div style={{ flex: 1 }} />
+
+        {/* Net position */}
+        <div style={{ textAlign: 'right', minWidth: 60 }}>
+          <div style={{ fontSize: 8, color: THEME.t3, textTransform: 'uppercase', fontWeight: 600 }}>Net</div>
+          <div style={{
+            fontFamily: 'monospace', fontSize: 13, fontWeight: 700,
+            color: nc(netDiff),
+          }}>
+            {fmtNet(netDiff)}
+          </div>
+        </div>
+
+        {/* Net P&L */}
+        <div style={{ textAlign: 'right', minWidth: 60 }}>
+          <div style={{ fontSize: 8, color: THEME.t3, textTransform: 'uppercase', fontWeight: 600 }}>P&L</div>
+          <div style={{
+            fontFamily: 'monospace', fontSize: 13, fontWeight: 700,
+            color: nc(pnlDiff),
+          }}>
+            {fmtPnl(pnlDiff)}
+          </div>
+        </div>
       </div>
 
-      {/* Bottom line: P&L CLI / COV / Δ (aligned under net values) */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
-        <span style={{ minWidth: 80 }} />
-        <span style={{ fontSize: 10, fontFamily: 'monospace', padding: '1px 6px', visibility: 'hidden' }}>00%</span>
-        <div style={{ width: 1, height: 1, flexShrink: 0 }} />
-        <span style={{ ...numStyle, color: THEME.t1 }}>{fmtPnl(data.clientPnl)}</span>
-        <span style={{ ...numStyle, color: THEME.t1 }}>{fmtPnl(data.coveragePnl)}</span>
-        <span style={{ ...numStyle, color: nc(pnlDiff), fontWeight: 700 }}>{fmtPnl(pnlDiff)}</span>
-      </div>
+      {/* Expanded: CLI and COV sub-rows under NET / P&L columns */}
+      {expanded && (
+        <div style={{ padding: '0 10px 8px', borderTop: `1px dashed ${THEME.border}` }}>
+          {/* CLI row */}
+          <div style={{ display: 'flex', alignItems: 'center', padding: '5px 0 2px' }}>
+            <span style={{ fontSize: 9, fontWeight: 700, color: THEME.blue, textTransform: 'uppercase', minWidth: 90, letterSpacing: 0.5 }}>
+              Client
+            </span>
+            <div style={{ flex: 1 }} />
+            <span style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 600, color: THEME.t1, minWidth: 60, textAlign: 'right' }}>
+              {fmtNet(data.clientNetVolume)}
+            </span>
+            <span style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 600, color: THEME.t2, minWidth: 60, textAlign: 'right', marginLeft: 8 }}>
+              {fmtPnl(data.clientPnl)}
+            </span>
+          </div>
+          {/* COV row */}
+          <div style={{ display: 'flex', alignItems: 'center', padding: '2px 0 4px' }}>
+            <span style={{ fontSize: 9, fontWeight: 700, color: THEME.teal, textTransform: 'uppercase', minWidth: 90, letterSpacing: 0.5 }}>
+              Coverage
+            </span>
+            <div style={{ flex: 1 }} />
+            <span style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 600, color: THEME.t1, minWidth: 60, textAlign: 'right' }}>
+              {fmtNet(data.coverageNetVolume)}
+            </span>
+            <span style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 600, color: THEME.t2, minWidth: 60, textAlign: 'right', marginLeft: 8 }}>
+              {fmtPnl(data.coveragePnl)}
+            </span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

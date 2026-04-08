@@ -1,6 +1,7 @@
 import { useState, useRef, useMemo, useCallback } from 'react';
 import { THEME } from '../../../theme';
 import type { SymbolExposure } from '../../../types/compare';
+import type { PriceQuote } from '../../../types';
 import { SymbolRow } from './SymbolRow';
 import { ExpandedTable } from './ExpandedTable';
 
@@ -8,9 +9,10 @@ interface LeftPanelProps {
   symbols: SymbolExposure[];
   selectedSymbol: string | null;
   onSelect: (symbol: string) => void;
+  prices?: PriceQuote[];
 }
 
-export function LeftPanel({ symbols, selectedSymbol, onSelect }: LeftPanelProps) {
+export function LeftPanel({ symbols, selectedSymbol, onSelect, prices = [] }: LeftPanelProps) {
   const [expanded, setExpanded] = useState(false);
   const [panelWidth, setPanelWidth] = useState(() => {
     const saved = localStorage.getItem('comparePanelWidth');
@@ -163,6 +165,7 @@ export function LeftPanel({ symbols, selectedSymbol, onSelect }: LeftPanelProps)
                 data={s}
                 isSelected={s.symbol === selectedSymbol}
                 onClick={() => handleSelect(s.symbol)}
+                price={prices.find(p => p.symbol.toUpperCase() === s.symbol.toUpperCase())?.bid}
               />
             </div>
           ))}

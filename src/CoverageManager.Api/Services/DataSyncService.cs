@@ -117,7 +117,14 @@ public sealed class DataSyncService : BackgroundService
         var allDeals = _dealStore.GetAllDeals();
         if (allDeals.Count == 0) return;
 
-        var dealRecords = allDeals.Select(d => new DealRecord
+        // Exclude moved accounts from sync
+        var movedLogins = await _supabase.GetMovedLoginsAsync();
+        var filteredDeals = movedLogins.Count > 0
+            ? allDeals.Where(d => !movedLogins.Contains((long)d.Login)).ToList()
+            : allDeals;
+        if (filteredDeals.Count == 0) return;
+
+        var dealRecords = filteredDeals.Select(d => new DealRecord
         {
             DealId = (long)d.DealId,
             Source = "bbook",

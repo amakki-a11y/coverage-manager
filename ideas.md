@@ -8,3 +8,4 @@ Promote to Task Master when ready to build.
 ## Ideas
 <!-- New ideas go below this line -->
 - [ ] check if coverage deals saved to supabase (2026-04-06)
+- [ ] Customizable Compare symbol rows — right-click context menu to choose which fields to show (CLI/COV buy/sell/net/P&L/entry/exit/trades/wins). All 27 SymbolExposure fields available. Persist to localStorage. Plan saved in .claude/plans/ (2026-04-07)
