@@ -219,6 +219,53 @@ public class SupabaseService
         }
     }
 
+    // ── Moved Accounts ──
+
+    private HashSet<long> _movedLogins = new();
+    private DateTime _movedLoginsLastRefresh = DateTime.MinValue;
+
+    public async Task<HashSet<long>> GetMovedLoginsAsync(bool forceRefresh = false)
+    {
+        if (!forceRefresh && _movedLogins.Count > 0 && (DateTime.UtcNow - _movedLoginsLastRefresh).TotalMinutes < 5)
+            return _movedLogins;
+
+        try
+        {
+            var request = new HttpRequestMessage(HttpMethod.Get,
+                $"{_url}/rest/v1/moved_accounts?select=login");
+            var response = await _http.SendAsync(request);
+            response.EnsureSuccessStatusCode();
+            var json = await response.Content.ReadAsStringAsync();
+            var rows = JsonSerializer.Deserialize<List<Dictionary<string, JsonElement>>>(json, JsonOptions) ?? [];
+            _movedLogins = new HashSet<long>(rows.Select(r => r["login"].GetInt64()));
+            _movedLoginsLastRefresh = DateTime.UtcNow;
+            _logger.LogInformation("Loaded {Count} moved account logins", _movedLogins.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to load moved accounts");
+        }
+        return _movedLogins;
+    }
+
+    public async Task<List<Dictionary<string, object>>> GetMovedAccountsAsync()
+    {
+        try
+        {
+            var request = new HttpRequestMessage(HttpMethod.Get,
+                $"{_url}/rest/v1/moved_accounts?select=*&order=moved_at.desc");
+            var response = await _http.SendAsync(request);
+            response.EnsureSuccessStatusCode();
+            var json = await response.Content.ReadAsStringAsync();
+            return JsonSerializer.Deserialize<List<Dictionary<string, object>>>(json, JsonOptions) ?? [];
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to fetch moved accounts");
+            return [];
+        }
+    }
+
     // ── Deals ──
 
     public async Task<List<DealRecord>> GetDealsAsync(string source, DateTime from, DateTime to)

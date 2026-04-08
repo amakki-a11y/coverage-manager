@@ -78,10 +78,12 @@ public class ExposureController : ControllerBase
 
         // Query Supabase for the date range (has full history)
         var deals = await _supabase.GetDealsAsync("bbook", fromDate, toDate);
+        var movedLogins = await _supabase.GetMovedLoginsAsync();
 
         var tradeDeals = deals
             .Where(d => d.Action <= 1) // Exclude balance/credit (Action >= 2)
             .Where(d => !string.IsNullOrEmpty(d.Symbol))
+            .Where(d => !movedLogins.Contains(d.Login)) // Exclude moved accounts
             .ToList();
 
         var symbols = tradeDeals
@@ -273,9 +275,13 @@ public class ExposureController : ControllerBase
         // 1. Query MT5 Manager (batched, read-only)
         var mt5Deals = _mt5Connection.QueryDeals(fromOffset, toOffset);
 
-        // 2. Query Supabase
+        // 2. Query Supabase (exclude moved accounts)
         var supaDeals = await _supabase.GetDealsAsync("bbook", fromDate, toDate);
-        var supaTradeDeals = supaDeals.Where(d => d.Action <= 1 && !string.IsNullOrEmpty(d.Symbol)).ToList();
+        var movedLogins = await _supabase.GetMovedLoginsAsync();
+        var supaTradeDeals = supaDeals
+            .Where(d => d.Action <= 1 && !string.IsNullOrEmpty(d.Symbol))
+            .Where(d => !movedLogins.Contains(d.Login))
+            .ToList();
 
         // Fix: find deals in MT5 but not in Supabase, upsert them
         var fixedCount = 0;

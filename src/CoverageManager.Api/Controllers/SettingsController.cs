@@ -57,4 +57,14 @@ public class SettingsController : ControllerBase
         if (!success) return StatusCode(500, "Failed to delete account settings");
         return NoContent();
     }
+
+    /// <summary>
+    /// GET /api/settings/moved-accounts — list moved/excluded accounts
+    /// </summary>
+    [HttpGet("moved-accounts")]
+    public async Task<IActionResult> GetMovedAccounts()
+    {
+        var accounts = await _supabase.GetMovedAccountsAsync();
+        return Ok(accounts);
+    }
 }

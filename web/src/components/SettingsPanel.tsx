@@ -114,6 +114,7 @@ export function SettingsPanel() {
   const [verifyError, setVerifyError] = useState<string | null>(null);
   const [fixing, setFixing] = useState(false);
   const [fixedCount, setFixedCount] = useState<number | null>(null);
+  const [movedAccounts, setMovedAccounts] = useState<Array<{ login: number; name: string; reason: string; moved_at: string }>>([]);
 
   const fetchAccounts = useCallback(async () => {
     try {
@@ -122,7 +123,13 @@ export function SettingsPanel() {
     } catch { /* ignore */ }
   }, []);
 
-  useEffect(() => { fetchAccounts(); }, [fetchAccounts]);
+  useEffect(() => {
+    fetchAccounts();
+    fetch('http://localhost:5000/api/settings/moved-accounts')
+      .then(r => r.ok ? r.json() : [])
+      .then(setMovedAccounts)
+      .catch(() => {});
+  }, [fetchAccounts]);
 
   const managerAccounts = accounts.filter(a => a.account_type === 'manager');
   const coverageAccounts = accounts.filter(a => a.account_type === 'coverage');
@@ -309,6 +316,40 @@ export function SettingsPanel() {
           </div>
         )}
       </div>
+
+      {/* Moved Accounts */}
+      {movedAccounts.length > 0 && (
+        <div style={{ marginTop: 32 }}>
+          <div style={{ marginBottom: 12 }}>
+            <h3 style={{ color: THEME.t3, margin: 0, fontSize: 14 }}>Moved Accounts (Excluded from Exposure)</h3>
+            <p style={{ color: THEME.t3, margin: '4px 0 0', fontSize: 12 }}>
+              Accounts removed from MT5 Manager — deals kept in Supabase but hidden from dashboard
+            </p>
+          </div>
+          <div style={{ ...cardStyle, padding: 0, overflow: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr style={{ borderBottom: `1px solid ${THEME.border}` }}>
+                  <th style={{ ...thStyle, textAlign: 'left' }}>Login</th>
+                  <th style={{ ...thStyle, textAlign: 'left' }}>Name</th>
+                  <th style={{ ...thStyle, textAlign: 'left' }}>Reason</th>
+                  <th style={{ ...thStyle, textAlign: 'left' }}>Date Moved</th>
+                </tr>
+              </thead>
+              <tbody>
+                {movedAccounts.map(a => (
+                  <tr key={a.login} style={{ borderBottom: `1px solid ${THEME.border}` }}>
+                    <td style={{ ...tdStyle, textAlign: 'left', fontFamily: 'monospace' }}>{a.login}</td>
+                    <td style={{ ...tdStyle, textAlign: 'left', color: THEME.t1 }}>{a.name}</td>
+                    <td style={{ ...tdStyle, textAlign: 'left' }}>{a.reason}</td>
+                    <td style={{ ...tdStyle, textAlign: 'left' }}>{new Date(a.moved_at).toLocaleDateString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Deal Verification */}
       <div style={{ marginTop: 32 }}>
