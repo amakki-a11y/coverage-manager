@@ -35,6 +35,7 @@ public sealed class MT5ManagerConnection : BackgroundService
     public string? ConnectedServer { get; private set; }
     public int PositionCount { get; private set; }
     public int LoginCount { get; private set; }
+    public ulong[] Logins => _logins;
 
     public MT5ManagerConnection(
         ILogger<MT5ManagerConnection> logger,
@@ -391,6 +392,27 @@ public sealed class MT5ManagerConnection : BackgroundService
             result.Count, _logins.Length, from, to);
 
         return result;
+    }
+
+    /// <summary>
+    /// Query deals for a single login. Read-only, does not modify DealStore.
+    /// </summary>
+    public List<ClosedDeal> QueryDealsForLogin(ulong login, DateTimeOffset from, DateTimeOffset to)
+    {
+        if (_api == null || !_api.IsConnected) return [];
+        try
+        {
+            var deals = _api.RequestDeals(login, from, to);
+            return deals
+                .Where(raw => raw.Action < 2)
+                .Select(raw => ConvertDeal(raw))
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "QueryDealsForLogin failed for {Login}", login);
+            return [];
+        }
     }
 
     private int BackfillDeals(ulong[] logins, DateTimeOffset from, DateTimeOffset to)

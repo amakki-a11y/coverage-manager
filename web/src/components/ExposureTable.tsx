@@ -132,23 +132,25 @@ export function ExposureTable({ summaries, prices }: ExposureTableProps) {
           for (const m of mappings) {
             if (m.coverage_symbol) covToCanonical[m.coverage_symbol] = m.canonical_name;
           }
-          const findBB = (sym: string): string => {
-            const can = covToCanonical[sym] || covToCanonical[sym.replace(/[-.].*$/, '')] || sym;
-            return bbSymbols.find(s => s === can || s.startsWith(can)) || sym;
+          // Map a coverage symbol to its canonical (e.g. XAUUSD- -> XAUUSD)
+          const toCanonical = (sym: string): string => {
+            return covToCanonical[sym] || sym.replace(/[-.].*$/, '') || sym;
           };
           const remapped: Record<string, ClosedSymbol> = {};
           for (const s of (cov.symbols ?? []) as ClosedSymbol[]) {
-            const key = findBB(s.symbol);
-            if (remapped[key]) {
-              remapped[key].dealCount += s.dealCount;
-              remapped[key].netPnL += s.netPnL;
-              remapped[key].totalProfit += s.totalProfit;
-              remapped[key].totalVolume += s.totalVolume;
-              remapped[key].buyVolume += s.buyVolume;
-              remapped[key].sellVolume += s.sellVolume;
+            const canonical = toCanonical(s.symbol);
+            if (remapped[canonical]) {
+              remapped[canonical].dealCount += s.dealCount;
+              remapped[canonical].netPnL += s.netPnL;
+              remapped[canonical].totalProfit += s.totalProfit;
+              remapped[canonical].totalVolume += s.totalVolume;
+              remapped[canonical].buyVolume += s.buyVolume;
+              remapped[canonical].sellVolume += s.sellVolume;
             } else {
-              remapped[key] = { ...s, symbol: key };
+              remapped[canonical] = { ...s, symbol: canonical };
             }
+            // Also store under uppercase for case-insensitive lookup
+            remapped[canonical.toUpperCase()] = remapped[canonical];
           }
           setCovClosedMap(remapped);
         }
@@ -498,10 +500,10 @@ export function ExposureTable({ summaries, prices }: ExposureTableProps) {
                     </td>
                     {/* Summary closed */}
                     <td style={{ ...c, ...gc, borderLeft: gridSecBorder }}></td>
-                    <td style={{ ...c, ...gc }}></td>
-                    <td style={{ ...c, ...gc, color: pc((bb?.netPnL ?? 0) + (cv?.netPnL ?? 0)), fontWeight: 600 }}>
-                      {(bb || cv) ? fp((bb?.netPnL ?? 0) + (cv?.netPnL ?? 0)) : ''}
+                    <td style={{ ...c, ...gc, color: pc((cv?.netPnL ?? 0) - (bb?.netPnL ?? 0)), fontWeight: 600 }}>
+                      {(bb || cv) ? fp((cv?.netPnL ?? 0) - (bb?.netPnL ?? 0)) : ''}
                     </td>
+                    <td style={{ ...c, ...gc }}></td>
                   </tr>
               </React.Fragment>
             );
@@ -537,8 +539,8 @@ export function ExposureTable({ summaries, prices }: ExposureTableProps) {
             <td style={{ ...c, ...gc }}></td>
             <td style={{ ...c, ...gc, color: pc(closedCovPnL), fontWeight: 600 }}>{fp(closedCovPnL)}</td>
             <td style={{ ...c, ...gc, borderLeft: gridSecBorder }}></td>
+            <td style={{ ...c, ...gc, color: pc(closedCovPnL - closedBBPnL), fontWeight: 700 }}>{fp(closedCovPnL - closedBBPnL)}</td>
             <td style={{ ...c, ...gc }}></td>
-            <td style={{ ...c, ...gc, color: pc(closedBBPnL + closedCovPnL), fontWeight: 700 }}>{fp(closedBBPnL + closedCovPnL)}</td>
           </tr>
         </tfoot>
       </table>

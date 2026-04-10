@@ -143,23 +143,23 @@ export function ExpandedTable({ symbols, selectedSymbol, onSelect }: ExpandedTab
           for (const m of mappings) {
             if (m.coverage_symbol) covToCanonical[m.coverage_symbol] = m.canonical_name;
           }
-          const findBB = (sym: string): string => {
-            const can = covToCanonical[sym] || covToCanonical[sym.replace(/[-.].*$/, '')] || sym;
-            return bbSymbols.find(s => s === can || s.startsWith(can)) || sym;
+          const toCanonical = (sym: string): string => {
+            return covToCanonical[sym] || sym.replace(/[-.].*$/, '') || sym;
           };
           const remapped: Record<string, ClosedSymbol> = {};
           for (const s of (cov.symbols ?? []) as ClosedSymbol[]) {
-            const key = findBB(s.symbol);
-            if (remapped[key]) {
-              remapped[key].dealCount += s.dealCount;
-              remapped[key].netPnL += s.netPnL;
-              remapped[key].totalProfit += s.totalProfit;
-              remapped[key].totalVolume += s.totalVolume;
-              remapped[key].buyVolume += s.buyVolume;
-              remapped[key].sellVolume += s.sellVolume;
+            const canonical = toCanonical(s.symbol);
+            if (remapped[canonical]) {
+              remapped[canonical].dealCount += s.dealCount;
+              remapped[canonical].netPnL += s.netPnL;
+              remapped[canonical].totalProfit += s.totalProfit;
+              remapped[canonical].totalVolume += s.totalVolume;
+              remapped[canonical].buyVolume += s.buyVolume;
+              remapped[canonical].sellVolume += s.sellVolume;
             } else {
-              remapped[key] = { ...s, symbol: key };
+              remapped[canonical] = { ...s, symbol: canonical };
             }
+            remapped[canonical.toUpperCase()] = remapped[canonical];
           }
           setCovClosedMap(remapped);
         }
@@ -343,8 +343,8 @@ export function ExpandedTable({ symbols, selectedSymbol, onSelect }: ExpandedTab
                     </td>
                     {/* Summary closed */}
                     <td style={{ ...c, ...gc, borderLeft: gridSecBorder }}></td>
-                    <td style={{ ...c, ...gc, color: nc((bb?.netPnL ?? 0) + (cv?.netPnL ?? 0)), fontWeight: 600 }}>
-                      {(bb || cv) ? fp((bb?.netPnL ?? 0) + (cv?.netPnL ?? 0)) : ''}
+                    <td style={{ ...c, ...gc, color: nc((cv?.netPnL ?? 0) - (bb?.netPnL ?? 0)), fontWeight: 600 }}>
+                      {(bb || cv) ? fp((cv?.netPnL ?? 0) - (bb?.netPnL ?? 0)) : ''}
                     </td>
                     <td style={{ ...c, ...gc }}></td>
                   </tr>

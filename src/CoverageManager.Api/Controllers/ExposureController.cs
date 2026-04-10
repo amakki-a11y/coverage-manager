@@ -390,4 +390,162 @@ public class ExposureController : ControllerBase
             elapsed = sw.Elapsed.ToString(@"hh\:mm\:ss")
         });
     }
+
+    /// <summary>
+    /// GET /api/exposure/verify/detail?from=&to= — Per-login deal ID comparison.
+    /// Queries one login at a time to avoid MT5 load. Shows exact missing/extra deal IDs.
+    /// </summary>
+    [HttpGet("verify/detail")]
+    public async Task<IActionResult> VerifyDealsDetail(
+        [FromQuery] DateTime? from = null,
+        [FromQuery] DateTime? to = null,
+        [FromQuery] bool fix = false)
+    {
+        if (!_mt5Connection.IsConnected)
+            return StatusCode(503, new { error = "MT5 not connected" });
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var fromDate = from ?? DateTime.UtcNow.Date;
+        var toDate = (to ?? DateTime.UtcNow.Date).AddDays(1);
+        var fromOffset = new DateTimeOffset(fromDate, TimeSpan.Zero);
+        var toOffset = new DateTimeOffset(toDate, TimeSpan.Zero);
+
+        var movedLogins = await _supabase.GetMovedLoginsAsync();
+        var allSupaDeals = await _supabase.GetDealsAsync("bbook", fromDate, toDate);
+        var supaTradeDeals = allSupaDeals
+            .Where(d => d.Action <= 1 && !string.IsNullOrEmpty(d.Symbol))
+            .Where(d => !movedLogins.Contains(d.Login))
+            .ToList();
+
+        // Group Supabase deals by login
+        var supaByLogin = supaTradeDeals
+            .GroupBy(d => d.Login)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        var logins = _mt5Connection.Logins
+            .Where(l => !movedLogins.Contains((long)l))
+            .ToArray();
+
+        var loginResults = new List<object>();
+        var totalMissing = 0;
+        var totalExtra = 0;
+        var dealsToFix = new List<DealRecord>();
+
+        foreach (var login in logins)
+        {
+            var mt5Deals = _mt5Connection.QueryDealsForLogin(login, fromOffset, toOffset);
+            var mt5DealIds = new HashSet<ulong>(mt5Deals.Select(d => d.DealId));
+
+            var supaDealList = supaByLogin.GetValueOrDefault((long)login) ?? [];
+            var supaDealIds = new HashSet<long>(supaDealList.Select(d => d.DealId));
+
+            var missingFromSupa = mt5Deals.Where(d => !supaDealIds.Contains((long)d.DealId)).ToList();
+            var extraInSupa = supaDealList.Where(d => !mt5DealIds.Contains((ulong)d.DealId)).ToList();
+
+            if (missingFromSupa.Count == 0 && extraInSupa.Count == 0)
+                continue; // Skip matched logins
+
+            totalMissing += missingFromSupa.Count;
+            totalExtra += extraInSupa.Count;
+
+            if (fix && missingFromSupa.Count > 0)
+            {
+                dealsToFix.AddRange(missingFromSupa.Select(d => new DealRecord
+                {
+                    DealId = (long)d.DealId,
+                    Source = "bbook",
+                    Login = (long)d.Login,
+                    Symbol = d.Symbol,
+                    CanonicalSymbol = d.Symbol,
+                    Direction = d.Direction,
+                    Action = d.Direction == "BUY" ? 0 : 1,
+                    Entry = (int)d.Entry,
+                    Volume = d.VolumeLots,
+                    Price = d.Price,
+                    Profit = d.Profit,
+                    Commission = d.Commission,
+                    Swap = d.Swap,
+                    Fee = d.Fee,
+                    DealTime = d.Time
+                }));
+            }
+
+            loginResults.Add(new
+            {
+                login,
+                mt5Count = mt5Deals.Count,
+                supaCount = supaDealList.Count,
+                missingFromSupabase = missingFromSupa.Count,
+                extraInSupabase = extraInSupa.Count,
+                missingDeals = missingFromSupa.Take(20).Select(d => new
+                {
+                    dealId = d.DealId,
+                    symbol = d.Symbol,
+                    direction = d.Direction,
+                    volume = d.VolumeLots,
+                    time = d.Time.ToString("yyyy-MM-dd HH:mm:ss")
+                }),
+                extraDeals = extraInSupa.Take(20).Select(d => new
+                {
+                    dealId = d.DealId,
+                    symbol = d.Symbol,
+                    direction = d.Direction,
+                    volume = d.Volume,
+                    time = d.DealTime.ToString("yyyy-MM-dd HH:mm:ss")
+                })
+            });
+        }
+
+        // Also check Supabase logins not in MT5
+        var mt5LoginSet = new HashSet<ulong>(logins);
+        var supaOnlyLogins = supaByLogin.Keys
+            .Where(l => !mt5LoginSet.Contains((ulong)l))
+            .ToList();
+
+        foreach (var login in supaOnlyLogins)
+        {
+            var deals = supaByLogin[login];
+            totalExtra += deals.Count;
+            loginResults.Add(new
+            {
+                login,
+                mt5Count = 0,
+                supaCount = deals.Count,
+                missingFromSupabase = 0,
+                extraInSupabase = deals.Count,
+                missingDeals = Array.Empty<object>(),
+                extraDeals = deals.Take(20).Select(d => new
+                {
+                    dealId = d.DealId,
+                    symbol = d.Symbol,
+                    direction = d.Direction,
+                    volume = d.Volume,
+                    time = d.DealTime.ToString("yyyy-MM-dd HH:mm:ss")
+                }),
+                note = "Login not in MT5 active list"
+            });
+        }
+
+        var fixedCount = 0;
+        if (fix && dealsToFix.Count > 0)
+        {
+            await _supabase.UpsertDealsAsync(dealsToFix);
+            fixedCount = dealsToFix.Count;
+        }
+
+        sw.Stop();
+
+        return Ok(new
+        {
+            from = fromDate.ToString("yyyy-MM-dd"),
+            to = (toDate.AddDays(-1)).ToString("yyyy-MM-dd"),
+            loginsChecked = logins.Length,
+            loginsWithDiffs = loginResults.Count,
+            totalMissingFromSupabase = totalMissing,
+            totalExtraInSupabase = totalExtra,
+            fixed_ = fixedCount,
+            elapsed = sw.Elapsed.ToString(@"hh\:mm\:ss"),
+            logins = loginResults
+        });
+    }
 }
