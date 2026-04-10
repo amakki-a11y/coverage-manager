@@ -145,12 +145,13 @@ def get_deals(
     if deals is None:
         return {"deals": [], "symbols": []}
 
-    # Filter closed deals only: entry=1 (OUT), 2 (INOUT), 3 (OUT_BY)
-    closed = [d for d in deals if d.entry in (1, 2, 3) and d.symbol]
+    # All trade deals (exclude balance/credit which have type >= 2 / no symbol)
+    trade_deals = [d for d in deals if d.symbol and d.type < 2]
 
-    # Build per-symbol P&L summary
+    # Build per-symbol summary: volumes from ALL deals (IN+OUT) to match MT5 totals,
+    # P&L only from OUT deals (entry 1, 2, 3)
     symbol_map: dict = {}
-    for d in closed:
+    for d in trade_deals:
         s = symbol_map.setdefault(d.symbol, {
             "symbol": d.symbol,
             "dealCount": 0,
@@ -163,19 +164,24 @@ def get_deals(
             "sellVolume": 0.0,
         })
         s["dealCount"] += 1
-        s["totalProfit"] += d.profit
-        s["totalCommission"] += d.commission
-        s["totalSwap"] += d.swap
-        s["totalFee"] += d.fee
         s["totalVolume"] += d.volume
+        s["totalCommission"] += d.commission
+        s["totalFee"] += d.fee
         if d.type == 0:  # BUY
             s["buyVolume"] += d.volume
         else:  # SELL
             s["sellVolume"] += d.volume
+        # Profit and swap only from OUT deals
+        if d.entry in (1, 2, 3):
+            s["totalProfit"] += d.profit
+            s["totalSwap"] += d.swap
 
     symbols = list(symbol_map.values())
     for s in symbols:
         s["netPnL"] = s["totalProfit"] + s["totalCommission"] + s["totalSwap"] + s["totalFee"]
+
+    # Keep separate count of OUT-only deals for backwards compat
+    closed = [d for d in trade_deals if d.entry in (1, 2, 3)]
 
     # Also compute raw totals for all deals (for debugging/comparison with MT5 History tab)
     all_with_symbol = [d for d in deals if d.symbol]
