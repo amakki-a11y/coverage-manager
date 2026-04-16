@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { THEME } from '../../theme';
 
 interface BookSide {
@@ -341,13 +341,11 @@ export function MarkupPanel() {
                   <thead>
                     <tr style={{ background: THEME.bg3, borderBottom: `1px solid ${THEME.border}` }}>
                       <th style={thStyle}>Symbol</th>
+                      <th style={thStyle}>Source</th>
                       <th style={thStyle}>Side</th>
-                      <th style={{ ...thStyle, color: THEME.blue }}>Client</th>
-                      <th style={thStyle}>Client Price</th>
-                      <th style={thStyle}>Client Time</th>
-                      <th style={{ ...thStyle, color: THEME.teal }}>Coverage</th>
-                      <th style={thStyle}>Cov Price</th>
-                      <th style={thStyle}>Cov Time</th>
+                      <th style={thStyle}>Volume</th>
+                      <th style={thStyle}>Price</th>
+                      <th style={thStyle}>Time</th>
                       <th style={thStyle}>Time Diff</th>
                       <th style={thStyle}>Price Edge</th>
                     </tr>
@@ -364,62 +362,66 @@ export function MarkupPanel() {
                       const priceEdge = m.clientDirection === 'BUY'
                         ? m.clientPrice - covAvgPrice
                         : covAvgPrice - m.clientPrice;
+                      const bg = i % 2 === 0 ? 'transparent' : `${THEME.bg3}44`;
                       return (
-                        <tr
-                          key={`${m.clientDealId}-${i}`}
-                          style={{
-                            borderBottom: `1px solid ${THEME.border}`,
-                            background: i % 2 === 0 ? 'transparent' : `${THEME.bg3}44`,
-                          }}
-                        >
-                          <td style={{ ...tdStyle, color: THEME.t1, fontWeight: 600, fontSize: 12 }}>
-                            {m.symbol}
-                          </td>
-                          <td style={{
-                            ...tdStyle,
-                            color: m.clientDirection === 'BUY' ? THEME.green : THEME.red,
-                            fontWeight: 600,
-                          }}>
-                            {m.clientDirection}
-                          </td>
-                          <td style={{ ...tdStyle, color: THEME.blue }}>
-                            {m.clientVolume.toFixed(2)}
-                          </td>
-                          <td style={tdStyle}>
-                            {m.clientPrice.toFixed(5)}
-                          </td>
-                          <td style={{ ...tdStyle, fontSize: 10 }}>
-                            {m.clientTime}
-                          </td>
-                          <td style={{ ...tdStyle, color: THEME.teal }}>
-                            {covTotalVol.toFixed(2)}
-                            {m.coverageMatches.length > 1 && (
-                              <span style={{ color: THEME.t3, fontSize: 9 }}>
-                                {' '}({m.coverageMatches.length} fills)
-                              </span>
-                            )}
-                          </td>
-                          <td style={tdStyle}>
-                            {covAvgPrice.toFixed(5)}
-                          </td>
-                          <td style={{ ...tdStyle, fontSize: 10 }}>
-                            {m.coverageMatches[0]?.time || '—'}
-                          </td>
-                          <td style={{
-                            ...tdStyle,
-                            color: Math.abs(avgDiffMs) < 200 ? THEME.green : THEME.amber,
-                            fontSize: 10,
-                          }}>
-                            {avgDiffMs > 0 ? '+' : ''}{avgDiffMs.toFixed(0)}ms
-                          </td>
-                          <td style={{
-                            ...tdStyle,
-                            color: priceEdge > 0 ? THEME.green : priceEdge < 0 ? THEME.red : THEME.t3,
-                            fontWeight: 600,
-                          }}>
-                            {priceEdge > 0 ? '+' : ''}{priceEdge.toFixed(5)}
-                          </td>
-                        </tr>
+                        <React.Fragment key={`${m.clientDealId}-${i}`}>
+                          {/* Client row */}
+                          <tr style={{ background: bg, borderTop: `2px solid ${THEME.border}` }}>
+                            <td rowSpan={1 + m.coverageMatches.length} style={{
+                              ...tdStyle, color: THEME.t1, fontWeight: 600, fontSize: 12,
+                              verticalAlign: 'middle', borderRight: `1px solid ${THEME.border}`,
+                            }}>
+                              {m.symbol}
+                            </td>
+                            <td style={{ ...tdStyle, color: THEME.blue, fontWeight: 700, fontSize: 10 }}>CLIENT</td>
+                            <td style={{
+                              ...tdStyle,
+                              color: m.clientDirection === 'BUY' ? THEME.green : THEME.red,
+                              fontWeight: 600,
+                            }}>
+                              {m.clientDirection}
+                            </td>
+                            <td style={{ ...tdStyle, color: THEME.t1 }}>{m.clientVolume.toFixed(2)}</td>
+                            <td style={{ ...tdStyle, fontWeight: 600 }}>{m.clientPrice.toFixed(5)}</td>
+                            <td style={{ ...tdStyle, fontSize: 10 }}>{m.clientTime}</td>
+                            <td style={tdStyle}></td>
+                            <td rowSpan={1 + m.coverageMatches.length} style={{
+                              ...tdStyle,
+                              color: priceEdge > 0 ? THEME.green : priceEdge < 0 ? THEME.red : THEME.t3,
+                              fontWeight: 700, fontSize: 13, verticalAlign: 'middle',
+                              borderLeft: `1px solid ${THEME.border}`,
+                            }}>
+                              {priceEdge > 0 ? '+' : ''}{priceEdge.toFixed(5)}
+                            </td>
+                          </tr>
+                          {/* Coverage rows (one per fill) */}
+                          {m.coverageMatches.map((c, j) => (
+                            <tr key={`cov-${j}`} style={{
+                              background: bg,
+                              borderBottom: j === m.coverageMatches.length - 1 ? `1px solid ${THEME.border}` : 'none',
+                            }}>
+                              <td style={{ ...tdStyle, color: THEME.teal, fontWeight: 700, fontSize: 10 }}>
+                                COV {c.entry}
+                              </td>
+                              <td style={{
+                                ...tdStyle,
+                                color: c.type === 'buy' ? THEME.green : THEME.red,
+                                fontWeight: 600,
+                              }}>
+                                {c.type.toUpperCase()}
+                              </td>
+                              <td style={{ ...tdStyle, color: THEME.t1 }}>{c.volume.toFixed(2)}</td>
+                              <td style={{ ...tdStyle, fontWeight: 600 }}>{c.price.toFixed(5)}</td>
+                              <td style={{ ...tdStyle, fontSize: 10 }}>{c.time}</td>
+                              <td style={{
+                                ...tdStyle, fontSize: 10,
+                                color: Math.abs(c.timeDiffMs) < 200 ? THEME.green : THEME.amber,
+                              }}>
+                                {c.timeDiffMs > 0 ? '+' : ''}{c.timeDiffMs}ms
+                              </td>
+                            </tr>
+                          ))}
+                        </React.Fragment>
                       );
                     })}
                   </tbody>
