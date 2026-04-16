@@ -205,3 +205,49 @@ def get_deals(
             "closedNet": round(sum(s["netPnL"] for s in symbols), 2),
         }
     }
+
+
+@app.get("/deals/raw")
+def get_deals_raw(
+    from_date: str = Query(..., alias="from", description="Start date YYYY-MM-DD"),
+    to_date: str = Query(..., alias="to", description="End date YYYY-MM-DD"),
+):
+    """
+    Return individual coverage deals (not aggregated) for matching against client deals.
+    Used by the /api/markup/match endpoint for time-window matching.
+    """
+    try:
+        dt_from = datetime.strptime(from_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        dt_to = datetime.strptime(to_date, "%Y-%m-%d").replace(tzinfo=timezone.utc) + timedelta(days=1)
+    except ValueError as e:
+        return {"error": f"Invalid date format, expected YYYY-MM-DD: {e}"}, 400
+
+    try:
+        deals = mt5.history_deals_get(dt_from, dt_to)
+        if deals is None:
+            return {"deals": []}
+
+        result = []
+        for d in deals:
+            if d.type >= 2 or not d.symbol:
+                continue  # skip balance/credit
+            result.append({
+                "ticket": d.ticket,
+                "time": datetime.fromtimestamp(d.time_msc / 1000, tz=timezone.utc).isoformat(),
+                "timeMsc": d.time_msc,
+                "symbol": d.symbol,
+                "type": "buy" if d.type == 0 else "sell",
+                "entry": d.entry,
+                "volume": d.volume,
+                "price": d.price,
+                "profit": d.profit,
+                "commission": d.commission,
+                "fee": d.fee,
+                "swap": d.swap,
+                "positionId": d.position_id,
+                "comment": d.comment or "",
+            })
+
+        return {"deals": result, "count": len(result)}
+    except Exception as e:
+        return {"error": f"Failed to fetch raw deals: {e}"}, 500

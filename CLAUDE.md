@@ -218,13 +218,15 @@ dotnet test CoverageManager.sln
 - `GET /api/accounts/deals?source=&from=&to=` — Query historical deals from Supabase
 - `POST /api/accounts/backfill-deals?from=&to=` — Backfill deals from MT5 to Supabase
 - `GET /api/exposure/verify?from=&to=&fix=false` — Compare MT5 Manager deals vs Supabase (batched 1K logins). `fix=true` upserts missing deals.
+- `GET /api/markup/match?from=&to=` — Aggregates client vs coverage deals per canonical symbol; returns broker mark-up (Cov P&L − Client P&L) and VWAP price edge.
 - `GET /api/compare/exposure` — Full snapshot of symbol exposures for Compare tab
 - `GET /api/compare/trades?symbol=&from=` — Trade history for Compare charts
 - `WS /ws` — Real-time exposure + prices + P&L updates
 
 ### Python Collector (port 8100)
 - `GET /positions` — Current coverage open positions
-- `GET /deals?from=YYYY-MM-DD&to=YYYY-MM-DD` — Coverage closed deal history (buyVolume, sellVolume)
+- `GET /deals?from=YYYY-MM-DD&to=YYYY-MM-DD` — Coverage closed deal history (aggregated)
+- `GET /deals/raw?from=YYYY-MM-DD&to=YYYY-MM-DD` — Individual coverage deals with ticket/price/time (used by Markup tab)
 - `GET /health` — Connection status + account info
 
 ## Phase Status

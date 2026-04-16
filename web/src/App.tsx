@@ -9,12 +9,13 @@ import { SymbolMappingAdmin } from './components/SymbolMappingAdmin';
 import { SettingsPanel } from './components/SettingsPanel';
 import { PnLPanel } from './components/PnLPanel';
 import { PositionsCompare } from './pages/PositionsCompare';
+import { MarkupPanel } from './pages/Markup';
 import { AlertToast } from './components/AlertToast';
 import { AlertBanner } from './components/AlertBanner';
 import { AlertHistory } from './components/AlertHistory';
 import type { Position } from './types';
 
-type Tab = 'exposure' | 'positions' | 'pnl' | 'compare' | 'mappings' | 'settings';
+type Tab = 'exposure' | 'positions' | 'pnl' | 'compare' | 'markup' | 'mappings' | 'settings';
 
 function AppContent() {
   const { theme, mode, toggleTheme } = useTheme();
@@ -81,6 +82,7 @@ function AppContent() {
         <button style={tabStyle(tab === 'positions')} onClick={() => setTab('positions')}>Positions</button>
         <button style={tabStyle(tab === 'pnl')} onClick={() => setTab('pnl')}>P&L</button>
         <button style={tabStyle(tab === 'compare')} onClick={() => setTab('compare')}>Compare</button>
+        <button style={tabStyle(tab === 'markup')} onClick={() => setTab('markup')}>Markup</button>
         <button style={tabStyle(tab === 'mappings')} onClick={() => setTab('mappings')}>Mappings</button>
         <button style={tabStyle(tab === 'settings')} onClick={() => setTab('settings')}>Settings</button>
 
@@ -168,6 +170,7 @@ function AppContent() {
         {tab === 'positions' && <PositionsGrid positions={positions} />}
         {tab === 'pnl' && <PnLPanel />}
         {tab === 'compare' && <PositionsCompare prices={prices} />}
+        {tab === 'markup' && <MarkupPanel />}
         {tab === 'mappings' && <SymbolMappingAdmin />}
         {tab === 'settings' && <SettingsPanel />}
       </div>
