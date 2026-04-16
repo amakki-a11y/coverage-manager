@@ -82,6 +82,18 @@ function pnlColor(v: number): string {
   return v > 0 ? THEME.green : v < 0 ? THEME.red : THEME.t3;
 }
 
+// Convert price edge to pips based on typical pip size for the price level
+function toPips(edge: number, price: number): number {
+  if (price === 0) return 0;
+  // Determine pip size from price magnitude
+  let pipSize: number;
+  if (price >= 1000) pipSize = 0.1;       // Indices (US30, UT100, XAUUSD)
+  else if (price >= 10) pipSize = 0.01;   // Oil, Silver
+  else if (price >= 1) pipSize = 0.001;   // XRPUSD
+  else pipSize = 0.0001;                  // Forex (EURUSD, GBPUSD)
+  return edge / pipSize;
+}
+
 function hedgeColor(pct: number): string {
   if (pct >= 90) return THEME.green;
   if (pct >= 50) return THEME.amber;
@@ -348,6 +360,7 @@ export function MarkupPanel() {
                       <th style={thStyle}>Time</th>
                       <th style={thStyle}>Time Diff</th>
                       <th style={thStyle}>Price Edge</th>
+                      <th style={thStyle}>Pips</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -392,6 +405,16 @@ export function MarkupPanel() {
                               borderLeft: `1px solid ${THEME.border}`,
                             }}>
                               {priceEdge > 0 ? '+' : ''}{priceEdge.toFixed(5)}
+                            </td>
+                            <td rowSpan={1 + m.coverageMatches.length} style={{
+                              ...tdStyle,
+                              color: priceEdge > 0 ? THEME.green : priceEdge < 0 ? THEME.red : THEME.t3,
+                              fontWeight: 700, fontSize: 13, verticalAlign: 'middle',
+                            }}>
+                              {(() => {
+                                const pips = toPips(priceEdge, m.clientPrice);
+                                return `${pips > 0 ? '+' : ''}${pips.toFixed(1)}`;
+                              })()}
                             </td>
                           </tr>
                           {/* Coverage rows (one per fill) */}
