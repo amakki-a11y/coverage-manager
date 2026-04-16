@@ -227,6 +227,69 @@ public class MarkupController : ControllerBase
             var sorted = results.OrderByDescending(x => Math.Abs(x.markup)).ToList();
             var totalMarkup = sorted.Sum(x => x.markup);
 
+            // 6. Build sample matched pairs by time proximity (±500ms)
+            // Index ALL coverage deals (IN + OUT) by (canonical, direction) sorted by time
+            var allCovDeals = (covResp?.Deals ?? new())
+                .Where(d => !string.IsNullOrEmpty(d.Symbol))
+                .Select(d => new { deal = d, canonical = CanCov(d.Symbol), timeMsc = d.TimeMsc })
+                .ToList();
+
+            var covByTime = new Dictionary<(string, string), List<(CoverageRawDeal deal, long timeMsc)>>(
+            );
+            foreach (var c in allCovDeals)
+            {
+                var dir = c.deal.Type.ToUpperInvariant();
+                var key = (c.canonical, dir);
+                if (!covByTime.TryGetValue(key, out var list))
+                    covByTime[key] = list = new();
+                list.Add((c.deal, c.timeMsc));
+            }
+            foreach (var kv in covByTime)
+                kv.Value.Sort((a, b) => a.timeMsc.CompareTo(b.timeMsc));
+
+            var sampleMatches = new List<object>();
+            const long windowMs = 500; // ±500ms
+            foreach (var b in bbookTrade)
+            {
+                if (sampleMatches.Count >= 50) break;
+                var can = CanBbook(b.Symbol);
+                var dir = b.Direction.ToUpperInvariant();
+                var bTime = b.DealTime.Kind == DateTimeKind.Utc
+                    ? b.DealTime : b.DealTime.ToUniversalTime();
+                var bMs = new DateTimeOffset(bTime, TimeSpan.Zero).ToUnixTimeMilliseconds();
+
+                if (!covByTime.TryGetValue((can, dir), out var covList)) continue;
+
+                // Find all coverage deals within ±500ms
+                var nearby = covList
+                    .Where(c => Math.Abs(c.timeMsc - bMs) <= windowMs)
+                    .Select(c => new
+                    {
+                        ticket = c.deal.Ticket,
+                        type = c.deal.Type,
+                        entry = c.deal.Entry == 0 ? "IN" : "OUT",
+                        volume = c.deal.Volume,
+                        price = c.deal.Price,
+                        time = c.deal.Time.ToString("HH:mm:ss.fff"),
+                        timeDiffMs = c.timeMsc - bMs
+                    })
+                    .ToList();
+
+                if (nearby.Count == 0) continue;
+
+                sampleMatches.Add(new
+                {
+                    clientDealId = b.DealId,
+                    clientLogin = b.Login,
+                    clientDirection = dir,
+                    clientVolume = b.Volume,
+                    clientPrice = b.Price,
+                    clientTime = bTime.ToString("HH:mm:ss.fff"),
+                    symbol = can,
+                    coverageMatches = nearby
+                });
+            }
+
             sw.Stop();
 
             return Ok(new
@@ -243,6 +306,7 @@ public class MarkupController : ControllerBase
                     coverageProfitTotal = Math.Round(agg.Values.Sum(a => a.CoverageProfit), 2)
                 },
                 symbols = sorted,
+                sampleMatches,
                 elapsed = sw.Elapsed.ToString(@"hh\:mm\:ss\.fff")
             });
         }

@@ -21,6 +21,27 @@ interface MarkupRow {
   hedgeRatioSell: number;
 }
 
+interface CoverageMatch {
+  ticket: number;
+  type: string;
+  entry: string;
+  volume: number;
+  price: number;
+  time: string;
+  timeDiffMs: number;
+}
+
+interface SampleMatch {
+  clientDealId: number;
+  clientLogin: number;
+  clientDirection: string;
+  clientVolume: number;
+  clientPrice: number;
+  clientTime: string;
+  symbol: string;
+  coverageMatches: CoverageMatch[];
+}
+
 interface MarkupResponse {
   from: string;
   to: string;
@@ -33,6 +54,7 @@ interface MarkupResponse {
     coverageProfitTotal: number;
   };
   symbols: MarkupRow[];
+  sampleMatches: SampleMatch[];
   elapsed: string;
 }
 
@@ -295,10 +317,116 @@ export function MarkupPanel() {
           </div>
 
           <div style={{ marginTop: 12, fontSize: 11, color: THEME.t3, lineHeight: 1.6 }}>
-            <strong>Markup</strong> = Coverage P&L − Client P&L (broker's net profit after routing client trades to LP).<br />
-            <strong>Edge B/S</strong> = Price difference per lot between client and LP execution (positive = broker captured spread).<br />
-            <strong>Hedge B/S</strong> = Coverage volume as % of client volume on each side (buy / sell).
+            <strong>Markup</strong> = Coverage P&L - Client P&L (broker net profit after routing to LP).<br />
+            <strong>Edge B/S</strong> = Price difference per lot between client and LP execution.<br />
+            <strong>Hedge B/S</strong> = Coverage volume as % of client volume on each side.
           </div>
+
+          {/* Sample Matched Pairs */}
+          {data.sampleMatches && data.sampleMatches.length > 0 && (
+            <div style={{ marginTop: 24 }}>
+              <h3 style={{ color: THEME.t1, fontSize: 14, margin: '0 0 12px' }}>
+                Sample Matched Pairs ({data.sampleMatches.length})
+                <span style={{ color: THEME.t3, fontWeight: 400, fontSize: 11, marginLeft: 8 }}>
+                  Client deal matched to coverage deals within 500ms
+                </span>
+              </h3>
+              <div style={{
+                background: THEME.card,
+                borderRadius: 8,
+                border: `1px solid ${THEME.border}`,
+                overflow: 'hidden',
+              }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                  <thead>
+                    <tr style={{ background: THEME.bg3, borderBottom: `1px solid ${THEME.border}` }}>
+                      <th style={thStyle}>Symbol</th>
+                      <th style={thStyle}>Side</th>
+                      <th style={{ ...thStyle, color: THEME.blue }}>Client</th>
+                      <th style={thStyle}>Client Price</th>
+                      <th style={thStyle}>Client Time</th>
+                      <th style={{ ...thStyle, color: THEME.teal }}>Coverage</th>
+                      <th style={thStyle}>Cov Price</th>
+                      <th style={thStyle}>Cov Time</th>
+                      <th style={thStyle}>Time Diff</th>
+                      <th style={thStyle}>Price Edge</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.sampleMatches.map((m, i) => {
+                      const covTotalVol = m.coverageMatches.reduce((s, c) => s + c.volume, 0);
+                      const covAvgPrice = m.coverageMatches.length > 0
+                        ? m.coverageMatches.reduce((s, c) => s + c.price * c.volume, 0) / covTotalVol
+                        : 0;
+                      const avgDiffMs = m.coverageMatches.length > 0
+                        ? m.coverageMatches.reduce((s, c) => s + c.timeDiffMs, 0) / m.coverageMatches.length
+                        : 0;
+                      const priceEdge = m.clientDirection === 'BUY'
+                        ? m.clientPrice - covAvgPrice
+                        : covAvgPrice - m.clientPrice;
+                      return (
+                        <tr
+                          key={`${m.clientDealId}-${i}`}
+                          style={{
+                            borderBottom: `1px solid ${THEME.border}`,
+                            background: i % 2 === 0 ? 'transparent' : `${THEME.bg3}44`,
+                          }}
+                        >
+                          <td style={{ ...tdStyle, color: THEME.t1, fontWeight: 600, fontSize: 12 }}>
+                            {m.symbol}
+                          </td>
+                          <td style={{
+                            ...tdStyle,
+                            color: m.clientDirection === 'BUY' ? THEME.green : THEME.red,
+                            fontWeight: 600,
+                          }}>
+                            {m.clientDirection}
+                          </td>
+                          <td style={{ ...tdStyle, color: THEME.blue }}>
+                            {m.clientVolume.toFixed(2)}
+                          </td>
+                          <td style={tdStyle}>
+                            {m.clientPrice.toFixed(5)}
+                          </td>
+                          <td style={{ ...tdStyle, fontSize: 10 }}>
+                            {m.clientTime}
+                          </td>
+                          <td style={{ ...tdStyle, color: THEME.teal }}>
+                            {covTotalVol.toFixed(2)}
+                            {m.coverageMatches.length > 1 && (
+                              <span style={{ color: THEME.t3, fontSize: 9 }}>
+                                {' '}({m.coverageMatches.length} fills)
+                              </span>
+                            )}
+                          </td>
+                          <td style={tdStyle}>
+                            {covAvgPrice.toFixed(5)}
+                          </td>
+                          <td style={{ ...tdStyle, fontSize: 10 }}>
+                            {m.coverageMatches[0]?.time || '—'}
+                          </td>
+                          <td style={{
+                            ...tdStyle,
+                            color: Math.abs(avgDiffMs) < 200 ? THEME.green : THEME.amber,
+                            fontSize: 10,
+                          }}>
+                            {avgDiffMs > 0 ? '+' : ''}{avgDiffMs.toFixed(0)}ms
+                          </td>
+                          <td style={{
+                            ...tdStyle,
+                            color: priceEdge > 0 ? THEME.green : priceEdge < 0 ? THEME.red : THEME.t3,
+                            fontWeight: 600,
+                          }}>
+                            {priceEdge > 0 ? '+' : ''}{priceEdge.toFixed(5)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </>
       )}
 
