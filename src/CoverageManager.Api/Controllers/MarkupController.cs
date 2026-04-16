@@ -254,8 +254,9 @@ public class MarkupController : ControllerBase
                 if (sampleMatches.Count >= 50) break;
                 var can = CanBbook(b.Symbol);
                 var dir = b.Direction.ToUpperInvariant();
-                var bTime = b.DealTime.Kind == DateTimeKind.Utc
-                    ? b.DealTime : b.DealTime.ToUniversalTime();
+                // DealTime from Supabase is deserialized as local time by System.Text.Json
+                // ToUniversalTime() correctly converts it back to UTC for matching
+                var bTime = b.DealTime.ToUniversalTime();
                 var bMs = new DateTimeOffset(bTime, TimeSpan.Zero).ToUnixTimeMilliseconds();
 
                 if (!covByTime.TryGetValue((can, dir), out var covList)) continue;
@@ -284,7 +285,7 @@ public class MarkupController : ControllerBase
                     clientDirection = dir,
                     clientVolume = b.Volume,
                     clientPrice = b.Price,
-                    clientTime = bTime.ToString("HH:mm:ss.fff"),
+                    clientTime = b.DealTime.ToString("HH:mm:ss.fff"),
                     symbol = can,
                     coverageMatches = nearby
                 });
