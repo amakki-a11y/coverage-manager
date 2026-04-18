@@ -107,25 +107,24 @@ public sealed class MT5ManagerConnection : BackgroundService
                 _logger.LogInformation("Connected to MT5 {Server} as login {Login}",
                     managerAccount.Server, managerAccount.Login);
 
-                // Select all symbols for tick streaming
+                // Select all symbols for tick streaming (symbol list — not subscription yet)
                 if (!_api.SelectedAddAll())
                     _logger.LogWarning("SelectedAddAll failed: {Error}", _api.LastError);
 
-                // Subscribe to ticks
-                _api.OnTick += OnTickReceived;
-                if (!_api.SubscribeTicks())
-                    _logger.LogWarning("Tick subscribe failed: {Error}", _api.LastError);
-                else
-                    _logger.LogInformation("Subscribed to tick stream");
+                // ORDERING INVARIANT (don't change without reading this first):
+                //   1. GetUserLogins  — need the login array before any per-login query
+                //   2. SnapshotPositions — populates B-Book positions in PositionManager
+                //   3. BackfillDeals — populates DealStore with historical closes
+                //   4. Subscribe to ticks + deals — LAST, so the first live callback fires
+                //      against a fully populated cache
+                //
+                // Older versions subscribed to OnDealAdd BEFORE steps 1–3, which opened
+                // a race: deals arriving in the gap triggered broadcasts while
+                // PositionManager and DealStore were still empty, producing flickers of
+                // stale exposure on the WS hot path and duplicate upserts on the Supa
+                // side. The subscribe-last order eliminates both.
 
-                // Subscribe to deals (for real-time closed trade tracking)
-                _api.OnDealAdd += OnDealReceived;
-                if (!_api.SubscribeDeals())
-                    _logger.LogWarning("Deal subscribe failed: {Error}", _api.LastError);
-                else
-                    _logger.LogInformation("Subscribed to deal stream");
-
-                // Get logins matching group mask
+                // Step 1 — get logins matching group mask
                 var logins = _api.GetUserLogins(managerAccount.GroupMask);
                 LoginCount = logins.Length;
                 _logger.LogInformation("Found {Count} logins matching group mask '{Mask}'",
@@ -137,7 +136,11 @@ public sealed class MT5ManagerConnection : BackgroundService
 
                 _logins = logins;
 
-                // Backfill closed deals — detect gap from last sync
+                // Step 2 — snapshot B-Book positions so the exposure engine has a cache
+                // to compute against when the first live tick/deal lands
+                SnapshotPositions(logins);
+
+                // Step 3 — backfill closed deals, detect gap from last Supa sync
                 var backfillFrom = new DateTimeOffset(DateTime.UtcNow.Date, TimeSpan.Zero);
                 if (_getLastDealTime != null)
                 {
@@ -161,6 +164,22 @@ public sealed class MT5ManagerConnection : BackgroundService
 
                 // Initial account sync to Supabase
                 await SyncAccountsToSupabaseAsync(logins, "bbook");
+
+                // Step 4 — NOW subscribe to live streams. Backfill window is
+                // [backfillFrom, UtcNow-pre-subscribe); callbacks cover [subscribe-time, ∞).
+                // Deals that fall in the overlapping millisecond are deduped by DealId
+                // on DealStore.AddDeal (ConcurrentDictionary indexer = replace).
+                _api.OnTick += OnTickReceived;
+                if (!_api.SubscribeTicks())
+                    _logger.LogWarning("Tick subscribe failed: {Error}", _api.LastError);
+                else
+                    _logger.LogInformation("Subscribed to tick stream");
+
+                _api.OnDealAdd += OnDealReceived;
+                if (!_api.SubscribeDeals())
+                    _logger.LogWarning("Deal subscribe failed: {Error}", _api.LastError);
+                else
+                    _logger.LogInformation("Subscribed to deal stream");
 
                 backoffMs = InitialBackoffMs;
 

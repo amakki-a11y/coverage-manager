@@ -111,6 +111,19 @@ coverage-manager/
 - `aggregate_bbook_pnl_full(from_ts, to_ts, excluded_logins)` — full per-symbol aggregation for `/api/exposure/pnl` (Exposure tab's closed row, P&L tab, Compare Full Table). Returns deal count + profit/commission/swap/fee + total/buy/sell volume + net. Replaced an 81-second page-by-page GROUP BY over 121K rows with a sub-second RPC.
 - `latest_snapshots_before(anchor)` — `DISTINCT ON (canonical_symbol)` scan over `exposure_snapshots` for the Net P&L tab's Begin anchor. Previously pulled the full 3.8K-row table every call; now returns ≤ 30 rows.
 
+## MT5 Bring-up Order (non-negotiable)
+On every connect / reconnect, [`MT5ManagerConnection.ExecuteAsync`](src/CoverageManager.Connector/MT5ManagerConnection.cs) follows a strict order:
+
+1. `Initialize()` + `Connect()` to MT5 Manager.
+2. `SelectedAddAll()` to enrol every symbol for tick streaming.
+3. `GetUserLogins()` → assign `_logins` before any per-login query.
+4. `SnapshotPositions(_logins)` → fill `PositionManager` with B-Book positions.
+5. `BackfillDeals(_logins, from, UtcNow)` → fill `DealStore` with historical closes.
+6. `SyncAccountsToSupabaseAsync(_logins)`.
+7. **Then** `OnTick += …` / `SubscribeTicks()`, `OnDealAdd += …` / `SubscribeDeals()`.
+
+Subscribing to the sinks BEFORE steps 3–5 opens a race: the first live callback fires against an empty cache, producing WebSocket flickers with stale exposure and duplicate Supa upserts. The order is enforced by the call sequence and a prominent comment block at the call site — change it at your peril.
+
 ## Data Sync Architecture
 - **DataSyncService** (background): Syncs deals to Supabase every 30s with change detection
 - **On startup:** Loads deals from Supabase into in-memory DealStore (survives restarts)

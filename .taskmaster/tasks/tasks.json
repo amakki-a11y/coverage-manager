@@ -452,14 +452,15 @@
       "description": "appsettings.json:31 ships the Supabase anon JWT in the repo. Rotate the key in the Supabase dashboard, move it to an environment variable / User Secrets, add appsettings.Development.json to .gitignore, and scrub git history if the key has ever been public.",
       "phase": 2.9,
       "priority": "high",
-      "status": "pending",
+      "status": "deferred",
       "dependencies": [],
       "subtasks": [
         "Rotate Supabase anon + (if present) service_role keys",
         "Replace hardcoded JWT with env var / User Secrets",
         "Update Program.cs / SupabaseService to read from config at runtime",
         "Rewrite git history if repo was ever public (git-filter-repo)"
-      ]
+      ],
+      "notes": "Code changes pushed (commit 1e517e6). Key rotation + User Secrets setup deferred to go-live checklist. Dev keeps running with JWT-in-memory until API restart; old JWT remains in git history (acceptable while repo is private)."
     },
     {
       "id": 26,
@@ -467,14 +468,15 @@
       "description": "All 18 public tables have RLS disabled (advisor lint 0013). account_settings.password + bridge_settings.password are plaintext and readable over PostgREST with the anon key. Enable RLS everywhere with a deny-all default and explicit service_role-only policies for sensitive columns.",
       "phase": 2.9,
       "priority": "high",
-      "status": "pending",
+      "status": "deferred",
       "dependencies": [],
       "subtasks": [
         "Enable RLS on all 18 tables",
         "Deny-all policy by default",
         "Move password reads behind a service_role RPC",
         "Re-run mcp__supabase__get_advisors until zero security ERRORs"
-      ]
+      ],
+      "notes": "Security hardening deferred to go-live checklist (follows task #25). Safe to defer while repo/DB stays in closed dev environment."
     },
     {
       "id": 27,
@@ -524,13 +526,14 @@
       "description": "aggregate_bbook_settled_pnl, aggregate_bbook_pnl_full, latest_snapshots_before, bridge_executions_touch_updated_at, bridge_settings_touch_updated_at have mutable search_path (advisor lint 0011). Recreate each with `SET search_path = public, pg_temp` and commit as migration files (currently applied inline only).",
       "phase": 2.9,
       "priority": "high",
-      "status": "pending",
+      "status": "deferred",
       "dependencies": [],
       "subtasks": [
         "Rewrite each RPC with SET search_path = public, pg_temp",
         "Create migration files (supabase/migrations/*.sql)",
         "Re-run security advisors until zero WARN"
-      ]
+      ],
+      "notes": "Security hardening deferred to go-live checklist (follows task #25). Safe to defer while repo/DB stays in closed dev environment."
     },
     {
       "id": 31,
@@ -538,13 +541,14 @@
       "description": "Program.cs:229 and :264 accept any WebSocket connection on the LAN. Exposure data and hedge gaps are commercially sensitive. Add bearer-token gate on AcceptWebSocketAsync, or bind to 127.0.0.1 behind an authenticated reverse proxy.",
       "phase": 2.9,
       "priority": "high",
-      "status": "pending",
+      "status": "deferred",
       "dependencies": [],
       "subtasks": [
         "Decide auth model (bearer / session cookie)",
         "Gate both WS endpoints on AcceptWebSocketAsync",
         "Add dashboard-side token issuance + include in WS upgrade headers"
-      ]
+      ],
+      "notes": "Security hardening deferred to go-live checklist (follows task #25). Safe to defer while repo/DB stays in closed dev environment."
     },
     {
       "id": 32,
@@ -990,6 +994,278 @@
         "Add exponential backoff if missing",
         "Simulated-drop integration test"
       ]
+    },
+    {
+      "id": 65,
+      "title": "UI/UX: Unified typography stack (JetBrains Mono + DM Sans + tabular-nums + U+2212)",
+      "description": "Ship the typographic foundation a trading terminal requires. Load JetBrains Mono for every number, DM Sans for every UI string. Apply font-variant-numeric: tabular-nums on every numeric cell so columns vertical-align. Replace all ASCII hyphens in signed values with U+2212. Covers review findings C5, C6, M1, M2. Centralize in theme.ts as MONO, SANS, NUM constants and migrate call sites.",
+      "phase": 3,
+      "priority": "high",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Add @import for JetBrains Mono + DM Sans in index.html (or @font-face in index.css)",
+        "Export MONO / SANS / NUM constants from web/src/theme.ts",
+        "Replace every `fontFamily: 'monospace'` with MONO + tabular-nums",
+        "Replace every `fontFamily: 'inherit'` in numeric cells with MONO",
+        "Single helper fmtSigned(v): always prefixes U+2212 or + and uses tabular-nums",
+        "Search-replace ASCII `-` in number-formatting call sites (ExposureTable, TotalBar, PnLPanel, Markup, Bridge)",
+        "Raise header fontSize from 9 to 10–11 per review M2"
+      ],
+      "uiuxReviewDoc": ".taskmaster/docs/ui-ux-review-2026-04-17.md",
+      "tag": "phase: UI/UX review (2026-04-17)"
+    },
+    {
+      "id": 66,
+      "title": "UI/UX: Per-source connection health dots (MT5 / Collector / Centroid / Supabase)",
+      "description": "Replace the single LIVE dot in TotalBar with four independent status dots: MT5 Manager, Python collector, Centroid REST+WS, Supabase. Each with a hover tooltip showing last-update timestamp and connected-for duration. Red when down >10s, grey when stale. Covers review finding C1 and part of H11. Sketch in .taskmaster/docs/ui-ux-review-2026-04-17.md.",
+      "phase": 3,
+      "priority": "high",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Backend: GET /api/health returns { mt5, collector, centroid, supabase } with state + lastOkUtc",
+        "Frontend useHealth() hook polls every 2s",
+        "Replace TotalBar connected dot with 4-dot strip + timestamp",
+        "State machine: up / stale / down / unknown with color map",
+        "Hover tooltip shows connection duration + last-ok ISO"
+      ],
+      "uiuxReviewDoc": ".taskmaster/docs/ui-ux-review-2026-04-17.md",
+      "tag": "phase: UI/UX review (2026-04-17)"
+    },
+    {
+      "id": 67,
+      "title": "UI/UX: Exposure risk banner + hedge-% bar visualization",
+      "description": "Make 'is my book OK?' readable in <2 seconds with zero clicks. Add a red top banner on the Exposure tab listing symbols whose |netVolume| exceeds risk_thresholds.max_net_exposure. Replace the bare hedge-% number with a horizontal bar (0–100%, colored at 50/80 bands, overhedge >100% shown with fill over 100). Applies to ExposureTable rows AND Compare SymbolRow. Covers review finding C2.",
+      "phase": 3,
+      "priority": "high",
+      "status": "pending",
+      "dependencies": [
+        2
+      ],
+      "subtasks": [
+        "Backend: /api/exposure/summary returns breach[] list",
+        "Build HedgeBar component (SVG, 80px wide)",
+        "Red banner above ExposureTable; clickable row scroll into view",
+        "Replace hedge chip in Compare/SymbolRow with HedgeBar",
+        "Same colors across Exposure and Compare — single riskBand(pct) helper"
+      ],
+      "uiuxReviewDoc": ".taskmaster/docs/ui-ux-review-2026-04-17.md",
+      "tag": "phase: UI/UX review (2026-04-17)"
+    },
+    {
+      "id": 68,
+      "title": "UI/UX: Bridge table enum coercion + backfill legacy pairs",
+      "description": "Fix C3 — SIDE column renders '0' / '1' in red on old persisted rows because pre-JsonStringEnumConverter records store side as int. Add defensive frontend coercion (number → 'BUY'/'SELL'). Fix C4 — run the maker_orders poller once on startup with 24h window to backfill cov legs on rows whose cov_volume = 0. Hide 'No coverage legs within pairing window' for pairs older than the cutoff timestamp we set when the poller first ran.",
+      "phase": 2.5,
+      "priority": "high",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Frontend: normalize side in BridgeTable — if typeof number, map to 'BUY'/'SELL'",
+        "Backend: one-shot backfill job in BridgeExecutionWorker startup path",
+        "Persist `bridgeBackfillFromUtc` in bridge_settings so UI can hide stale no-cov messaging",
+        "Verify 21 Bridge tests still pass"
+      ],
+      "uiuxReviewDoc": ".taskmaster/docs/ui-ux-review-2026-04-17.md",
+      "tag": "phase: UI/UX review (2026-04-17)"
+    },
+    {
+      "id": 69,
+      "title": "UI/UX: Per-instrument price precision from symbol_mappings.digits",
+      "description": "Replace magnitude-based fmtPrice (which silently mangles US30 to 1 decimal) with a helper that reads the digits column from symbol_mappings. Apply consistently across Exposure, Compare, Bridge, Markup, P&L. Covers review finding C7 and M12.",
+      "phase": 2.5,
+      "priority": "high",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Add useSymbolDigits() hook returning Record<symbol, digits>",
+        "Export fmtPrice(symbol, v) helper using the digits map with a heuristic fallback",
+        "Migrate fmtPrice call sites (ExposureTable, SymbolRow, BridgeTable, Markup, PnLPanel)",
+        "Strip trailing zeros only beyond the declared digits count"
+      ],
+      "uiuxReviewDoc": ".taskmaster/docs/ui-ux-review-2026-04-17.md",
+      "tag": "phase: UI/UX review (2026-04-17)"
+    },
+    {
+      "id": 70,
+      "title": "UI/UX: Unmapped-symbol surface + destructive-action confirmations + contract-size validation",
+      "description": "Covers H8, H9, M9. A symbol in coverage without a symbol_mappings row silently disappears from Exposure — must become loud (red chip list + banner). Deleting a mapping must require confirmation showing deal count that references it. Contract-size field needs per-symbol-class validation and a normalization preview before save.",
+      "phase": 2.5,
+      "priority": "high",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Backend: /api/exposure/summary returns unmappedSymbols[]",
+        "Red banner above ExposureTable when unmappedSymbols.length > 0",
+        "Mappings tab: delete modal showing referenced deal count",
+        "Contract-size validator: typical ranges per class (FX / metal / index / oil / crypto)",
+        "Preview row: '1 LP lot = X B-Book lots' before save"
+      ],
+      "uiuxReviewDoc": ".taskmaster/docs/ui-ux-review-2026-04-17.md",
+      "tag": "phase: UI/UX review (2026-04-17)"
+    },
+    {
+      "id": 71,
+      "title": "UI/UX: Date-range system overhaul (presets, TZ pill, keyboard shortcuts)",
+      "description": "Replace native <input type=date> with a custom range picker. Add preset chips (Today / Yesterday / 7d / MTD / YTD). Show explicit TZ pill (Asia/Beirut or UTC). Keyboard shortcuts: [/] to shift by day, Shift+[ / Shift+] by week. Unify useDateRange across Compare / Markup / Bridge so they share Exposure's range. Consolidate four todayStr() duplicates into utils/time.ts. Covers H3, H4, M6.",
+      "phase": 2.5,
+      "priority": "medium",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Build <DateRangePicker /> component with presets + calendar dropdown",
+        "Expose TZ pill and keyboard shortcuts",
+        "Unify useDateRange storage key across Compare / Markup / Bridge",
+        "Move todayStr / todayUtc into utils/time.ts and migrate call sites",
+        "Verify storage event sync still works across tabs"
+      ],
+      "uiuxReviewDoc": ".taskmaster/docs/ui-ux-review-2026-04-17.md",
+      "tag": "phase: UI/UX review (2026-04-17)"
+    },
+    {
+      "id": 72,
+      "title": "UI/UX: Bridge table polish (density, LP column split, edge/pips hide, anomaly threshold)",
+      "description": "Covers H5, H6, H12, M10. Reduce Bridge row padding for ≥50 rows visible at 1080p. Split LOGIN column: show client MT5 login on CLIENT rows, LP name on COV OUT rows (or rename to LOGIN / LP with tooltip). Auto-hide PRICE EDGE and PIPS columns when the visible slice is all zeros (netting-only broker today). Make anomaly pip threshold configurable per symbol.",
+      "phase": 2.5,
+      "priority": "medium",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Drop padding to 4–6px vertical in BridgeTable rows",
+        "Column header `LOGIN / LP` with conditional content per row type",
+        "Auto-hide edge/pips when slice sum == 0, show a small 'no markup' chip",
+        "Anomaly threshold input next to the toggle; default 10, instrument-aware via pip_size"
+      ],
+      "uiuxReviewDoc": ".taskmaster/docs/ui-ux-review-2026-04-17.md",
+      "tag": "phase: UI/UX review (2026-04-17)"
+    },
+    {
+      "id": 73,
+      "title": "UI/UX: Password echo fix on /api/settings/accounts",
+      "description": "Covers H7. MT5 AccountSettings.Password is returned raw in the JSON response. Visible in DevTools Network. Strip it from reads and expose a passwordSet flag like the Bridge card already does. Frontend shows `• set` chip when present.",
+      "phase": 2.5,
+      "priority": "high",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Backend: SettingsController.GetAccounts strips Password → passwordSet bool",
+        "Frontend: SettingsPanel renders `• set` chip when passwordSet && !editing",
+        "Leave UpdateAccount accepting password:null semantics (don't touch existing)"
+      ],
+      "uiuxReviewDoc": ".taskmaster/docs/ui-ux-review-2026-04-17.md",
+      "tag": "phase: UI/UX review (2026-04-17)"
+    },
+    {
+      "id": 74,
+      "title": "UI/UX: Loading skeletons + stale-data tint + global error toast",
+      "description": "Covers H10 and H11. Every tab blanks on initial fetch. Build skeleton rows per table using last-known symbol count. On WS drop, apply amber tint to stale data + show reconnecting chip. Global toast on 3 consecutive backend fetch failures.",
+      "phase": 3,
+      "priority": "medium",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Reusable <TableSkeleton rows={N} cols={...} /> component",
+        "useFetchStatus() hook returns { stale, reconnecting, consecutiveFails }",
+        "Apply stale tint via a THEME.stale token on <tbody>",
+        "Global ErrorToast component rendered in App.tsx on threshold"
+      ],
+      "uiuxReviewDoc": ".taskmaster/docs/ui-ux-review-2026-04-17.md",
+      "tag": "phase: UI/UX review (2026-04-17)"
+    },
+    {
+      "id": 75,
+      "title": "UI/UX: Cell-level flash-on-change across Exposure / Compare / Bridge",
+      "description": "Replace the 1500ms row-level price flash with a 200–300ms cell-level flash. Build useFlashOnChange(value) returning { background, transition } that the consumer applies inline. Apply to P&L, volume, and price cells in Exposure, Compare, Bridge. Covers M3 and part of the real-time audit.",
+      "phase": 3,
+      "priority": "medium",
+      "status": "pending",
+      "dependencies": [
+        65
+      ],
+      "subtasks": [
+        "Build useFlashOnChange hook (200ms default, color based on up/down/flat)",
+        "Apply to ExposureTable numeric cells",
+        "Apply to Compare/SymbolRow cells (replacing the setTimeout 1500ms)",
+        "Apply to Bridge table price + volume cells",
+        "Verify no layout shift on flash"
+      ],
+      "uiuxReviewDoc": ".taskmaster/docs/ui-ux-review-2026-04-17.md",
+      "tag": "phase: UI/UX review (2026-04-17)"
+    },
+    {
+      "id": 76,
+      "title": "UI/UX: Color semantics audit — green=positive, red=negative, blue=info-only",
+      "description": "SymbolRow uses blue for positive net — inconsistent with rubric. Compare tab's blue-when-positive is wrong. Fix SymbolRow + TotalBar + any other blue-for-value usage. Inline hex colors ('#FF8A80', '#000', '#fff' in SettingsPanel) must migrate to THEME tokens. Covers rubric failures.",
+      "phase": 3,
+      "priority": "medium",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "SymbolRow nc(): green for positive, red for negative, t2 for zero",
+        "Replace inline hex colors in SettingsPanel with THEME tokens",
+        "Audit all `#` literal colors across web/src; move to theme"
+      ],
+      "uiuxReviewDoc": ".taskmaster/docs/ui-ux-review-2026-04-17.md",
+      "tag": "phase: UI/UX review (2026-04-17)"
+    },
+    {
+      "id": 77,
+      "title": "UI/UX: Keyboard shortcut overlay + sticky headers + click-to-sort columns",
+      "description": "Press `?` to open a modal listing all keyboard shortcuts. `/` focuses symbol filter. `g e` / `g b` / `g c` navigate to Exposure / Bridge / Compare. `[` / `]` shift the date range by one day. Esc closes modals. Add sticky <thead> to Bridge / Markup / Mappings tables (Exposure already has). Replace sort-dropdown with click-to-sort on column headers. Covers M4, M7 and opens dealer-speed ergonomics. ",
+      "phase": 3,
+      "priority": "medium",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Global keybinding handler in AppContent",
+        "ShortcutsModal component (triggered by ?)",
+        "Add position:sticky top:0 to all table headers",
+        "Convert Exposure sort-dropdown to click-to-sort headers",
+        "Keep drag-reorder as a separate 'edit columns' affordance"
+      ],
+      "uiuxReviewDoc": ".taskmaster/docs/ui-ux-review-2026-04-17.md",
+      "tag": "phase: UI/UX review (2026-04-17)"
+    },
+    {
+      "id": 78,
+      "title": "UI/UX: Phase 3 advisor card + Phase 3.5 hedge-confirmation modal design",
+      "description": "Design + build the UI pieces needed before Phase 3/3.5 can ship. Advisor card with confidence, 6-signal breakdown, approve/reject buttons — sketch in the review doc. Confirmation modal is keyboard-first: Enter approves, Esc rejects. Audit trail chip rendered on the symbol row after decision.",
+      "phase": 3.5,
+      "priority": "medium",
+      "status": "pending",
+      "dependencies": [
+        1
+      ],
+      "subtasks": [
+        "Low-fi wireframe of AdvisorCard (see docs review — signals as bar meters)",
+        "Build AdvisorCard React component",
+        "Build HedgeConfirmModal (keyboard-first)",
+        "Audit-trail chip on SymbolRow post-decision",
+        "Document keyboard shortcuts in the ShortcutsModal"
+      ],
+      "uiuxReviewDoc": ".taskmaster/docs/ui-ux-review-2026-04-17.md",
+      "tag": "phase: UI/UX review (2026-04-17)"
+    },
+    {
+      "id": 79,
+      "title": "UI/UX: Polish batch — SVG icons, theme toggle decision, radius tokens, price flash duration, L-series items",
+      "description": "Batched polish from the review's LOW tier and remaining MEDIUM items: replace emoji bell/speaker/sun/moon with SVG icons (lucide or phosphor); decide on light mode (ship or delete — it's half-finished); radius tier tokens (4/8/12); drop card radius from 8 → 4 for a sharper terminal look; cleanup dead Cell import in SymbolRow; UNHEDGED value should be signed; collapse alert banner to inline chip after dismiss; shorten brand text; Bridge settings primary/secondary button weight correction.",
+      "phase": 3,
+      "priority": "low",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Replace emoji icons with lucide-react or inline SVGs",
+        "Decide on LIGHT_THEME — polish or delete",
+        "Radius tier tokens in theme.ts; migrate hard-coded values",
+        "Drop Compare price flash from 1500ms to 250ms",
+        "Remove unused Cell component in PositionsCompare/LeftPanel/SymbolRow",
+        "Sign UNHEDGED total in TotalBar",
+        "AlertBanner collapse-to-chip on dismiss"
+      ],
+      "uiuxReviewDoc": ".taskmaster/docs/ui-ux-review-2026-04-17.md",
+      "tag": "phase: UI/UX review (2026-04-17)"
     }
   ]
 }
