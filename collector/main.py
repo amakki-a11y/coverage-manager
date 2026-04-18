@@ -54,6 +54,9 @@ async def position_loop():
             try:
                 positions = mt5.positions_get()
                 if positions:
+                    # Account login is constant per session, read once per tick (cheap).
+                    acc = mt5.account_info()
+                    login = int(acc.login) if acc else 0
                     data = [{
                         "symbol": p.symbol,
                         "direction": "BUY" if p.type == 0 else "SELL",
@@ -62,7 +65,10 @@ async def position_loop():
                         "currentPrice": p.price_current,
                         "profit": p.profit,
                         "swap": p.swap,
-                        "ticket": p.ticket
+                        "ticket": p.ticket,
+                        "login": login,
+                        # p.time is seconds since Unix epoch (UTC) per MT5 spec.
+                        "openTime": datetime.fromtimestamp(p.time, tz=timezone.utc).isoformat(),
                     } for p in positions]
                     await client.post(url, json=data)
                 else:

@@ -82,6 +82,8 @@ public class PositionManager
                 CurrentPrice = dto.CurrentPrice,
                 Profit = dto.Profit,
                 Swap = dto.Swap,
+                Login = (ulong)dto.Login,
+                OpenTime = dto.OpenTime ?? DateTime.MinValue,
                 UpdatedAt = DateTime.UtcNow
             };
             _positions[$"coverage:{dto.Ticket}"] = pos;

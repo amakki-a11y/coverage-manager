@@ -16,7 +16,11 @@ function toDate(input: string | number | Date | null | undefined): Date | null {
   if (input == null) return null;
   if (input instanceof Date) return isFinite(input.getTime()) ? input : null;
   const d = new Date(input);
-  return isFinite(d.getTime()) ? d : null;
+  if (!isFinite(d.getTime())) return null;
+  // Treat C# DateTime.MinValue / epoch zeros as "no data" rather than rendering
+  // the nonsensical year-1 or 1970 timestamp the backend sends for a missing field.
+  if (d.getUTCFullYear() < 2000) return null;
+  return d;
 }
 
 /**

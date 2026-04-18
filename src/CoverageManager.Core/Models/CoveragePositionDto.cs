@@ -13,4 +13,6 @@ public class CoveragePositionDto
     public decimal Profit { get; set; }
     public decimal Swap { get; set; }
     public long Ticket { get; set; } // position ticket for dedup
+    public long Login { get; set; } // Coverage account login (constant per collector session)
+    public DateTime? OpenTime { get; set; } // UTC — null until collector is upgraded to send it
 }
