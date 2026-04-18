@@ -68,7 +68,16 @@ public class ExposureSnapshotService : BackgroundService
                 continue;
             }
 
-            if (s.NextRunAt.Value > now) continue; // not yet due
+            // Both sides normalized to UTC before comparing. PostgREST returns timestamptz
+            // with an offset; System.Text.Json deserializes it as DateTime Kind=Local,
+            // which silently subtracts the Windows-box offset (PDT on the dev box = -7h).
+            // Comparing that Local DateTime with DateTime.UtcNow via `>` is a raw tick
+            // comparison that ignores the Kind mismatch — the schedule then looks "due"
+            // every single minute and re-fires. Force both to UTC.
+            var nextUtc = s.NextRunAt.Value.Kind == DateTimeKind.Utc
+                ? s.NextRunAt.Value
+                : s.NextRunAt.Value.ToUniversalTime();
+            if (nextUtc > now) continue; // not yet due
 
             // Run
             try

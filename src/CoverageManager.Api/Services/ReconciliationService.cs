@@ -73,7 +73,12 @@ public class ReconciliationService : BackgroundService
                 .FirstOrDefault();
             if (lastScheduled != null)
             {
-                return lastScheduled.StartedAt;
+                // Normalize to UTC — System.Text.Json deserializes timestamptz as Kind=Local
+                // on the dev box, and `DateTime` comparisons later treat it as raw ticks.
+                // Without the normalization, the daily trigger mis-fires on Windows boxes
+                // whose local TZ isn't UTC.
+                var started = lastScheduled.StartedAt;
+                return started.Kind == DateTimeKind.Utc ? started : started.ToUniversalTime();
             }
             // No prior successful scheduled run found — skip today's trigger if we're already past it.
             // Otherwise a stale DB would re-fire on every restart. Wait for the next UTC day.
