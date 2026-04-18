@@ -66,6 +66,10 @@ export function ExposureTable({ summaries, prices }: ExposureTableProps) {
   const [covClosedMap, setCovClosedMap] = useState<Record<string, ClosedSymbol>>({});
   const [closedFrom, setClosedFrom] = useState(todayStr);
   const [closedTo, setClosedTo] = useState(todayStr);
+  // Tracks whether the closed-P&L fetch is in flight so the UI can show a loading badge
+  // whenever the date range changes (otherwise stale totals look silently wrong).
+  const [closedLoading, setClosedLoading] = useState(false);
+  const closedLoadSeq = useRef(0);
   const [showGrid, setShowGrid] = useState(() => {
     return localStorage.getItem('exposureGrid') !== 'false';
   });
@@ -100,6 +104,12 @@ export function ExposureTable({ summaries, prices }: ExposureTableProps) {
   };
 
   useEffect(() => {
+    // Show the loading badge immediately whenever the date range changes.
+    // The 5s interval below keeps the data fresh without flashing the badge again.
+    setClosedLoading(true);
+    const shownAt = Date.now();
+    const MIN_VISIBLE_MS = 450; // keep badge on screen at least this long
+    const myTicket = ++closedLoadSeq.current;
     const fetchClosed = async () => {
       try {
         const [bbRes, covRes, mapRes] = await Promise.all([
@@ -128,33 +138,49 @@ export function ExposureTable({ summaries, prices }: ExposureTableProps) {
         if (covRes.ok && mapRes.ok) {
           const cov = await covRes.json();
           const mappings: { canonical_name: string; coverage_symbol: string }[] = await mapRes.json();
+          // Case-insensitive lookup — mapping data can have mixed case like "GCM6.C"
+          // while the collector returns "GCM6.c". Uppercase both sides to reconcile.
           const covToCanonical: Record<string, string> = {};
           for (const m of mappings) {
-            if (m.coverage_symbol) covToCanonical[m.coverage_symbol] = m.canonical_name;
+            if (m.coverage_symbol) covToCanonical[m.coverage_symbol.toUpperCase()] = m.canonical_name;
           }
           // Map a coverage symbol to its canonical (e.g. XAUUSD- -> XAUUSD)
           const toCanonical = (sym: string): string => {
-            return covToCanonical[sym] || sym.replace(/[-.].*$/, '') || sym;
+            return covToCanonical[sym.toUpperCase()] || sym.replace(/[-.].*$/, '') || sym;
           };
+          // Build a map keyed by UPPERCASE canonical so a single mapping-case difference
+          // can't create two dict entries pointing at the same object (that used to
+          // double-count the total when Object.values walked the dict).
           const remapped: Record<string, ClosedSymbol> = {};
           for (const s of (cov.symbols ?? []) as ClosedSymbol[]) {
             const canonical = toCanonical(s.symbol);
-            if (remapped[canonical]) {
-              remapped[canonical].dealCount += s.dealCount;
-              remapped[canonical].netPnL += s.netPnL;
-              remapped[canonical].totalProfit += s.totalProfit;
-              remapped[canonical].totalVolume += s.totalVolume;
-              remapped[canonical].buyVolume += s.buyVolume;
-              remapped[canonical].sellVolume += s.sellVolume;
+            const key = canonical.toUpperCase();
+            if (remapped[key]) {
+              remapped[key].dealCount += s.dealCount;
+              remapped[key].netPnL += s.netPnL;
+              remapped[key].totalProfit += s.totalProfit;
+              remapped[key].totalVolume += s.totalVolume;
+              remapped[key].buyVolume += s.buyVolume;
+              remapped[key].sellVolume += s.sellVolume;
             } else {
-              remapped[canonical] = { ...s, symbol: canonical };
+              remapped[key] = { ...s, symbol: canonical };
             }
-            // Also store under uppercase for case-insensitive lookup
-            remapped[canonical.toUpperCase()] = remapped[canonical];
           }
           setCovClosedMap(remapped);
         }
       } catch { /* ignore */ }
+      finally {
+        // Only the latest request clears the badge so an old in-flight call
+        // that resolves after a newer date-change doesn't hide the spinner.
+        if (myTicket === closedLoadSeq.current) {
+          const elapsed = Date.now() - shownAt;
+          const remaining = Math.max(0, MIN_VISIBLE_MS - elapsed);
+          // Keep the badge up for a minimum period so fast fetches don't "flash".
+          setTimeout(() => {
+            if (myTicket === closedLoadSeq.current) setClosedLoading(false);
+          }, remaining);
+        }
+      }
     };
     fetchClosed();
     const interval = setInterval(fetchClosed, 5000);
@@ -404,7 +430,38 @@ export function ExposureTable({ summaries, prices }: ExposureTableProps) {
             fontFamily: 'inherit',
           }}
         />
+        {closedLoading && (
+          <span
+            title="Fetching closed deals for the selected range"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '3px 10px',
+              borderRadius: 10,
+              fontSize: 11,
+              fontWeight: 600,
+              color: THEME.amber,
+              background: 'rgba(255, 167, 38, 0.12)',
+              border: `1px solid ${THEME.amber}`,
+              fontFamily: 'inherit',
+            }}
+          >
+            <span
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: '50%',
+                border: `2px solid ${THEME.amber}`,
+                borderTopColor: 'transparent',
+                animation: 'cm-spin 0.8s linear infinite',
+              }}
+            />
+            Loading…
+          </span>
+        )}
       </div>
+      <style>{`@keyframes cm-spin { to { transform: rotate(360deg); } }`}</style>
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
           {/* Group headers */}

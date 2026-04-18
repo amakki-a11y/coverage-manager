@@ -86,13 +86,13 @@ coverage-manager/
 └── CLAUDE.md
 ```
 
-## Supabase Tables (14)
-1. `symbol_mappings` — B-Book ↔ LP symbol mapping + contract sizes
+## Supabase Tables (15)
+1. `symbol_mappings` — B-Book ↔ LP symbol mapping + contract sizes (also holds `pip_size` override for Bridge)
 2. `positions` — Open positions snapshot
-3. `deals` — Deal history with dedup on (source, deal_id), includes direction/fee/entry. 202K+ deals persisted.
+3. `deals` — Deal history with dedup on (source, deal_id), includes direction/fee/entry/**order_id**. 280K+ deals persisted.
 4. `trading_accounts` — Mirror of all MT5 accounts (B-Book + Coverage), unique on (source, login). Auto-synced every 5min.
 5. `trade_audit_log` — Tracks deal modifications (price, volume, profit changes) with old/new values
-6. `exposure_snapshots` — Periodic exposure captures
+6. `exposure_snapshots` — Periodic exposure captures (floating P&L per symbol). Unique on `(canonical_symbol, snapshot_time)`, carries `trigger_type` (scheduled/manual/daily/weekly/monthly) and `label`. Feeds the Net P&L tab's "Begin" anchor.
 7. `pl_summary` — P&L summary (Phase 2)
 8. `hedge_executions` — Hedge audit trail (Phase 4)
 9. `economic_events` — Economic calendar (Phase 3)
@@ -101,6 +101,12 @@ coverage-manager/
 12. `alert_rules` — Configurable alert thresholds (trigger type, operator, value, severity)
 13. `alert_events` — Fired alert notifications (symbol, severity, threshold vs actual value, acknowledged)
 14. `moved_accounts` — Logins removed from MT5 Manager, deals kept in Supabase but excluded from dashboard
+15. `snapshot_schedules` — Dealer-configurable cadences for `exposure_snapshots` captures. Columns: `cadence` (daily/weekly/monthly/custom), `cron_expr`, `tz` (default `Asia/Beirut`), `enabled`, `last_run_at`, `next_run_at`. Seeded with Daily/Weekly/Monthly Lebanon-time rows.
+16. `bridge_settings` — Centroid Bridge credentials + mode (Stub/Live/Replay) + enabled flag.
+17. `bridge_executions` — Paired CLIENT ↔ COV_OUT rows from the Centroid Dropcopy feed; includes `client_mt_login/ticket/deal_id`.
+
+### Supabase functions
+- `aggregate_bbook_settled_pnl(from_ts, to_ts, excluded_logins)` — server-side SQL aggregation used by the Net P&L tab. Normalizes canonical keys (strips `.c` / `.m` / trailing `-`, uppercases) and sums `profit + swap` on OUT deals + `commission + fee` on all trade deals. Replaces a 46s client-side "pull 200K rows and GROUP BY" roundtrip with a sub-second RPC.
 
 ## Data Sync Architecture
 - **DataSyncService** (background): Syncs deals to Supabase every 30s with change detection
@@ -192,6 +198,44 @@ dotnet test CoverageManager.sln
 - **Entry Δ colors:** positive (client paid more) = red, negative = green
 - **Data source:** Polls `/api/compare/exposure` every 500ms, `/api/compare/trades` every 5s
 
+## Net P&L Tab (Period P&L)
+Separate tab (kept alongside the original P&L tab) that computes full broker period P&L:
+```
+FloatingΔ = CurrentFloating − BeginFloating
+Net       = FloatingΔ + Settled
+Edge Net  = Coverage.Net − Clients.Net   (positive = broker profited)
+```
+### Mechanics
+- **Begin anchor**: midnight Asia/Beirut of `fromDate` converted to UTC (21:00 DST / 22:00 standard). DST spring-forward handled with a 1-hour retry.
+- **Begin source**: latest `exposure_snapshots` row per canonical symbol with `snapshot_time <= anchor`. If none exists, `beginFromSnapshot=false` and Begin treated as 0 (per decision; amber dot shown in UI).
+- **Current floating**: live `ExposureEngine.CalculateExposure()`, date-independent.
+- **Settled**: `aggregate_bbook_settled_pnl` RPC for B-Book (Lebanon-time boundary) + Python collector `/deals` for Coverage.
+- **Date pickers**: interpreted as Asia/Beirut throughout so ranges match MT5 terminal views.
+- **Sentinel snapshots**: rows with `canonical_symbol` starting `__`, or containing `SEED_TOTAL` / `PORTFOLIO`, feed the TOTAL only (no per-symbol row). Lets a dealer seed portfolio-level Begin without per-symbol values.
+- **"No position"**: rows whose live summary has 0 volume on a side render `—` for Begin/Current/ΔFloat on that side; Settled/Net still show real realized P&L.
+- **Loading badge**: date-change fetches show a ≥450ms amber pill next to the date pickers; interval polls (every 10s) refresh silently.
+
+### Scheduler
+- Three seeded schedules (Daily/Weekly/Monthly at 00:00 Asia/Beirut). Manage in Settings tab → "Snapshot Schedules".
+- `ExposureSnapshotService` (BackgroundService) ticks every 60s, fires due schedules via `Cronos` (DST-aware cron parser), upserts one row per symbol into `exposure_snapshots`.
+- "Capture Snapshot Now" button on the Net P&L toolbar posts `/api/exposure/snapshot`.
+- "Snapshot History" section in Settings lists recent captures grouped by `snapshot_time` with expandable per-symbol breakdown.
+
+### File inventory
+- `supabase/migrations/20260418_exposure_snapshots.sql` — unique constraint + trigger_type + label + `snapshot_schedules` table + seed rows.
+- `supabase/migrations/aggregate_bbook_settled_pnl_fn` (applied inline) — SQL aggregation function.
+- `src/CoverageManager.Core/Models/{ExposureSnapshot,SnapshotSchedule,PeriodPnLRow}.cs` — DTOs.
+- `src/CoverageManager.Api/Services/ExposureSnapshotService.cs` — scheduler dispatcher + `RunNowAsync`.
+- `src/CoverageManager.Api/Services/SupabaseService.cs` — `UpsertExposureSnapshotsAsync`, `GetNearestSnapshotsBeforeAsync`, `AggregateBBookSettledPnlAsync`, schedule CRUD.
+- `src/CoverageManager.Api/Controllers/ExposureController.cs` — `GetPeriodPnL`, `CaptureSnapshotNow`, `ListSnapshots`.
+- `src/CoverageManager.Api/Controllers/SnapshotSchedulesController.cs` — scheduler CRUD + run-now.
+- `web/src/components/PeriodPnLPanel.tsx` — tab component.
+- `web/src/components/SettingsPanel.tsx` — adds `SnapshotSchedulesCard` + `SnapshotHistoryCard`.
+- `web/src/types/index.ts` — `PeriodPnL*`, `SnapshotSchedule`, `ExposureSnapshot` types.
+
+### NuGet
+- `Cronos 0.10.0` — cron + DST-aware timezone handling for schedule dispatch.
+
 ## UI Features
 - **Dark/Light theme toggle:** ThemeContext with mutable THEME object (Object.assign pattern)
 - **Theme persistence:** Saved to localStorage, applied on load
@@ -221,18 +265,70 @@ dotnet test CoverageManager.sln
 - `GET /api/markup/match?from=&to=` — Aggregates client vs coverage deals per canonical symbol; returns broker mark-up (Cov P&L − Client P&L) and VWAP price edge.
 - `GET /api/compare/exposure` — Full snapshot of symbol exposures for Compare tab
 - `GET /api/compare/trades?symbol=&from=` — Trade history for Compare charts
+- `GET /api/bridge/executions?from=&to=&symbol=&limit=` — Bridge ExecutionPairs (persisted first, live store fallback). UTC date range.
+- `GET /api/bridge/live?limit=` — In-memory ExecutionPairs currently tracked by BridgeExecutionStore.
+- `GET /api/bridge/health` — Centroid feed state (mode, connection, messages received, pairs in memory).
+- `GET /api/exposure/pnl/period?from=&to=` — Net P&L with floating decomposition per symbol. Dates interpreted as Asia/Beirut local (DST-aware). Uses `aggregate_bbook_settled_pnl` RPC for fast settlement sum. Returns per-symbol `{bBook, coverage, edge}` each with `beginFloating`, `currentFloating`, `floatingDelta`, `settled`, `net`, `beginFromSnapshot`, `hasOpenPosition`. `edge.net = coverage.net − bbook.net` (broker P&L convention).
+- `POST /api/exposure/snapshot` — Immediate manual snapshot capture. Body `{ "label": "..." }`.
+- `GET /api/exposure/snapshots?from=&to=&symbol=` — Raw snapshot history for diagnostics UI.
+- `GET /api/snapshot-schedules` (+ POST/PUT/DELETE + POST `{id}/run-now`) — Scheduler CRUD for `snapshot_schedules`.
 - `WS /ws` — Real-time exposure + prices + P&L updates
+- `WS /ws/bridge` — Real-time ExecutionPair updates from the Centroid Dropcopy feed (Phase 2.5 Bridge tab).
 
 ### Python Collector (port 8100)
 - `GET /positions` — Current coverage open positions
 - `GET /deals?from=YYYY-MM-DD&to=YYYY-MM-DD` — Coverage closed deal history (aggregated)
-- `GET /deals/raw?from=YYYY-MM-DD&to=YYYY-MM-DD` — Individual coverage deals with ticket/price/time (used by Markup tab)
+- `GET /deals/raw?from=YYYY-MM-DD&to=YYYY-MM-DD` — Individual coverage deals with ticket/order/**external_id**/magic/price/time (used by Markup + Bridge tabs)
 - `GET /health` — Connection status + account info
+
+## Phase 2.5 — Bridge Execution Analysis Tab
+CLIENT fills paired with COV OUT coverage legs from the Centroid CS 360 Dropcopy feed (FIX 4.4, see `/docs/centroid/`).
+
+### Centroid facts
+- CS 360 exposes **no REST API**. Post-trade data comes via **FIX 4.4 Dropcopy** Execution Reports, or via a paid Postgres DB replica.
+- The Bridge tab consumes the Dropcopy feed via a single persistent FIX session.
+- Connecting requires IP whitelisting plus credentials issued by Centroid support.
+- All times UTC, μs precision. Correlation between CLIENT and COV OUT legs is by FIX tag 37 (OrderID) = "Cen Ord ID".
+
+### Runtime modes (`Centroid:Mode` in `appsettings.json`)
+- **Stub** (default today) — synthetic `BridgeDeal` stream so UI/pairing can run without real creds.
+- **Live** — QuickFIX/n-backed session. NOT implemented until the dependency is approved and creds arrive.
+- **Replay** — file-based playback for integration tests. NOT implemented yet.
+
+### File inventory
+- `docs/centroid/README.md`, `docs/centroid/dropcopy-fix-4.4.md`, `docs/centroid/database-specification.md` — captured API reference.
+- `supabase/migrations/20260416_bridge_executions.sql` — schema + indexes + `pip_size` column on `symbol_mappings`.
+- `src/CoverageManager.Core/Models/Bridge/{BridgeDeal,CovFill,ExecutionPair}.cs` — pure domain types.
+- `src/CoverageManager.Core/Engines/BridgePairingEngine.cs` — pure reconciliation (time window, canonical symbol, greedy by |time_diff|, volume-weighted VWAP, signed edge).
+- `src/CoverageManager.Core/Engines/BridgePipResolver.cs` — pluggable pip-size lookup (overrides > symbol-name rules > price heuristic).
+- `src/CoverageManager.Api/Services/ICentroidBridgeService.cs` + `StubCentroidBridgeService.cs` — feed abstraction with a synthetic generator.
+- `src/CoverageManager.Api/Services/BridgeExecutionStore.cs` — thread-safe in-memory state machine; handles pre-hedge (negative time diff) and late-arriving CLIENT fills.
+- `src/CoverageManager.Api/Services/BridgeSupabaseWriter.cs` — UPSERT into `bridge_executions` on pair update.
+- `src/CoverageManager.Api/Services/BridgeBroadcastService.cs` — `/ws/bridge` WebSocket hub.
+- `src/CoverageManager.Api/Workers/BridgeExecutionWorker.cs` — subscribes to feed, normalizes symbol + CLIENT/COV_OUT, feeds store, persists + broadcasts.
+- `src/CoverageManager.Api/Controllers/BridgeController.cs` — `/api/bridge/executions`, `/live`, `/health`.
+- `src/CoverageManager.Tests/BridgePairingTests.cs`, `BridgeEdgeCalculationTests.cs` — 21 passing unit tests covering split, partial, over, pre-hedge, out-of-window, symbol-mapping, side mismatch, greedy-by-|diff|, unclassified, per-asset pip conversion.
+- `web/src/types/bridge.ts`, `web/src/hooks/useBridgeSocket.ts`, `web/src/pages/Bridge/{index,BridgeFilters,BridgeTable,pipSize}.tsx|ts` — React tab, filters, stacked CLIENT/COV OUT table.
+
+### UI
+- Filters: UTC date range, symbol dropdown, side (ALL/BUY/SELL), anomaly-only toggle (no coverage leg OR `|pips| > 10`).
+- Table: one CLIENT row + N COV OUT rows with shared SYMBOL, PRICE EDGE, PIPS cells via `rowSpan`. Thin border only between deal groups.
+- Colors: CLIENT=blue, COV OUT=teal, BUY=green, SELL=red; time-diff green ≤500ms / amber ≤2000ms / red beyond; edge red when negative.
+- Live updates: `/ws/bridge` merges pairs by `clientDealId` and keeps the list capped at 500.
+
+### Supabase
+`bridge_executions`:
+- Unique on `client_deal_id`; indexed on `(symbol, client_time desc)` and `client_time desc`.
+- `coverage_ratio` is a stored generated column.
+- `cov_fills` is a jsonb array of `{dealId, volume, price, time, timeDiffMs, lpName?}`.
+- Extra column `pip_size` added to `symbol_mappings` for per-symbol pip overrides.
 
 ## Phase Status
 - [x] Phase 1: Live Exposure View (complete)
 - [x] Phase 2: P&L Tracking (closed trades with buy/sell volume split, coverage P&L toggle, date range filtering)
 - [x] Phase 2.5: Data Persistence (trading accounts + deals synced to Supabase, audit trail, historical backfill)
 - [x] Phase 2.7: Positions Compare (side-by-side client vs coverage analysis with charts, resizable panels, drag reorder)
+- [x] Phase 2.5: Bridge Execution Analysis (Live REST/WS mode wired to Centroid CS 360; resolves real MT5 deal # on both CLIENT and COV via DealStore + CoverageDealIndex)
+- [x] Phase 2.8: Net P&L Tab — `FloatingΔ + Settled` period P&L with snapshot scheduler, Lebanon-time date picker, sentinel portfolio-anchor rows
 - [ ] Phase 3: Risk Alerts (news events, threshold warnings)
 - [ ] Phase 4: Hedge Execution (one-click hedging via LP terminal — mt5.order_send() ready)

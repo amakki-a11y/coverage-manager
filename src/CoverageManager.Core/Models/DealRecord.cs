@@ -54,6 +54,9 @@ public class DealRecord
     [JsonPropertyName("fee")]
     public decimal Fee { get; set; }
 
+    [JsonPropertyName("order_id")]
+    public long? OrderId { get; set; }
+
     [JsonPropertyName("position_id")]
     public long? PositionId { get; set; }
 

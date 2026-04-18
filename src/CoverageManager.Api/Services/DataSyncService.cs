@@ -91,6 +91,8 @@ public sealed class DataSyncService : BackgroundService
                     Swap = d.Swap,
                     Fee = d.Fee,
                     Entry = (uint)d.Entry,
+                    OrderId = d.OrderId.HasValue ? (ulong)d.OrderId.Value : 0UL,
+                    PositionId = d.PositionId.HasValue ? (ulong)d.PositionId.Value : 0UL,
                     Time = d.DealTime
                 });
 
@@ -140,6 +142,8 @@ public sealed class DataSyncService : BackgroundService
             Commission = d.Commission,
             Swap = d.Swap,
             Fee = d.Fee,
+            OrderId = d.OrderId == 0 ? null : (long?)d.OrderId,
+            PositionId = d.PositionId == 0 ? null : (long?)d.PositionId,
             DealTime = d.Time
         }).ToList();
 

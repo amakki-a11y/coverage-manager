@@ -10,6 +10,12 @@ Format: [Conventional Changelog](https://conventionalcommits.org)
 - Equity curve chart (cumulative realized P&L) in Compare tab and Account modal
 - Closed rows toggle checkbox in Compare expanded table
 - Color scheme update: blue (buy/positive) and red (sell/negative) for net and P&L
+- **Bridge tab** (Phase 2.5) — CLIENT/COV OUT execution pairing from Centroid CS 360 Dropcopy FIX 4.4
+  - QuickFIX/n live mode + synthetic Stub mode behind `Centroid:Mode`
+  - `bridge_executions` Supabase table with UPSERT on `client_deal_id` and generated `coverage_ratio`
+  - `pip_size` column added to `symbol_mappings`, seeded for all 22 active mappings
+  - `/api/bridge/{executions,live,health}` REST + `/ws/bridge` WebSocket push
+  - 21 new unit tests for pairing and edge/pip calculations
 
 ### Changed
 ### Fixed

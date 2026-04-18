@@ -8,14 +8,16 @@ import { PositionsGrid } from './components/PositionsGrid';
 import { SymbolMappingAdmin } from './components/SymbolMappingAdmin';
 import { SettingsPanel } from './components/SettingsPanel';
 import { PnLPanel } from './components/PnLPanel';
+import { PeriodPnLPanel } from './components/PeriodPnLPanel';
 import { PositionsCompare } from './pages/PositionsCompare';
 import { MarkupPanel } from './pages/Markup';
+import { BridgePanel } from './pages/Bridge';
 import { AlertToast } from './components/AlertToast';
 import { AlertBanner } from './components/AlertBanner';
 import { AlertHistory } from './components/AlertHistory';
 import type { Position } from './types';
 
-type Tab = 'exposure' | 'positions' | 'pnl' | 'compare' | 'markup' | 'mappings' | 'settings';
+type Tab = 'exposure' | 'positions' | 'pnl' | 'netpnl' | 'compare' | 'markup' | 'bridge' | 'mappings' | 'settings';
 
 function AppContent() {
   const { theme, mode, toggleTheme } = useTheme();
@@ -81,8 +83,10 @@ function AppContent() {
         <button style={tabStyle(tab === 'exposure')} onClick={() => setTab('exposure')}>Exposure</button>
         <button style={tabStyle(tab === 'positions')} onClick={() => setTab('positions')}>Positions</button>
         <button style={tabStyle(tab === 'pnl')} onClick={() => setTab('pnl')}>P&L</button>
+        <button style={tabStyle(tab === 'netpnl')} onClick={() => setTab('netpnl')}>Net P&L</button>
         <button style={tabStyle(tab === 'compare')} onClick={() => setTab('compare')}>Compare</button>
         <button style={tabStyle(tab === 'markup')} onClick={() => setTab('markup')}>Markup</button>
+        <button style={tabStyle(tab === 'bridge')} onClick={() => setTab('bridge')}>Bridge</button>
         <button style={tabStyle(tab === 'mappings')} onClick={() => setTab('mappings')}>Mappings</button>
         <button style={tabStyle(tab === 'settings')} onClick={() => setTab('settings')}>Settings</button>
 
@@ -169,8 +173,10 @@ function AppContent() {
         {tab === 'exposure' && <ExposureTable summaries={exposureSummaries} prices={prices} />}
         {tab === 'positions' && <PositionsGrid positions={positions} />}
         {tab === 'pnl' && <PnLPanel />}
+        {tab === 'netpnl' && <PeriodPnLPanel />}
         {tab === 'compare' && <PositionsCompare prices={prices} />}
         {tab === 'markup' && <MarkupPanel />}
+        {tab === 'bridge' && <BridgePanel />}
         {tab === 'mappings' && <SymbolMappingAdmin />}
         {tab === 'settings' && <SettingsPanel />}
       </div>

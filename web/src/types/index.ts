@@ -89,3 +89,64 @@ export interface ExposureMessage {
     timestamp: string;
   };
 }
+
+// ---- Period P&L (Net P&L tab) ----
+
+export interface PeriodPnLSide {
+  beginFloating: number;
+  currentFloating: number;
+  floatingDelta: number;
+  settled: number;
+  net: number;
+  beginFromSnapshot: boolean;
+  hasOpenPosition: boolean;
+}
+
+export interface PeriodPnLEdge {
+  floating: number;
+  settled: number;
+  net: number;
+}
+
+export interface PeriodPnLRow {
+  canonicalSymbol: string;
+  bBook: PeriodPnLSide;
+  coverage: PeriodPnLSide;
+  edge: PeriodPnLEdge;
+}
+
+export interface PeriodPnLResponse {
+  from: string;
+  to: string;
+  beginAnchorUtc: string;
+  rows: PeriodPnLRow[];
+  totals: PeriodPnLRow;
+}
+
+// ---- Snapshot schedules ----
+
+export type SnapshotCadence = 'daily' | 'weekly' | 'monthly' | 'custom';
+
+export interface SnapshotSchedule {
+  id: string;
+  name: string;
+  cadence: SnapshotCadence;
+  cron_expr?: string | null;
+  tz: string;
+  enabled: boolean;
+  last_run_at?: string | null;
+  next_run_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ExposureSnapshot {
+  id: string;
+  canonical_symbol: string;
+  snapshot_time: string;
+  bbook_pnl: number;
+  coverage_pnl: number;
+  net_pnl: number;
+  trigger_type: string;
+  label: string;
+}

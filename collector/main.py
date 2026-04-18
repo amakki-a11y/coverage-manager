@@ -233,6 +233,9 @@ def get_deals_raw(
                 continue  # skip balance/credit
             result.append({
                 "ticket": d.ticket,
+                "order": d.order,
+                "magic": getattr(d, "magic", 0),
+                "externalId": getattr(d, "external_id", "") or "",
                 "time": datetime.fromtimestamp(d.time_msc / 1000, tz=timezone.utc).isoformat(),
                 "timeMsc": d.time_msc,
                 "symbol": d.symbol,

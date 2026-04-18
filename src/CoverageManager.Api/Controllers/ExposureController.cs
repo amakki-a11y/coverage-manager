@@ -15,19 +15,25 @@ public class ExposureController : ControllerBase
     private readonly MT5ManagerConnection _mt5Connection;
     private readonly DealStore _dealStore;
     private readonly SupabaseService _supabase;
+    private readonly ExposureSnapshotService _snapshotService;
+    private readonly IHttpClientFactory _httpFactory;
 
     public ExposureController(
         ExposureEngine exposureEngine,
         PositionManager positionManager,
         MT5ManagerConnection mt5Connection,
         DealStore dealStore,
-        SupabaseService supabase)
+        SupabaseService supabase,
+        ExposureSnapshotService snapshotService,
+        IHttpClientFactory httpFactory)
     {
         _exposureEngine = exposureEngine;
         _positionManager = positionManager;
         _mt5Connection = mt5Connection;
         _dealStore = dealStore;
         _supabase = supabase;
+        _snapshotService = snapshotService;
+        _httpFactory = httpFactory;
     }
 
     /// <summary>
@@ -306,6 +312,8 @@ public class ExposureController : ControllerBase
                     Commission = d.Commission,
                     Swap = d.Swap,
                     Fee = d.Fee,
+                    OrderId = d.OrderId == 0 ? null : (long?)d.OrderId,
+                    PositionId = d.PositionId == 0 ? null : (long?)d.PositionId,
                     DealTime = d.Time
                 })
                 .ToList();
@@ -466,6 +474,8 @@ public class ExposureController : ControllerBase
                     Commission = d.Commission,
                     Swap = d.Swap,
                     Fee = d.Fee,
+                    OrderId = d.OrderId == 0 ? null : (long?)d.OrderId,
+                    PositionId = d.PositionId == 0 ? null : (long?)d.PositionId,
                     DealTime = d.Time
                 }));
             }
@@ -547,5 +557,294 @@ public class ExposureController : ControllerBase
             elapsed = sw.Elapsed.ToString(@"hh\:mm\:ss"),
             logins = loginResults
         });
+    }
+
+    // =========================================================================
+    // Period P&L (new "Net P&L" tab)
+    //
+    //   FloatingΔ = CurrentFloating − BeginFloating
+    //   Settled   = sum of closed-deal P&L within the period
+    //   Net       = FloatingΔ + Settled
+    //
+    // Begin anchor is "end-of-day Lebanon time for (fromDate - 1)":
+    // midnight Asia/Beirut of fromDate → UTC (21:00 DST, 22:00 standard).
+    // =========================================================================
+
+    /// <summary>GET /api/exposure/pnl/period?from=&amp;to=</summary>
+    [HttpGet("pnl/period")]
+    public async Task<IActionResult> GetPeriodPnL(
+        [FromQuery] DateTime? from = null,
+        [FromQuery] DateTime? to = null,
+        CancellationToken ct = default)
+    {
+        var fromDate = (from ?? DateTime.UtcNow.Date).Date;
+        var toDate = (to ?? DateTime.UtcNow.Date).Date;
+
+        // Interpret the date picker in Lebanon local time so the range matches what the
+        // user sees on their MT5 terminal (also Asia/Beirut). Convert to UTC only for
+        // the actual Supabase/collector queries.
+        TimeZoneInfo beirut;
+        try { beirut = TimeZoneInfo.FindSystemTimeZoneById("Asia/Beirut"); }
+        catch { beirut = TimeZoneInfo.Utc; }
+
+        static DateTime LocalMidnightToUtc(DateTime localDate, TimeZoneInfo tz)
+        {
+            var local = DateTime.SpecifyKind(localDate.Date, DateTimeKind.Unspecified);
+            try { return TimeZoneInfo.ConvertTimeToUtc(local, tz); }
+            catch (ArgumentException) { return TimeZoneInfo.ConvertTimeToUtc(local.AddHours(1), tz); }
+        }
+
+        // Supabase settled range = [fromDate 00:00 Lebanon, toDate+1d 00:00 Lebanon) in UTC.
+        var supabaseFrom = LocalMidnightToUtc(fromDate,            beirut);
+        var supabaseTo   = LocalMidnightToUtc(toDate.AddDays(1),   beirut);
+
+        // Begin anchor = fromDate 00:00 in Asia/Beirut → UTC (same function).
+        var beginAnchorUtc = supabaseFrom;
+
+        // 2. Begin snapshots (per-symbol, latest ≤ anchor). Split by source —
+        //    the row carries both bbook_pnl and coverage_pnl.
+        var nearest = await _supabase.GetNearestSnapshotsBeforeAsync(beginAnchorUtc);
+
+        // Normalize every canonical symbol coming from mappings/live/snapshots/deals to a
+        // single key so we don't end up with two rows for "GCM6" vs "GCM6-" or "Ut100-" vs "UT100".
+        // Strip trailing '-', '.c', '.C' and upper-case. Mapping data has inconsistent case.
+        static string NormalizeKey(string? raw)
+        {
+            if (string.IsNullOrEmpty(raw)) return string.Empty;
+            var s = raw.Trim();
+            // Drop a trailing '.X' suffix like '.c' / '.C' / '.m'
+            var dot = s.LastIndexOf('.');
+            if (dot >= 0 && s.Length - dot <= 3) s = s.Substring(0, dot);
+            // Drop trailing dashes
+            while (s.EndsWith("-")) s = s[..^1];
+            return s.ToUpperInvariant();
+        }
+
+        // 3. Current floating from live positions.
+        var liveSummaries = _exposureEngine.CalculateExposure();
+
+        // 4. Settled B-Book via fast SQL aggregation (single RPC call — was 46s for 18d ranges).
+        var movedLoginsTask = _supabase.GetMovedLoginsAsync();
+
+        // Coverage settled: fetch from Python collector. Keep best-effort (null on failure).
+        Dictionary<string, decimal> covSettledByCanonical = new(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var http = _httpFactory.CreateClient();
+            http.Timeout = TimeSpan.FromSeconds(20);
+            var url = $"http://localhost:8100/deals?from={fromDate:yyyy-MM-dd}&to={toDate:yyyy-MM-dd}";
+            using var res = await http.GetAsync(url, ct);
+            if (res.IsSuccessStatusCode)
+            {
+                using var stream = await res.Content.ReadAsStreamAsync(ct);
+                var dto = await System.Text.Json.JsonSerializer.DeserializeAsync<CollectorDealsResponse>(
+                    stream, new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true }, ct);
+                if (dto?.Symbols != null)
+                {
+                    // Collector returns coverage-side symbol names (XAUUSD-, US30.c…).
+                    // Map each to canonical via symbol_mappings (case-insensitive).
+                    var mappings = await _supabase.GetMappingsAsync();
+                    var covToCanonical = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var m in mappings)
+                        if (!string.IsNullOrEmpty(m.CoverageSymbol))
+                            covToCanonical[m.CoverageSymbol] = m.CanonicalName;
+
+                    foreach (var s in dto.Symbols)
+                    {
+                        var canonical = covToCanonical.TryGetValue(s.Symbol ?? string.Empty, out var c)
+                            ? c
+                            : s.Symbol;
+                        var key = NormalizeKey(canonical);
+                        if (string.IsNullOrEmpty(key)) continue;
+                        covSettledByCanonical[key] = covSettledByCanonical.GetValueOrDefault(key) + s.NetPnL;
+                    }
+                }
+            }
+        }
+        catch (Exception ex) { /* best-effort */ _ = ex; }
+
+        var movedLogins = await movedLoginsTask;
+        // Single RPC returns {canonical_key, net_pnl} per symbol — already normalized server-side.
+        var bbookSettledByCanonical = await _supabase.AggregateBBookSettledPnlAsync(
+            supabaseFrom, supabaseTo, movedLogins.Select(l => (long)l));
+
+        // Index live summaries by normalized key, and nearest snapshots too.
+        var liveByKey = new Dictionary<string, ExposureSummary>(StringComparer.Ordinal);
+        foreach (var s in liveSummaries)
+        {
+            var k = NormalizeKey(s.CanonicalSymbol);
+            if (string.IsNullOrEmpty(k)) continue;
+            // If two mapping variants produced separate live summaries, merge them.
+            if (liveByKey.TryGetValue(k, out var existing))
+            {
+                existing.BBookPnL += s.BBookPnL;
+                existing.CoveragePnL += s.CoveragePnL;
+                existing.BBookBuyVolume += s.BBookBuyVolume;
+                existing.BBookSellVolume += s.BBookSellVolume;
+                existing.CoverageBuyVolume += s.CoverageBuyVolume;
+                existing.CoverageSellVolume += s.CoverageSellVolume;
+            }
+            else
+            {
+                liveByKey[k] = s;
+            }
+        }
+        // Snapshots. "Sentinel" canonicals (seed anchor rows like BEGIN_SEED_TOTAL or anything
+        // prefixed "__") contribute to TOTAL only — not per-symbol rows. They exist so a dealer
+        // can seed a portfolio-level Begin without filling in every symbol.
+        var snapByKey = new Dictionary<string, ExposureSnapshot>(StringComparer.Ordinal);
+        var sentinelSnapshots = new List<ExposureSnapshot>();
+        static bool IsSentinelSymbol(string s) =>
+            s.StartsWith("__") || s.Contains("SEED_TOTAL", StringComparison.OrdinalIgnoreCase) || s.Contains("PORTFOLIO", StringComparison.OrdinalIgnoreCase);
+        foreach (var kvp in nearest)
+        {
+            var k = NormalizeKey(kvp.Key);
+            if (string.IsNullOrEmpty(k)) continue;
+            if (IsSentinelSymbol(kvp.Key) || IsSentinelSymbol(k))
+            {
+                sentinelSnapshots.Add(kvp.Value);
+            }
+            else
+            {
+                snapByKey[k] = kvp.Value;
+            }
+        }
+
+        // 5. Build per-symbol rows. Union of all normalized keys we've seen anywhere.
+        var allSymbols = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var k in liveByKey.Keys) allSymbols.Add(k);
+        foreach (var k in snapByKey.Keys) allSymbols.Add(k);
+        foreach (var k in bbookSettledByCanonical.Keys) allSymbols.Add(k);
+        foreach (var k in covSettledByCanonical.Keys) allSymbols.Add(k);
+
+        var rows = new List<PeriodPnLRow>();
+        foreach (var symUpper in allSymbols.OrderBy(s => s))
+        {
+            liveByKey.TryGetValue(symUpper, out var live);
+            snapByKey.TryGetValue(symUpper, out var snap);
+
+            // A B-Book "open position" exists when the live summary has non-zero volume on that side.
+            bool bbHasPos = live != null && (live.BBookBuyVolume != 0 || live.BBookSellVolume != 0);
+            bool covHasPos = live != null && (live.CoverageBuyVolume != 0 || live.CoverageSellVolume != 0);
+
+            var bbook = new PeriodPnLSide
+            {
+                BeginFloating = snap?.BBookPnL ?? 0m,
+                CurrentFloating = live?.BBookPnL ?? 0m,
+                Settled = bbookSettledByCanonical.GetValueOrDefault(symUpper),
+                BeginFromSnapshot = snap != null,
+                HasOpenPosition = bbHasPos,
+            };
+            bbook.FloatingDelta = bbook.CurrentFloating - bbook.BeginFloating;
+            bbook.Net = bbook.FloatingDelta + bbook.Settled;
+
+            var coverage = new PeriodPnLSide
+            {
+                BeginFloating = snap?.CoveragePnL ?? 0m,
+                CurrentFloating = live?.CoveragePnL ?? 0m,
+                Settled = covSettledByCanonical.GetValueOrDefault(symUpper),
+                BeginFromSnapshot = snap != null,
+                HasOpenPosition = covHasPos,
+            };
+            coverage.FloatingDelta = coverage.CurrentFloating - coverage.BeginFloating;
+            coverage.Net = coverage.FloatingDelta + coverage.Settled;
+
+            rows.Add(new PeriodPnLRow
+            {
+                CanonicalSymbol = live?.CanonicalSymbol ?? snap?.CanonicalSymbol ?? symUpper,
+                BBook = bbook,
+                Coverage = coverage,
+                // Broker-perspective edge: positive = broker made money overall.
+                // Broker takes the opposite of clients → broker P&L = Coverage − Clients.
+                Edge = new PeriodPnLEdge
+                {
+                    Floating = coverage.FloatingDelta - bbook.FloatingDelta,
+                    Settled = coverage.Settled - bbook.Settled,
+                    Net = coverage.Net - bbook.Net,
+                },
+            });
+        }
+
+        // 6. Totals — sum every field (missing Begin already counted as 0 per decision #4).
+        var totals = new PeriodPnLRow { CanonicalSymbol = "TOTAL" };
+        foreach (var r in rows)
+        {
+            totals.BBook.BeginFloating   += r.BBook.BeginFloating;
+            totals.BBook.CurrentFloating += r.BBook.CurrentFloating;
+            totals.BBook.FloatingDelta   += r.BBook.FloatingDelta;
+            totals.BBook.Settled         += r.BBook.Settled;
+            totals.BBook.Net             += r.BBook.Net;
+            totals.Coverage.BeginFloating   += r.Coverage.BeginFloating;
+            totals.Coverage.CurrentFloating += r.Coverage.CurrentFloating;
+            totals.Coverage.FloatingDelta   += r.Coverage.FloatingDelta;
+            totals.Coverage.Settled         += r.Coverage.Settled;
+            totals.Coverage.Net             += r.Coverage.Net;
+        }
+        // Sentinel (seed) snapshot contributions: feed portfolio-level Begin into the
+        // TOTAL row and propagate through FloatingDelta and Net so the aggregate reflects
+        // the dealer's seeded anchor. They don't emit per-symbol rows.
+        foreach (var s in sentinelSnapshots)
+        {
+            totals.BBook.BeginFloating    += s.BBookPnL;
+            totals.BBook.FloatingDelta    -= s.BBookPnL;      // delta = current - begin, so subtract begin
+            totals.BBook.Net              -= s.BBookPnL;      // net = delta + settled
+            totals.Coverage.BeginFloating += s.CoveragePnL;
+            totals.Coverage.FloatingDelta -= s.CoveragePnL;
+            totals.Coverage.Net           -= s.CoveragePnL;
+        }
+        totals.Edge.Floating = totals.Coverage.FloatingDelta - totals.BBook.FloatingDelta;
+        totals.Edge.Settled = totals.Coverage.Settled - totals.BBook.Settled;
+        totals.Edge.Net = totals.Coverage.Net - totals.BBook.Net;
+        totals.BBook.BeginFromSnapshot = sentinelSnapshots.Count > 0 || rows.All(r => r.BBook.BeginFromSnapshot);
+        totals.Coverage.BeginFromSnapshot = sentinelSnapshots.Count > 0 || rows.All(r => r.Coverage.BeginFromSnapshot);
+        totals.BBook.HasOpenPosition = rows.Any(r => r.BBook.HasOpenPosition);
+        totals.Coverage.HasOpenPosition = rows.Any(r => r.Coverage.HasOpenPosition);
+
+        return Ok(new PeriodPnLResponse
+        {
+            From = fromDate,
+            To = toDate,
+            BeginAnchorUtc = beginAnchorUtc,
+            Rows = rows,
+            Totals = totals,
+        });
+    }
+
+    /// <summary>POST /api/exposure/snapshot — trigger an immediate manual snapshot capture.</summary>
+    [HttpPost("snapshot")]
+    public async Task<IActionResult> CaptureSnapshotNow([FromBody] CaptureSnapshotRequest? body, CancellationToken ct)
+    {
+        var label = body?.Label ?? string.Empty;
+        var count = await _snapshotService.RunNowAsync(triggerType: "manual", label: label, ct);
+        return Ok(new { captured = count, at = DateTime.UtcNow });
+    }
+
+    /// <summary>GET /api/exposure/snapshots?from=&amp;to=&amp;symbol= — list stored snapshots for diagnostics.</summary>
+    [HttpGet("snapshots")]
+    public async Task<IActionResult> ListSnapshots(
+        [FromQuery] DateTime? from = null,
+        [FromQuery] DateTime? to = null,
+        [FromQuery] string? symbol = null)
+    {
+        var fromUtc = from ?? DateTime.UtcNow.AddDays(-30);
+        var toUtc = to ?? DateTime.UtcNow;
+        var list = await _supabase.ListExposureSnapshotsAsync(fromUtc, toUtc, symbol);
+        return Ok(list);
+    }
+
+    public sealed class CaptureSnapshotRequest
+    {
+        public string? Label { get; set; }
+    }
+
+    private sealed class CollectorDealsResponse
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("symbols")]
+        public List<CollectorSymbolRow>? Symbols { get; set; }
+    }
+    private sealed class CollectorSymbolRow
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("symbol")] public string? Symbol { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("netPnL")] public decimal NetPnL { get; set; }
     }
 }

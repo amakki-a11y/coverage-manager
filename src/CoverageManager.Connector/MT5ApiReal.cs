@@ -149,6 +149,7 @@ public sealed class MT5ApiReal : IMT5Api
             Storage = deal.Storage(),
             Fee = deal.Fee(),
             Entry = deal.Entry(),
+            OrderId = deal.Order(),
             PositionId = (ulong)deal.PositionID(),
             Comment = deal.Comment()
         };

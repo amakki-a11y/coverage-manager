@@ -18,6 +18,7 @@ public sealed record RawDeal
     public required double Storage { get; init; } // Swap
     public required double Fee { get; init; }
     public required uint Entry { get; init; }     // 0=IN, 1=OUT, 2=INOUT, 3=OUT_BY
+    public required ulong OrderId { get; init; }   // MTDeal.Order — ticket of the order that created this deal
     public required ulong PositionId { get; init; }
     public required string Comment { get; init; }
     public double VolumeLots => VolumeRaw / 10000.0;

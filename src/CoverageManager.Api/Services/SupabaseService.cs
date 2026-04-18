@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using CoverageManager.Core.Models;
+using CoverageManager.Core.Models.Bridge;
 
 namespace CoverageManager.Api.Services;
 
@@ -163,6 +164,68 @@ public class SupabaseService
         {
             _logger.LogError(ex, "Failed to delete account settings {Id}", id);
             return false;
+        }
+    }
+
+    // ── Bridge Settings (Centroid Dropcopy FIX) ──
+    // Singleton row. GetBridgeSettingsAsync always returns a row (creates default on first call).
+
+    public async Task<BridgeSettings?> GetBridgeSettingsAsync()
+    {
+        try
+        {
+            var response = await _http.GetAsync($"{_url}/rest/v1/bridge_settings?select=*&limit=1");
+            response.EnsureSuccessStatusCode();
+            var json = await response.Content.ReadAsStringAsync();
+            var list = JsonSerializer.Deserialize<List<BridgeSettings>>(json, JsonOptions) ?? [];
+            return list.FirstOrDefault();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to fetch bridge_settings");
+            return null;
+        }
+    }
+
+    public async Task<BridgeSettings?> UpsertBridgeSettingsAsync(BridgeSettings settings)
+    {
+        try
+        {
+            settings.UpdatedAt = DateTime.UtcNow;
+
+            // There's a singleton index enforcing at most one row. Prefer UPDATE over INSERT
+            // so we never accidentally try to create a second row.
+            var existing = await GetBridgeSettingsAsync();
+            if (existing?.Id is Guid id)
+            {
+                settings.Id = id;
+                var json = JsonSerializer.Serialize(settings, JsonOptions);
+                var content = new StringContent(json, Encoding.UTF8, "application/json");
+                var req = new HttpRequestMessage(HttpMethod.Patch, $"{_url}/rest/v1/bridge_settings?id=eq.{id}") { Content = content };
+                req.Headers.Add("Prefer", "return=representation");
+                var resp = await _http.SendAsync(req);
+                resp.EnsureSuccessStatusCode();
+                var body = await resp.Content.ReadAsStringAsync();
+                var list = JsonSerializer.Deserialize<List<BridgeSettings>>(body, JsonOptions);
+                return list?.FirstOrDefault();
+            }
+            else
+            {
+                var json = JsonSerializer.Serialize(settings, JsonOptions);
+                var content = new StringContent(json, Encoding.UTF8, "application/json");
+                var req = new HttpRequestMessage(HttpMethod.Post, $"{_url}/rest/v1/bridge_settings") { Content = content };
+                req.Headers.Add("Prefer", "return=representation");
+                var resp = await _http.SendAsync(req);
+                resp.EnsureSuccessStatusCode();
+                var body = await resp.Content.ReadAsStringAsync();
+                var list = JsonSerializer.Deserialize<List<BridgeSettings>>(body, JsonOptions);
+                return list?.FirstOrDefault();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to upsert bridge_settings");
+            return null;
         }
     }
 
@@ -636,6 +699,212 @@ public class SupabaseService
         {
             _logger.LogError(ex, "Failed to fetch audit log");
             return [];
+        }
+    }
+
+    // =========================================================================
+    // Exposure snapshots (point-in-time floating P&L for Period P&L feature)
+    // =========================================================================
+
+    /// <summary>Bulk-upsert snapshot rows. Uses (canonical_symbol, snapshot_time) unique index.</summary>
+    public async Task<int> UpsertExposureSnapshotsAsync(IEnumerable<ExposureSnapshot> snapshots)
+    {
+        var batch = snapshots.ToList();
+        if (batch.Count == 0) return 0;
+        try
+        {
+            var body = JsonSerializer.Serialize(batch, JsonOptions);
+            var content = new StringContent(body, Encoding.UTF8, "application/json");
+            var req = new HttpRequestMessage(HttpMethod.Post,
+                $"{_url}/rest/v1/exposure_snapshots?on_conflict=canonical_symbol,snapshot_time")
+            { Content = content };
+            req.Headers.Add("Prefer", "resolution=merge-duplicates,return=minimal");
+            var res = await _http.SendAsync(req);
+            if (!res.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("exposure_snapshots upsert failed: {Status} {Body}",
+                    res.StatusCode, await res.Content.ReadAsStringAsync());
+                return 0;
+            }
+            return batch.Count;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "UpsertExposureSnapshotsAsync failed");
+            return 0;
+        }
+    }
+
+    /// <summary>
+    /// For each canonical symbol, fetch the latest snapshot with snapshot_time &lt;= anchor.
+    /// Returns a dictionary keyed by canonical_symbol (upper).
+    /// </summary>
+    public async Task<Dictionary<string, ExposureSnapshot>> GetNearestSnapshotsBeforeAsync(DateTime anchorUtc)
+    {
+        try
+        {
+            // Supabase PostgREST supports DISTINCT ON via the `order` + `limit` gymnastics. Simplest:
+            // fetch all rows <= anchor ordered by (canonical_symbol asc, snapshot_time desc), then
+            // keep the first row per symbol.
+            var q = $"{_url}/rest/v1/exposure_snapshots?select=*&snapshot_time=lte.{Uri.EscapeDataString(anchorUtc.ToString("o"))}&order=canonical_symbol.asc,snapshot_time.desc";
+            var res = await _http.GetAsync(q);
+            if (!res.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("GetNearestSnapshotsBefore failed {Status}", res.StatusCode);
+                return new();
+            }
+            var json = await res.Content.ReadAsStringAsync();
+            var rows = JsonSerializer.Deserialize<List<ExposureSnapshot>>(json, JsonOptions) ?? new();
+            var result = new Dictionary<string, ExposureSnapshot>(StringComparer.OrdinalIgnoreCase);
+            foreach (var r in rows)
+            {
+                var key = r.CanonicalSymbol.ToUpperInvariant();
+                if (!result.ContainsKey(key)) result[key] = r; // first row per symbol = latest <= anchor
+            }
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "GetNearestSnapshotsBeforeAsync failed");
+            return new();
+        }
+    }
+
+    /// <summary>List raw snapshots in a window (for history UI / debugging).</summary>
+    public async Task<List<ExposureSnapshot>> ListExposureSnapshotsAsync(DateTime fromUtc, DateTime toUtc, string? canonicalSymbol = null)
+    {
+        try
+        {
+            var sb = new StringBuilder($"{_url}/rest/v1/exposure_snapshots?select=*");
+            sb.Append($"&snapshot_time=gte.{Uri.EscapeDataString(fromUtc.ToString("o"))}");
+            sb.Append($"&snapshot_time=lte.{Uri.EscapeDataString(toUtc.ToString("o"))}");
+            if (!string.IsNullOrEmpty(canonicalSymbol))
+                sb.Append($"&canonical_symbol=eq.{Uri.EscapeDataString(canonicalSymbol)}");
+            sb.Append("&order=snapshot_time.desc&limit=2000");
+            var res = await _http.GetAsync(sb.ToString());
+            if (!res.IsSuccessStatusCode) return new();
+            var json = await res.Content.ReadAsStringAsync();
+            return JsonSerializer.Deserialize<List<ExposureSnapshot>>(json, JsonOptions) ?? new();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "ListExposureSnapshotsAsync failed");
+            return new();
+        }
+    }
+
+    // =========================================================================
+    // Fast per-symbol B-Book settled P&L via SQL function — avoids pulling 200K+
+    // deal rows client-side for long date ranges (turns 46s into <1s).
+    // =========================================================================
+    public async Task<Dictionary<string, decimal>> AggregateBBookSettledPnlAsync(
+        DateTime fromUtc, DateTime toUtc, IEnumerable<long> excludedLogins)
+    {
+        try
+        {
+            var body = new
+            {
+                from_ts = fromUtc.ToUniversalTime().ToString("o"),
+                to_ts = toUtc.ToUniversalTime().ToString("o"),
+                excluded_logins = excludedLogins.ToArray(),
+            };
+            var json = JsonSerializer.Serialize(body, JsonOptions);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            var res = await _http.PostAsync($"{_url}/rest/v1/rpc/aggregate_bbook_settled_pnl", content);
+            if (!res.IsSuccessStatusCode)
+            {
+                var txt = await res.Content.ReadAsStringAsync();
+                _logger.LogWarning("aggregate_bbook_settled_pnl RPC failed {Status}: {Body}", res.StatusCode, txt);
+                return new(StringComparer.Ordinal);
+            }
+            var text = await res.Content.ReadAsStringAsync();
+            using var doc = JsonDocument.Parse(text);
+            var result = new Dictionary<string, decimal>(StringComparer.Ordinal);
+            foreach (var row in doc.RootElement.EnumerateArray())
+            {
+                var key = row.GetProperty("canonical_key").GetString() ?? "";
+                var pnl = row.GetProperty("net_pnl").GetDecimal();
+                if (!string.IsNullOrEmpty(key)) result[key] = pnl;
+            }
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "AggregateBBookSettledPnlAsync failed");
+            return new(StringComparer.Ordinal);
+        }
+    }
+
+    // =========================================================================
+    // Snapshot schedules CRUD
+    // =========================================================================
+
+    public async Task<List<SnapshotSchedule>> GetSnapshotSchedulesAsync()
+    {
+        try
+        {
+            var res = await _http.GetAsync($"{_url}/rest/v1/snapshot_schedules?select=*&order=name.asc");
+            if (!res.IsSuccessStatusCode) return new();
+            var json = await res.Content.ReadAsStringAsync();
+            return JsonSerializer.Deserialize<List<SnapshotSchedule>>(json, JsonOptions) ?? new();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "GetSnapshotSchedulesAsync failed");
+            return new();
+        }
+    }
+
+    public async Task<SnapshotSchedule?> UpsertSnapshotScheduleAsync(SnapshotSchedule schedule)
+    {
+        try
+        {
+            var hasId = schedule.Id.HasValue && schedule.Id.Value != Guid.Empty;
+            HttpRequestMessage req;
+            if (hasId)
+            {
+                var body = JsonSerializer.Serialize(schedule, JsonOptions);
+                var content = new StringContent(body, Encoding.UTF8, "application/json");
+                req = new HttpRequestMessage(HttpMethod.Patch,
+                    $"{_url}/rest/v1/snapshot_schedules?id=eq.{schedule.Id}")
+                { Content = content };
+            }
+            else
+            {
+                var body = JsonSerializer.Serialize(schedule, JsonOptions);
+                var content = new StringContent(body, Encoding.UTF8, "application/json");
+                req = new HttpRequestMessage(HttpMethod.Post, $"{_url}/rest/v1/snapshot_schedules") { Content = content };
+            }
+            req.Headers.Add("Prefer", "return=representation");
+            var res = await _http.SendAsync(req);
+            if (!res.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("snapshot_schedules upsert failed {Status}: {Body}",
+                    res.StatusCode, await res.Content.ReadAsStringAsync());
+                return null;
+            }
+            var json = await res.Content.ReadAsStringAsync();
+            var list = JsonSerializer.Deserialize<List<SnapshotSchedule>>(json, JsonOptions);
+            return list?.FirstOrDefault();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "UpsertSnapshotScheduleAsync failed");
+            return null;
+        }
+    }
+
+    public async Task<bool> DeleteSnapshotScheduleAsync(Guid id)
+    {
+        try
+        {
+            var res = await _http.DeleteAsync($"{_url}/rest/v1/snapshot_schedules?id=eq.{id}");
+            return res.IsSuccessStatusCode;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "DeleteSnapshotScheduleAsync failed");
+            return false;
         }
     }
 }

@@ -17,5 +17,7 @@ public class ClosedDeal
     public decimal Swap { get; set; }
     public decimal Fee { get; set; }
     public uint Entry { get; set; } // 0=IN, 1=OUT, 2=INOUT, 3=OUT_BY
+    public ulong OrderId { get; set; } // MTDeal.Order — ticket of the order that created this deal
+    public ulong PositionId { get; set; } // MTDeal.PositionID
     public DateTime Time { get; set; }
 }

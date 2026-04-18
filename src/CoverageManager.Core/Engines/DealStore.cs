@@ -10,6 +10,8 @@ namespace CoverageManager.Core.Engines;
 public class DealStore
 {
     private readonly ConcurrentDictionary<ulong, ClosedDeal> _deals = new();
+    // Secondary index: (login, orderId) -> dealId. Used by the Bridge to resolve Centroid ext_order -> true MT5 deal number.
+    private readonly ConcurrentDictionary<(ulong login, ulong orderId), ulong> _dealIdByOrder = new();
 
     /// <summary>
     /// Add a deal (deduplicated by DealId).
@@ -17,6 +19,8 @@ public class DealStore
     public void AddDeal(ClosedDeal deal)
     {
         _deals[deal.DealId] = deal;
+        if (deal.Login != 0 && deal.OrderId != 0)
+            _dealIdByOrder[(deal.Login, deal.OrderId)] = deal.DealId;
     }
 
     /// <summary>
@@ -25,19 +29,38 @@ public class DealStore
     public void AddDeals(IEnumerable<ClosedDeal> deals)
     {
         foreach (var d in deals)
+        {
             _deals[d.DealId] = d;
+            if (d.Login != 0 && d.OrderId != 0)
+                _dealIdByOrder[(d.Login, d.OrderId)] = d.DealId;
+        }
     }
 
     /// <summary>
     /// Clear all deals (e.g., on reconnect for fresh backfill).
     /// </summary>
-    public void Clear() => _deals.Clear();
+    public void Clear()
+    {
+        _deals.Clear();
+        _dealIdByOrder.Clear();
+    }
 
     /// <summary>
     /// Get all stored deals.
     /// </summary>
     public IReadOnlyList<ClosedDeal> GetAllDeals() =>
         _deals.Values.ToList().AsReadOnly();
+
+    /// <summary>
+    /// Look up the MT5 deal ticket by (login, order ticket). Returns null when
+    /// the deal hasn't been ingested yet or when OrderId wasn't captured (older rows).
+    /// Used by the Bridge to map Centroid ext_order to the real B-Book deal number.
+    /// </summary>
+    public ulong? GetDealIdByOrder(ulong login, ulong orderId)
+    {
+        if (login == 0 || orderId == 0) return null;
+        return _dealIdByOrder.TryGetValue((login, orderId), out var dealId) ? dealId : null;
+    }
 
     /// <summary>
     /// Get realized P&L summary grouped by symbol.

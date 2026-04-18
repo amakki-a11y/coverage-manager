@@ -32,6 +32,13 @@ public class SymbolMapping
     public bool IsActive { get; set; } = true;
 
     /// <summary>
+    /// Optional per-symbol pip size used by the Bridge tab's pip conversion.
+    /// NULL => BridgePipResolver falls back to name/price heuristics.
+    /// </summary>
+    [JsonPropertyName("pip_size")]
+    public decimal? PipSize { get; set; }
+
+    /// <summary>
     /// Convert coverage lots to B-Book equivalent lots.
     /// E.g., 1500 lots × (1 oz / 100 oz) = 15 B-Book lots
     /// </summary>

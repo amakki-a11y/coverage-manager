@@ -1,6 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { THEME } from '../theme';
 import type { AccountSettings } from '../types';
+import { BridgeSettingsCard } from './BridgeSettingsCard';
+import type { SnapshotSchedule, SnapshotCadence, ExposureSnapshot } from '../types';
 
 const API_BASE = 'http://localhost:5000/api/settings/accounts';
 
@@ -316,6 +318,15 @@ export function SettingsPanel() {
           </div>
         )}
       </div>
+
+      {/* Bridge (Centroid Dropcopy FIX) */}
+      <BridgeSettingsCard />
+
+      {/* Snapshot schedules — drives Period P&L "Begin" anchor */}
+      <SnapshotSchedulesCard />
+
+      {/* Snapshot history — recent captures from manual + scheduled runs */}
+      <SnapshotHistoryCard />
 
       {/* Moved Accounts */}
       {movedAccounts.length > 0 && (
@@ -707,6 +718,356 @@ function AccountCard({
         <button onClick={() => onDelete(account.id)} style={{ ...btnStyle, background: 'rgba(255,82,82,0.15)', color: THEME.red }}>
           Delete
         </button>
+      </div>
+    </div>
+  );
+}
+
+// =========================================================================
+// Snapshot Schedules section — drives Period P&L "Begin" anchor captures.
+// =========================================================================
+
+const SCHEDULES_API = 'http://localhost:5000/api/snapshot-schedules';
+const CADENCES: SnapshotCadence[] = ['daily', 'weekly', 'monthly', 'custom'];
+
+interface ScheduleDraft {
+  name: string;
+  cadence: SnapshotCadence;
+  cron_expr: string;
+  tz: string;
+  enabled: boolean;
+}
+
+function SnapshotSchedulesCard() {
+  const [items, setItems] = useState<SnapshotSchedule[]>([]);
+  const [showForm, setShowForm] = useState(false);
+  const [draft, setDraft] = useState<ScheduleDraft>({ name: '', cadence: 'daily', cron_expr: '', tz: 'Asia/Beirut', enabled: true });
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const fetchAll = useCallback(async () => {
+    try {
+      const res = await fetch(SCHEDULES_API);
+      if (res.ok) setItems(await res.json());
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  const save = async () => {
+    const body = { ...draft, cron_expr: draft.cron_expr || null };
+    try {
+      const url = editingId ? `${SCHEDULES_API}/${editingId}` : SCHEDULES_API;
+      const method = editingId ? 'PUT' : 'POST';
+      await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      setShowForm(false);
+      setEditingId(null);
+      setDraft({ name: '', cadence: 'daily', cron_expr: '', tz: 'Asia/Beirut', enabled: true });
+      fetchAll();
+    } catch { /* ignore */ }
+  };
+
+  const startEdit = (s: SnapshotSchedule) => {
+    setEditingId(s.id);
+    setDraft({
+      name: s.name ?? '',
+      cadence: s.cadence ?? 'daily',
+      cron_expr: s.cron_expr ?? '',
+      tz: s.tz ?? 'Asia/Beirut',
+      enabled: s.enabled,
+    });
+    setShowForm(true);
+  };
+
+  const toggleEnabled = async (s: SnapshotSchedule) => {
+    try {
+      await fetch(`${SCHEDULES_API}/${s.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...s, enabled: !s.enabled }),
+      });
+      fetchAll();
+    } catch { /* ignore */ }
+  };
+
+  const runNow = async (id: string) => {
+    setBusy(id);
+    try {
+      await fetch(`${SCHEDULES_API}/${id}/run-now`, { method: 'POST' });
+      await fetchAll();
+    } catch { /* ignore */ }
+    setBusy(null);
+  };
+
+  const del = async (id: string) => {
+    if (!confirm('Delete this schedule?')) return;
+    try {
+      await fetch(`${SCHEDULES_API}/${id}`, { method: 'DELETE' });
+      fetchAll();
+    } catch { /* ignore */ }
+  };
+
+  return (
+    <div style={{ marginTop: 32 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <div>
+          <h3 style={{ color: '#66bb6a', margin: 0, fontSize: 14 }}>Snapshot Schedules (Period P&amp;L)</h3>
+          <p style={{ color: THEME.t3, margin: '4px 0 0', fontSize: 12 }}>
+            Periodic captures that anchor the "Begin" balance for the Net P&amp;L tab.
+            Default schedules use Lebanon time (Asia/Beirut).
+          </p>
+        </div>
+        <button
+          onClick={() => { setShowForm(v => !v); setEditingId(null); setDraft({ name: '', cadence: 'daily', cron_expr: '', tz: 'Asia/Beirut', enabled: true }); }}
+          style={{ ...btnStyle, background: '#66bb6a', color: '#000' }}
+        >
+          {showForm ? 'Cancel' : '+ Add Schedule'}
+        </button>
+      </div>
+
+      {showForm && (
+        <div style={{ ...cardStyle, marginBottom: 12, borderColor: '#66bb6a', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+          <div>
+            <label style={labelStyle}>Name</label>
+            <input style={inputStyle} value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })} placeholder="Daily Close (Lebanon)" />
+          </div>
+          <div>
+            <label style={labelStyle}>Cadence</label>
+            <select
+              value={draft.cadence}
+              onChange={e => setDraft({ ...draft, cadence: e.target.value as SnapshotCadence })}
+              style={{ ...inputStyle, width: '100%' }}
+            >
+              {CADENCES.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={labelStyle}>Timezone</label>
+            <input style={inputStyle} value={draft.tz} onChange={e => setDraft({ ...draft, tz: e.target.value })} placeholder="Asia/Beirut" />
+          </div>
+          <div>
+            <label style={labelStyle}>{draft.cadence === 'custom' ? 'Cron Expression' : 'Cron (override, optional)'}</label>
+            <input style={inputStyle} value={draft.cron_expr} onChange={e => setDraft({ ...draft, cron_expr: e.target.value })} placeholder={draft.cadence === 'daily' ? '0 0 * * *' : '0 0 * * 1'} />
+          </div>
+          <div style={{ gridColumn: '1 / span 4', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <label style={{ color: THEME.t2, fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <input type="checkbox" checked={draft.enabled} onChange={e => setDraft({ ...draft, enabled: e.target.checked })} />
+              Enabled
+            </label>
+            <button onClick={save} style={{ ...btnStyle, background: THEME.green, color: '#000' }}>
+              {editingId ? 'Update' : 'Save'} Schedule
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div style={{ ...cardStyle, padding: 0, overflow: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, fontFamily: 'monospace' }}>
+          <thead>
+            <tr style={{ borderBottom: `1px solid ${THEME.border}` }}>
+              <th style={{ ...thStyle, textAlign: 'left' }}>Name</th>
+              <th style={thStyle}>Cadence</th>
+              <th style={thStyle}>Cron</th>
+              <th style={thStyle}>Timezone</th>
+              <th style={thStyle}>Last Run</th>
+              <th style={thStyle}>Next Run</th>
+              <th style={thStyle}>Enabled</th>
+              <th style={thStyle}>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map(s => (
+              <tr key={s.id} style={{ borderBottom: `1px solid ${THEME.border}` }}>
+                <td style={{ ...tdStyle, textAlign: 'left', color: THEME.t1, fontFamily: 'inherit' }}>{s.name}</td>
+                <td style={{ ...tdStyle, color: THEME.teal }}>{s.cadence}</td>
+                <td style={{ ...tdStyle, color: THEME.t3 }}>{s.cron_expr ?? '—'}</td>
+                <td style={tdStyle}>{s.tz}</td>
+                <td style={{ ...tdStyle, color: THEME.t3 }}>{s.last_run_at ? new Date(s.last_run_at).toLocaleString() : '—'}</td>
+                <td style={{ ...tdStyle, color: THEME.t3 }}>{s.next_run_at ? new Date(s.next_run_at).toLocaleString() : '—'}</td>
+                <td style={tdStyle}>
+                  <button
+                    onClick={() => toggleEnabled(s)}
+                    style={{ ...btnStyle, background: s.enabled ? 'rgba(76,175,80,0.15)' : 'rgba(153,153,153,0.15)', color: s.enabled ? THEME.green : THEME.t3 }}
+                  >
+                    {s.enabled ? 'On' : 'Off'}
+                  </button>
+                </td>
+                <td style={{ ...tdStyle, display: 'flex', gap: 4, justifyContent: 'center' }}>
+                  <button
+                    onClick={() => runNow(s.id)}
+                    disabled={busy === s.id}
+                    style={{ ...btnStyle, background: 'rgba(91,158,255,0.15)', color: THEME.blue, opacity: busy === s.id ? 0.5 : 1 }}
+                  >
+                    {busy === s.id ? '…' : 'Run Now'}
+                  </button>
+                  <button onClick={() => startEdit(s)} style={{ ...btnStyle, background: THEME.bg3, color: THEME.t2 }}>Edit</button>
+                  <button onClick={() => del(s.id)} style={{ ...btnStyle, background: 'rgba(255,82,82,0.15)', color: THEME.red }}>Delete</button>
+                </td>
+              </tr>
+            ))}
+            {items.length === 0 && (
+              <tr>
+                <td colSpan={8} style={{ ...tdStyle, color: THEME.t3, padding: 24 }}>
+                  No schedules configured. Add one to start capturing snapshots automatically.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// =========================================================================
+// Snapshot History — lists recent captures (manual + scheduled).
+// Each capture = N symbol rows sharing the same snapshot_time, so we group by time.
+// =========================================================================
+
+const SNAPSHOTS_API = 'http://localhost:5000/api/exposure/snapshots';
+
+interface GroupedSnapshot {
+  snapshotTime: string;
+  triggerType: string;
+  label: string;
+  rowCount: number;
+  totalBBookPnl: number;
+  totalCoveragePnl: number;
+  totalNetPnl: number;
+}
+
+function SnapshotHistoryCard() {
+  const [groups, setGroups] = useState<GroupedSnapshot[]>([]);
+  const [expandedTime, setExpandedTime] = useState<string | null>(null);
+  const [expandedRows, setExpandedRows] = useState<ExposureSnapshot[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const fetchHistory = useCallback(async () => {
+    setLoading(true);
+    try {
+      // Default window: last 30 days
+      const to = new Date().toISOString();
+      const from = new Date(Date.now() - 30 * 24 * 3600_000).toISOString();
+      const res = await fetch(`${SNAPSHOTS_API}?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
+      if (!res.ok) return;
+      const rows: ExposureSnapshot[] = await res.json();
+      // Group by snapshot_time (same timestamp = single capture)
+      const byTime = new Map<string, ExposureSnapshot[]>();
+      for (const r of rows) {
+        const k = r.snapshot_time;
+        if (!byTime.has(k)) byTime.set(k, []);
+        byTime.get(k)!.push(r);
+      }
+      const gs: GroupedSnapshot[] = Array.from(byTime.entries()).map(([t, arr]) => ({
+        snapshotTime: t,
+        triggerType: arr[0].trigger_type ?? 'scheduled',
+        label: arr[0].label ?? '',
+        rowCount: arr.length,
+        totalBBookPnl: arr.reduce((a, r) => a + (r.bbook_pnl ?? 0), 0),
+        totalCoveragePnl: arr.reduce((a, r) => a + (r.coverage_pnl ?? 0), 0),
+        totalNetPnl: arr.reduce((a, r) => a + (r.net_pnl ?? 0), 0),
+      }));
+      gs.sort((a, b) => b.snapshotTime.localeCompare(a.snapshotTime));
+      setGroups(gs);
+    } catch { /* ignore */ }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { fetchHistory(); }, [fetchHistory]);
+
+  const toggleExpand = async (time: string) => {
+    if (expandedTime === time) {
+      setExpandedTime(null);
+      setExpandedRows([]);
+      return;
+    }
+    try {
+      // One-tick window to fetch just this snapshot's rows
+      const t = new Date(time);
+      const from = new Date(t.getTime() - 500).toISOString();
+      const to = new Date(t.getTime() + 500).toISOString();
+      const res = await fetch(`${SNAPSHOTS_API}?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
+      if (!res.ok) return;
+      const rows: ExposureSnapshot[] = await res.json();
+      rows.sort((a, b) => a.canonical_symbol.localeCompare(b.canonical_symbol));
+      setExpandedTime(time);
+      setExpandedRows(rows);
+    } catch { /* ignore */ }
+  };
+
+  const fmtUsd = (v: number) => (v >= 0 ? '+' : '') + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const colorFor = (v: number) => v > 0 ? THEME.green : v < 0 ? THEME.red : THEME.t3;
+
+  return (
+    <div style={{ marginTop: 32 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <div>
+          <h3 style={{ color: '#ffa726', margin: 0, fontSize: 14 }}>Snapshot History (last 30 days)</h3>
+          <p style={{ color: THEME.t3, margin: '4px 0 0', fontSize: 12 }}>
+            Every manual or scheduled capture. Click a row to expand per-symbol values.
+          </p>
+        </div>
+        <button onClick={fetchHistory} disabled={loading} style={{ ...btnStyle, background: THEME.bg3, color: THEME.t2 }}>
+          {loading ? 'Refreshing…' : 'Refresh'}
+        </button>
+      </div>
+
+      <div style={{ ...cardStyle, padding: 0, overflow: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, fontFamily: 'monospace' }}>
+          <thead>
+            <tr style={{ borderBottom: `1px solid ${THEME.border}` }}>
+              <th style={{ ...thStyle, textAlign: 'left' }}>Captured At (UTC)</th>
+              <th style={thStyle}>Trigger</th>
+              <th style={{ ...thStyle, textAlign: 'left' }}>Label</th>
+              <th style={thStyle}>Symbols</th>
+              <th style={thStyle}>Clients P&amp;L</th>
+              <th style={thStyle}>Coverage P&amp;L</th>
+              <th style={thStyle}>Net P&amp;L</th>
+            </tr>
+          </thead>
+          <tbody>
+            {groups.map(g => (
+              <React.Fragment key={g.snapshotTime}>
+                <tr
+                  onClick={() => toggleExpand(g.snapshotTime)}
+                  style={{ borderBottom: `1px solid ${THEME.border}`, cursor: 'pointer', background: expandedTime === g.snapshotTime ? 'rgba(91,158,255,0.04)' : undefined }}
+                >
+                  <td style={{ ...tdStyle, textAlign: 'left', color: THEME.t1 }}>
+                    {expandedTime === g.snapshotTime ? '▼' : '▶'} {new Date(g.snapshotTime).toISOString().replace('T', ' ').replace(/\.\d+Z$/, 'Z')}
+                  </td>
+                  <td style={{ ...tdStyle, color: THEME.teal }}>{g.triggerType}</td>
+                  <td style={{ ...tdStyle, textAlign: 'left', color: THEME.t2 }}>{g.label || '—'}</td>
+                  <td style={tdStyle}>{g.rowCount}</td>
+                  <td style={{ ...tdStyle, color: colorFor(g.totalBBookPnl), fontWeight: 600 }}>{fmtUsd(g.totalBBookPnl)}</td>
+                  <td style={{ ...tdStyle, color: colorFor(g.totalCoveragePnl), fontWeight: 600 }}>{fmtUsd(g.totalCoveragePnl)}</td>
+                  <td style={{ ...tdStyle, color: colorFor(g.totalNetPnl), fontWeight: 700 }}>{fmtUsd(g.totalNetPnl)}</td>
+                </tr>
+                {expandedTime === g.snapshotTime && expandedRows.map(r => (
+                  <tr key={g.snapshotTime + r.canonical_symbol} style={{ borderBottom: `1px solid ${THEME.border}`, background: 'rgba(255,255,255,0.02)' }}>
+                    <td style={{ ...tdStyle, textAlign: 'left', color: THEME.t2, paddingLeft: 32, fontFamily: 'inherit' }} colSpan={3}>
+                      {r.canonical_symbol}
+                    </td>
+                    <td style={tdStyle}>—</td>
+                    <td style={{ ...tdStyle, color: colorFor(r.bbook_pnl) }}>{fmtUsd(r.bbook_pnl)}</td>
+                    <td style={{ ...tdStyle, color: colorFor(r.coverage_pnl) }}>{fmtUsd(r.coverage_pnl)}</td>
+                    <td style={{ ...tdStyle, color: colorFor(r.net_pnl), fontWeight: 600 }}>{fmtUsd(r.net_pnl)}</td>
+                  </tr>
+                ))}
+              </React.Fragment>
+            ))}
+            {groups.length === 0 && (
+              <tr>
+                <td colSpan={7} style={{ ...tdStyle, color: THEME.t3, padding: 24 }}>
+                  No snapshots captured yet. Use "Capture Snapshot Now" on the Net P&amp;L tab or set up a schedule above.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );

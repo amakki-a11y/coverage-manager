@@ -7,6 +7,19 @@
       "runtimeArgs": ["run", "dev"],
       "port": 5173,
       "cwd": "web"
+    },
+    {
+      "name": "api",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": ["run", "--project", "src/CoverageManager.Api"],
+      "port": 5000
+    },
+    {
+      "name": "collector",
+      "runtimeExecutable": "uvicorn",
+      "runtimeArgs": ["main:app", "--host", "0.0.0.0", "--port", "8100"],
+      "port": 8100,
+      "cwd": "collector"
     }
   ]
 }

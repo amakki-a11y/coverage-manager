@@ -43,6 +43,16 @@ const btnStyle: React.CSSProperties = {
   fontWeight: 600,
 };
 
+type EditDraft = {
+  canonical_name: string;
+  bbook_symbol: string;
+  bbook_contract_size: string;
+  coverage_symbol: string;
+  coverage_contract_size: string;
+  digits: string;
+  profit_currency: string;
+};
+
 export function SymbolMappingAdmin() {
   const [mappings, setMappings] = useState<SymbolMapping[]>([]);
   const [showForm, setShowForm] = useState(false);
@@ -55,6 +65,10 @@ export function SymbolMappingAdmin() {
     digits: '5',
     profit_currency: 'USD',
   });
+
+  // Inline edit state: id of the row being edited + its draft values.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<EditDraft | null>(null);
 
   const fetchMappings = useCallback(async () => {
     try {
@@ -90,6 +104,45 @@ export function SymbolMappingAdmin() {
   const handleDelete = async (id: string) => {
     try {
       await fetch(`${API_BASE}/${id}`, { method: 'DELETE' });
+      fetchMappings();
+    } catch { /* ignore */ }
+  };
+
+  const startEdit = (m: SymbolMapping) => {
+    setEditingId(m.id);
+    setEditDraft({
+      canonical_name: m.canonical_name ?? '',
+      bbook_symbol: m.bbook_symbol ?? '',
+      bbook_contract_size: String(m.bbook_contract_size ?? 0),
+      coverage_symbol: m.coverage_symbol ?? '',
+      coverage_contract_size: String(m.coverage_contract_size ?? 0),
+      digits: String(m.digits ?? 0),
+      profit_currency: m.profit_currency ?? 'USD',
+    });
+  };
+
+  const cancelEdit = () => { setEditingId(null); setEditDraft(null); };
+
+  const saveEdit = async (id: string) => {
+    if (!editDraft) return;
+    try {
+      const res = await fetch(`${API_BASE}/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id,
+          canonical_name: editDraft.canonical_name,
+          bbook_symbol: editDraft.bbook_symbol,
+          bbook_contract_size: Number(editDraft.bbook_contract_size),
+          coverage_symbol: editDraft.coverage_symbol,
+          coverage_contract_size: Number(editDraft.coverage_contract_size),
+          digits: Number(editDraft.digits),
+          profit_currency: editDraft.profit_currency,
+          is_active: true,
+        }),
+      });
+      if (!res.ok) return;
+      cancelEdit();
       fetchMappings();
     } catch { /* ignore */ }
   };
@@ -177,6 +230,60 @@ export function SymbolMappingAdmin() {
         <tbody>
           {mappings.map((m) => {
             const ratio = m.coverage_contract_size / m.bbook_contract_size;
+            const isEditing = editingId === m.id && editDraft != null;
+            const cellInput: React.CSSProperties = {
+              ...inputStyle,
+              padding: '4px 6px',
+              fontSize: 12,
+              width: '100%',
+              minWidth: 70,
+            };
+            if (isEditing) {
+              const d = editDraft!;
+              const editRatio = (Number(d.coverage_contract_size) || 1) / (Number(d.bbook_contract_size) || 1);
+              return (
+                <tr key={m.id} style={{ borderBottom: `1px solid ${THEME.border}`, background: 'rgba(91,158,255,0.04)' }}>
+                  <td style={cellStyle}>
+                    <input style={cellInput} value={d.canonical_name} onChange={e => setEditDraft({ ...d, canonical_name: e.target.value })} />
+                  </td>
+                  <td style={cellStyle}>
+                    <input style={cellInput} value={d.bbook_symbol} onChange={e => setEditDraft({ ...d, bbook_symbol: e.target.value })} />
+                  </td>
+                  <td style={cellStyle}>
+                    <input style={{ ...cellInput, textAlign: 'right' }} type="number" value={d.bbook_contract_size} onChange={e => setEditDraft({ ...d, bbook_contract_size: e.target.value })} />
+                  </td>
+                  <td style={cellStyle}>
+                    <input style={cellInput} value={d.coverage_symbol} onChange={e => setEditDraft({ ...d, coverage_symbol: e.target.value })} />
+                  </td>
+                  <td style={cellStyle}>
+                    <input style={{ ...cellInput, textAlign: 'right' }} type="number" value={d.coverage_contract_size} onChange={e => setEditDraft({ ...d, coverage_contract_size: e.target.value })} />
+                  </td>
+                  <td style={cellStyle}>
+                    <input style={{ ...cellInput, textAlign: 'right' }} type="number" value={d.digits} onChange={e => setEditDraft({ ...d, digits: e.target.value })} />
+                  </td>
+                  <td style={cellStyle}>
+                    <input style={{ ...cellInput, textAlign: 'right' }} value={d.profit_currency} onChange={e => setEditDraft({ ...d, profit_currency: e.target.value })} />
+                  </td>
+                  <td style={{ ...cellStyle, textAlign: 'right', color: THEME.teal }}>
+                    1 LP = {isFinite(editRatio) ? editRatio.toFixed(4) : '—'} BB
+                  </td>
+                  <td style={{ ...cellStyle, textAlign: 'right', display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+                    <button
+                      onClick={() => saveEdit(m.id)}
+                      style={{ ...btnStyle, background: THEME.green, color: '#000' }}
+                    >
+                      Save
+                    </button>
+                    <button
+                      onClick={cancelEdit}
+                      style={{ ...btnStyle, background: THEME.bg3, color: THEME.t2 }}
+                    >
+                      Cancel
+                    </button>
+                  </td>
+                </tr>
+              );
+            }
             return (
               <tr key={m.id} style={{ borderBottom: `1px solid ${THEME.border}` }}>
                 <td style={{ ...cellStyle, color: THEME.t1, fontWeight: 600 }}>{m.canonical_name}</td>
@@ -187,7 +294,13 @@ export function SymbolMappingAdmin() {
                 <td style={{ ...cellStyle, textAlign: 'right', color: THEME.t2 }}>{m.digits}</td>
                 <td style={{ ...cellStyle, textAlign: 'right', color: THEME.t2 }}>{m.profit_currency}</td>
                 <td style={{ ...cellStyle, textAlign: 'right', color: THEME.teal }}>1 LP = {isFinite(ratio) ? ratio.toFixed(4) : '—'} BB</td>
-                <td style={{ ...cellStyle, textAlign: 'right' }}>
+                <td style={{ ...cellStyle, textAlign: 'right', display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+                  <button
+                    onClick={() => startEdit(m)}
+                    style={{ ...btnStyle, background: 'rgba(91,158,255,0.15)', color: THEME.blue }}
+                  >
+                    Edit
+                  </button>
                   <button
                     onClick={() => handleDelete(m.id)}
                     style={{ ...btnStyle, background: 'rgba(255,82,82,0.15)', color: THEME.red }}

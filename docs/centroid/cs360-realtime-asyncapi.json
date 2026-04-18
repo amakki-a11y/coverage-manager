@@ -1,0 +1,1065 @@
+{
+  "asyncapi": "2.6.0",
+  "defaultContentType": "application/json",
+  "info": {
+    "title": "CS 360 Websocket API",
+    "version": "1.7.0",
+    "description": "This is the CS 360 Websocket API documentation.\n"
+  },
+  "servers": {
+    "production": {
+      "url": "wss://bridge.centroidsol.com/ws?token={token}&q={client_code}",
+      "protocol": "wss",
+      "variables": {
+        "token": {
+          "description": "The token to authenticate the user."
+        },
+        "client_code": {
+          "description": "The client code to authenticate the user."
+        }
+      },
+      "security": [
+        {
+          "apiKey": []
+        }
+      ]
+    }
+  },
+  "channels": {
+    "account_balance": {
+      "subscribe": {
+        "summary": "Subscribe to accounts' balances",
+        "message": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "key"
+            ],
+            "properties": {
+              "key": {
+                "const": "account_balance",
+                "x-parser-schema-id": "<anonymous-schema-22>"
+              },
+              "value": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "risk_account": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "x-parser-schema-id": "<anonymous-schema-25>"
+                    },
+                    "x-parser-schema-id": "<anonymous-schema-24>"
+                  }
+                },
+                "x-parser-schema-id": "<anonymous-schema-23>"
+              }
+            },
+            "x-parser-schema-id": "<anonymous-schema-21>"
+          },
+          "x-parser-message-name": "account_balance_sub"
+        }
+      },
+      "publish": {
+        "summary": "Receive accounts' balances changes",
+        "message": {
+          "payload": {
+            "type": "object",
+            "properties": {
+              "account_balances": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "available_withdraw": {
+                      "type": "number",
+                      "x-parser-schema-id": "<anonymous-schema-2>"
+                    },
+                    "b_signed_notional": {
+                      "type": "number",
+                      "x-parser-schema-id": "<anonymous-schema-3>"
+                    },
+                    "balance": {
+                      "type": "number",
+                      "x-parser-schema-id": "<anonymous-schema-4>"
+                    },
+                    "buying_credit": {
+                      "type": "number",
+                      "x-parser-schema-id": "<anonymous-schema-5>"
+                    },
+                    "commission": {
+                      "type": "number",
+                      "x-parser-schema-id": "<anonymous-schema-6>"
+                    },
+                    "credit": {
+                      "type": "number",
+                      "x-parser-schema-id": "<anonymous-schema-7>"
+                    },
+                    "currency": {
+                      "type": "string",
+                      "example": "USD",
+                      "x-parser-schema-id": "<anonymous-schema-8>"
+                    },
+                    "equity": {
+                      "type": "number",
+                      "x-parser-schema-id": "<anonymous-schema-9>"
+                    },
+                    "margin": {
+                      "type": "number",
+                      "x-parser-schema-id": "<anonymous-schema-10>"
+                    },
+                    "margin_call_level_config": {
+                      "type": "number",
+                      "x-parser-schema-id": "<anonymous-schema-11>"
+                    },
+                    "margin_level": {
+                      "type": "number",
+                      "x-parser-schema-id": "<anonymous-schema-12>"
+                    },
+                    "name": {
+                      "type": "string",
+                      "x-parser-schema-id": "<anonymous-schema-13>"
+                    },
+                    "notional": {
+                      "type": "number",
+                      "x-parser-schema-id": "<anonymous-schema-14>"
+                    },
+                    "pl": {
+                      "type": "number",
+                      "description": "Profit and loss.",
+                      "x-parser-schema-id": "<anonymous-schema-15>"
+                    },
+                    "signed_notional": {
+                      "type": "number",
+                      "x-parser-schema-id": "<anonymous-schema-16>"
+                    },
+                    "swaps": {
+                      "type": "number",
+                      "x-parser-schema-id": "<anonymous-schema-17>"
+                    },
+                    "trading_state": {
+                      "type": "integer",
+                      "x-parser-schema-id": "<anonymous-schema-18>"
+                    },
+                    "trading_state_value": {
+                      "type": "string",
+                      "x-parser-schema-id": "<anonymous-schema-19>"
+                    }
+                  },
+                  "x-parser-schema-id": "account_balance"
+                },
+                "x-parser-schema-id": "<anonymous-schema-1>"
+              },
+              "api_error": {
+                "type": "boolean",
+                "example": false,
+                "x-parser-schema-id": "<anonymous-schema-20>"
+              }
+            },
+            "x-parser-schema-id": "accounts_balances_payload"
+          },
+          "x-parser-message-name": "account_balance_pub"
+        }
+      }
+    },
+    "maker_status": {
+      "subscribe": {
+        "summary": "Subscribe to market status",
+        "message": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "key"
+            ],
+            "properties": {
+              "key": {
+                "const": "maker_status",
+                "x-parser-schema-id": "<anonymous-schema-41>"
+              }
+            },
+            "x-parser-schema-id": "<anonymous-schema-40>"
+          },
+          "x-parser-message-name": "maker_status_sub"
+        }
+      },
+      "publish": {
+        "summary": "Receive market status changes",
+        "message": {
+          "payload": {
+            "type": "object",
+            "properties": {
+              "maker_status": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "enabled": {
+                      "type": "integer",
+                      "oneOf": [
+                        {
+                          "const": 0,
+                          "x-parser-schema-id": "<anonymous-schema-28>"
+                        },
+                        {
+                          "const": 1,
+                          "x-parser-schema-id": "<anonymous-schema-29>"
+                        }
+                      ],
+                      "x-parser-schema-id": "<anonymous-schema-27>"
+                    },
+                    "enabled_value": {
+                      "type": "string",
+                      "x-parser-schema-id": "<anonymous-schema-30>"
+                    },
+                    "fix_session": {
+                      "type": "string",
+                      "x-parser-schema-id": "<anonymous-schema-31>"
+                    },
+                    "inc_msg": {
+                      "type": "integer",
+                      "x-parser-schema-id": "<anonymous-schema-32>"
+                    },
+                    "logged_in": {
+                      "type": "integer",
+                      "x-parser-schema-id": "<anonymous-schema-33>"
+                    },
+                    "logged_in_value": {
+                      "type": "string",
+                      "x-parser-schema-id": "<anonymous-schema-34>"
+                    },
+                    "name": {
+                      "type": "string",
+                      "x-parser-schema-id": "<anonymous-schema-35>"
+                    },
+                    "out_msg": {
+                      "type": "integer",
+                      "x-parser-schema-id": "<anonymous-schema-36>"
+                    },
+                    "stime": {
+                      "type": "integer",
+                      "x-parser-schema-id": "<anonymous-schema-37>"
+                    },
+                    "stime_value": {
+                      "type": "string",
+                      "x-parser-schema-id": "<anonymous-schema-38>"
+                    },
+                    "taker_version": {
+                      "type": "string",
+                      "x-parser-schema-id": "<anonymous-schema-39>"
+                    }
+                  },
+                  "x-parser-schema-id": "common_status"
+                },
+                "x-parser-schema-id": "<anonymous-schema-26>"
+              }
+            },
+            "x-parser-schema-id": "maker_status_payload"
+          },
+          "x-parser-message-name": "maker_status_pub"
+        }
+      }
+    },
+    "depth_feeding_status": {
+      "subscribe": {
+        "summary": "Subscribe to depth feeding status",
+        "message": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "key"
+            ],
+            "properties": {
+              "key": {
+                "const": "taker_feeding_status",
+                "x-parser-schema-id": "<anonymous-schema-44>"
+              }
+            },
+            "x-parser-schema-id": "<anonymous-schema-43>"
+          },
+          "x-parser-message-name": "depth_feeding_status_sub"
+        }
+      },
+      "publish": {
+        "summary": "Receive depth feeding status changes",
+        "message": {
+          "payload": {
+            "type": "object",
+            "properties": {
+              "taker_feeding_status": {
+                "type": "array",
+                "items": "$ref:$.channels.maker_status.publish.message.payload.properties.maker_status.items",
+                "x-parser-schema-id": "<anonymous-schema-42>"
+              }
+            },
+            "x-parser-schema-id": "depth_feeding_status_payload"
+          },
+          "x-parser-message-name": "depth_feeding_status_pub"
+        }
+      }
+    },
+    "trading_status": {
+      "subscribe": {
+        "summary": "Subscribe to trading status",
+        "message": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "key"
+            ],
+            "properties": {
+              "key": {
+                "const": "taker_trading_status",
+                "x-parser-schema-id": "<anonymous-schema-47>"
+              }
+            },
+            "x-parser-schema-id": "<anonymous-schema-46>"
+          },
+          "x-parser-message-name": "trading_status_sub"
+        }
+      },
+      "publish": {
+        "summary": "Receive trading status changes",
+        "message": {
+          "payload": {
+            "type": "object",
+            "properties": {
+              "taker_trading_status": {
+                "type": "array",
+                "items": "$ref:$.channels.maker_status.publish.message.payload.properties.maker_status.items",
+                "x-parser-schema-id": "<anonymous-schema-45>"
+              }
+            },
+            "x-parser-schema-id": "trading_status_payload"
+          },
+          "x-parser-message-name": "trading_status_pub"
+        }
+      }
+    },
+    "feeder_status": {
+      "subscribe": {
+        "summary": "Subscribe to feeder status",
+        "message": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "key"
+            ],
+            "properties": {
+              "key": {
+                "const": "feeder_status",
+                "x-parser-schema-id": "<anonymous-schema-58>"
+              }
+            },
+            "x-parser-schema-id": "<anonymous-schema-57>"
+          },
+          "x-parser-message-name": "feeder_status_sub"
+        }
+      },
+      "publish": {
+        "summary": "Receive feeder status changes",
+        "message": {
+          "payload": {
+            "type": "object",
+            "properties": {
+              "feeder_status": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "integer",
+                      "x-parser-schema-id": "<anonymous-schema-49>"
+                    },
+                    "ip": {
+                      "type": "string",
+                      "format": "ipv4",
+                      "x-parser-schema-id": "<anonymous-schema-50>"
+                    },
+                    "last_ping": {
+                      "type": "integer",
+                      "x-parser-schema-id": "<anonymous-schema-51>"
+                    },
+                    "last_ping_value": {
+                      "type": "string",
+                      "x-parser-schema-id": "<anonymous-schema-52>"
+                    },
+                    "received_count": {
+                      "type": "integer",
+                      "x-parser-schema-id": "<anonymous-schema-53>"
+                    },
+                    "sent_count": {
+                      "type": "integer",
+                      "x-parser-schema-id": "<anonymous-schema-54>"
+                    },
+                    "subscription_list": {
+                      "type": "string",
+                      "x-parser-schema-id": "<anonymous-schema-55>"
+                    },
+                    "taker": {
+                      "type": "string",
+                      "x-parser-schema-id": "<anonymous-schema-56>"
+                    }
+                  },
+                  "x-parser-schema-id": "feeder_status"
+                },
+                "x-parser-schema-id": "<anonymous-schema-48>"
+              }
+            },
+            "x-parser-schema-id": "feeder_status_payload"
+          },
+          "x-parser-message-name": "feeder_status_pub"
+        }
+      }
+    },
+    "position": {
+      "subscribe": {
+        "summary": "Subscribe to position",
+        "message": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "key"
+            ],
+            "properties": {
+              "key": {
+                "const": "subscribe_position",
+                "x-parser-schema-id": "<anonymous-schema-99>"
+              },
+              "value": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "position_account": {
+                    "description": "[\"CLIENT||tem_name\",\"PROVIDER||maker_name\",\"RISK||risk_account_name\"]",
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "x-parser-schema-id": "<anonymous-schema-102>"
+                    },
+                    "x-parser-schema-id": "<anonymous-schema-101>"
+                  },
+                  "symbol": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "x-parser-schema-id": "<anonymous-schema-104>"
+                    },
+                    "x-parser-schema-id": "<anonymous-schema-103>"
+                  },
+                  "taker": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "x-parser-schema-id": "<anonymous-schema-106>"
+                    },
+                    "x-parser-schema-id": "<anonymous-schema-105>"
+                  }
+                },
+                "x-parser-schema-id": "<anonymous-schema-100>"
+              }
+            },
+            "x-parser-schema-id": "<anonymous-schema-98>"
+          },
+          "x-parser-message-name": "position_sub"
+        }
+      },
+      "publish": {
+        "summary": "Receive position updates",
+        "message": {
+          "payload": {
+            "type": "object",
+            "properties": {
+              "position_report": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "aavg_price": {
+                      "type": "number",
+                      "x-parser-schema-id": "<anonymous-schema-60>"
+                    },
+                    "account": {
+                      "type": "string",
+                      "x-parser-schema-id": "<anonymous-schema-61>"
+                    },
+                    "account_type": {
+                      "type": "integer",
+                      "x-parser-schema-id": "<anonymous-schema-62>"
+                    },
+                    "account_type_value": {
+                      "type": "string",
+                      "x-parser-schema-id": "<anonymous-schema-63>"
+                    },
+                    "aggregate_group": {
+                      "type": "string",
+                      "x-parser-schema-id": "<anonymous-schema-64>"
+                    },
+                    "anet_volume": {
+                      "type": "number",
+                      "x-parser-schema-id": "<anonymous-schema-65>"
+                    },
+                    "avg_price": {
+                      "type": "number",
+                      "x-parser-schema-id": "<anonymous-schema-66>"
+                    },
+                    "b_base_cur_exposure": {
+                      "type": "number",
+                      "x-parser-schema-id": "<anonymous-schema-67>"
+                    },
+                    "b_base_exposure": {
+                      "type": "number",
+                      "x-parser-schema-id": "<anonymous-schema-68>"
+                    },
+                    "b_quote_cur_exposure": {
+                      "type": "number",
+                      "x-parser-schema-id": "<anonymous-schema-69>"
+                    },
+                    "b_quote_exposure": {
+                      "type": "number",
+                      "x-parser-schema-id": "<anonymous-schema-70>"
+                    },
+                    "base_cur_exposure": {
+                      "type": "number",
+                      "x-parser-schema-id": "<anonymous-schema-71>"
+                    },
+                    "base_exposure": {
+                      "type": "number",
+                      "x-parser-schema-id": "<anonymous-schema-72>"
+                    },
+                    "bavg_price": {
+                      "type": "number",
+                      "x-parser-schema-id": "<anonymous-schema-73>"
+                    },
+                    "bnet_volume": {
+                      "type": "number",
+                      "x-parser-schema-id": "<anonymous-schema-74>"
+                    },
+                    "close_price": {
+                      "type": "number",
+                      "x-parser-schema-id": "<anonymous-schema-75>"
+                    },
+                    "commission": {
+                      "type": "number",
+                      "x-parser-schema-id": "<anonymous-schema-76>"
+                    },
+                    "last_time_mcs": {
+                      "type": "integer",
+                      "x-parser-schema-id": "<anonymous-schema-77>"
+                    },
+                    "last_time_value": {
+                      "type": "string",
+                      "x-parser-schema-id": "<anonymous-schema-78>"
+                    },
+                    "margin": {
+                      "type": "number",
+                      "x-parser-schema-id": "<anonymous-schema-79>"
+                    },
+                    "margin_conv_rate": {
+                      "type": "number",
+                      "x-parser-schema-id": "<anonymous-schema-80>"
+                    },
+                    "markup": {
+                      "type": "number",
+                      "x-parser-schema-id": "<anonymous-schema-81>"
+                    },
+                    "net_volume": {
+                      "type": "number",
+                      "x-parser-schema-id": "<anonymous-schema-82>"
+                    },
+                    "notional": {
+                      "type": "number",
+                      "x-parser-schema-id": "<anonymous-schema-83>"
+                    },
+                    "party_symbol": {
+                      "type": "string",
+                      "x-parser-schema-id": "<anonymous-schema-84>"
+                    },
+                    "pl": {
+                      "type": "number",
+                      "x-parser-schema-id": "<anonymous-schema-85>"
+                    },
+                    "pl_conv_rate": {
+                      "type": "number",
+                      "x-parser-schema-id": "<anonymous-schema-86>"
+                    },
+                    "position_id": {
+                      "type": "integer",
+                      "x-parser-schema-id": "<anonymous-schema-87>"
+                    },
+                    "quote_cur_exposure": {
+                      "type": "number",
+                      "x-parser-schema-id": "<anonymous-schema-88>"
+                    },
+                    "quote_exposure": {
+                      "type": "number",
+                      "x-parser-schema-id": "<anonymous-schema-89>"
+                    },
+                    "riskaccount": {
+                      "type": "string",
+                      "x-parser-schema-id": "<anonymous-schema-90>"
+                    },
+                    "sl_price": {
+                      "type": "number",
+                      "x-parser-schema-id": "<anonymous-schema-91>"
+                    },
+                    "swaps": {
+                      "type": "number",
+                      "x-parser-schema-id": "<anonymous-schema-92>"
+                    },
+                    "symbol_val": {
+                      "type": "string",
+                      "x-parser-schema-id": "<anonymous-schema-93>"
+                    },
+                    "taker": {
+                      "type": "string",
+                      "x-parser-schema-id": "<anonymous-schema-94>"
+                    },
+                    "taker_feed": {
+                      "type": "string",
+                      "x-parser-schema-id": "<anonymous-schema-95>"
+                    },
+                    "tp_price": {
+                      "type": "number",
+                      "x-parser-schema-id": "<anonymous-schema-96>"
+                    }
+                  },
+                  "x-parser-schema-id": "position"
+                },
+                "x-parser-schema-id": "<anonymous-schema-59>"
+              },
+              "api_error": {
+                "type": "boolean",
+                "example": false,
+                "x-parser-schema-id": "<anonymous-schema-97>"
+              }
+            },
+            "x-parser-schema-id": "position_payload"
+          },
+          "x-parser-message-name": "position_pub"
+        }
+      }
+    },
+    "market_watch": {
+      "subscribe": {
+        "summary": "Subscribe to market watch updates",
+        "message": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "key"
+            ],
+            "properties": {
+              "key": {
+                "const": "subscribe_price",
+                "x-parser-schema-id": "<anonymous-schema-123>"
+              },
+              "value": {
+                "type": "string",
+                "examples": [
+                  "plain_feed||EURUSD||EURUSD",
+                  "plain_feed||EURUSD||EURUSD,plain_feed||GBPUSD||GBPUSD"
+                ],
+                "description": "taker_feed||taker_symbol||symbol (comma-separated for multiple symbols)",
+                "x-parser-schema-id": "<anonymous-schema-124>"
+              }
+            },
+            "x-parser-schema-id": "<anonymous-schema-122>"
+          },
+          "x-parser-message-name": "market_watch_sub"
+        }
+      },
+      "publish": {
+        "summary": "Receive market watch updates",
+        "message": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "feed_symbols": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "symbol": {
+                      "type": "string",
+                      "example": "EURUSD",
+                      "x-parser-schema-id": "<anonymous-schema-108>"
+                    },
+                    "bid_price": {
+                      "type": "string",
+                      "example": 1.12345,
+                      "x-parser-schema-id": "<anonymous-schema-109>"
+                    },
+                    "ask_price": {
+                      "type": "string",
+                      "example": 1.12346,
+                      "x-parser-schema-id": "<anonymous-schema-110>"
+                    },
+                    "bid_volume": {
+                      "type": "number",
+                      "example": 1000000,
+                      "x-parser-schema-id": "<anonymous-schema-111>"
+                    },
+                    "ask_volume": {
+                      "type": "number",
+                      "example": 1000000,
+                      "x-parser-schema-id": "<anonymous-schema-112>"
+                    },
+                    "bid_price_change": {
+                      "type": "string",
+                      "enum": [
+                        "up",
+                        "down",
+                        "neutral"
+                      ],
+                      "example": "up",
+                      "x-parser-schema-id": "<anonymous-schema-113>"
+                    },
+                    "ask_price_change": {
+                      "type": "string",
+                      "enum": [
+                        "up",
+                        "down",
+                        "neutral"
+                      ],
+                      "example": "up",
+                      "x-parser-schema-id": "<anonymous-schema-114>"
+                    },
+                    "last_updated": {
+                      "type": "string",
+                      "example": "16-12-2020 15:19:05",
+                      "x-parser-schema-id": "<anonymous-schema-115>"
+                    },
+                    "depth_symbols": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "bid_price": {
+                            "type": "string",
+                            "example": 1.12345,
+                            "x-parser-schema-id": "<anonymous-schema-118>"
+                          },
+                          "ask_price": {
+                            "type": "string",
+                            "example": 1.12346,
+                            "x-parser-schema-id": "<anonymous-schema-119>"
+                          },
+                          "bid_volume": {
+                            "type": "number",
+                            "example": 1000000,
+                            "x-parser-schema-id": "<anonymous-schema-120>"
+                          },
+                          "ask_volume": {
+                            "type": "number",
+                            "example": 1000000,
+                            "x-parser-schema-id": "<anonymous-schema-121>"
+                          }
+                        },
+                        "x-parser-schema-id": "<anonymous-schema-117>"
+                      },
+                      "x-parser-schema-id": "<anonymous-schema-116>"
+                    }
+                  },
+                  "x-parser-schema-id": "market_watch"
+                },
+                "x-parser-schema-id": "<anonymous-schema-107>"
+              }
+            },
+            "x-parser-schema-id": "market_watch_payload"
+          },
+          "x-parser-message-name": "market_watch_pub"
+        }
+      }
+    },
+    "subscribe_alert": {
+      "subscribe": {
+        "summary": "Subscribe to Alerts",
+        "message": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "key"
+            ],
+            "properties": {
+              "key": {
+                "const": "subscribe_alert",
+                "x-parser-schema-id": "<anonymous-schema-127>"
+              }
+            },
+            "x-parser-schema-id": "<anonymous-schema-126>"
+          },
+          "x-parser-message-name": "subscribe_alert_sub"
+        }
+      },
+      "publish": {
+        "summary": "Receive alert messages",
+        "message": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "message": {
+                "type": "string",
+                "x-parser-schema-id": "<anonymous-schema-125>"
+              }
+            },
+            "x-parser-schema-id": "subscribe_alert_payload"
+          },
+          "x-parser-message-name": "subscribe_alert_pub"
+        }
+      }
+    },
+    "live_trades": {
+      "subscribe": {
+        "summary": "Subscribe to live trades",
+        "message": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "key"
+            ],
+            "properties": {
+              "key": {
+                "const": "live_trades",
+                "x-parser-schema-id": "<anonymous-schema-150>"
+              }
+            },
+            "x-parser-schema-id": "<anonymous-schema-149>"
+          },
+          "x-parser-message-name": "live_trades_sub"
+        }
+      },
+      "publish": {
+        "summary": "Receive live trades updates",
+        "message": {
+          "payload": {
+            "type": "object",
+            "properties": {
+              "live_trades": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "cen_ord_id": {
+                      "type": "string",
+                      "x-parser-schema-id": "<anonymous-schema-129>"
+                    },
+                    "ext_login": {
+                      "type": "integer",
+                      "x-parser-schema-id": "<anonymous-schema-130>"
+                    },
+                    "ext_group": {
+                      "type": "string",
+                      "x-parser-schema-id": "<anonymous-schema-131>"
+                    },
+                    "ext_order": {
+                      "type": "integer",
+                      "x-parser-schema-id": "<anonymous-schema-132>"
+                    },
+                    "recv_time_value": {
+                      "type": "string",
+                      "x-parser-schema-id": "<anonymous-schema-133>"
+                    },
+                    "node": {
+                      "type": "string",
+                      "x-parser-schema-id": "<anonymous-schema-134>"
+                    },
+                    "node_account": {
+                      "type": "string",
+                      "x-parser-schema-id": "<anonymous-schema-135>"
+                    },
+                    "symbol": {
+                      "type": "string",
+                      "x-parser-schema-id": "<anonymous-schema-136>"
+                    },
+                    "party_symbol": {
+                      "type": "string",
+                      "x-parser-schema-id": "<anonymous-schema-137>"
+                    },
+                    "side_value": {
+                      "type": "string",
+                      "enum": [
+                        "BUY",
+                        "SELL"
+                      ],
+                      "x-parser-schema-id": "<anonymous-schema-138>"
+                    },
+                    "ord_type_value": {
+                      "type": "string",
+                      "enum": [
+                        "NONE",
+                        "MARKET",
+                        "LIMIT",
+                        "STOP"
+                      ],
+                      "x-parser-schema-id": "<anonymous-schema-139>"
+                    },
+                    "time_in_force_value": {
+                      "type": "string",
+                      "enum": [
+                        "GTD",
+                        "GTC",
+                        "IOC",
+                        "FOK",
+                        "ATO"
+                      ],
+                      "x-parser-schema-id": "<anonymous-schema-140>"
+                    },
+                    "volume_value": {
+                      "type": "number",
+                      "x-parser-schema-id": "<anonymous-schema-141>"
+                    },
+                    "fill_volume_value": {
+                      "type": "number",
+                      "x-parser-schema-id": "<anonymous-schema-142>"
+                    },
+                    "notional": {
+                      "type": "number",
+                      "x-parser-schema-id": "<anonymous-schema-143>"
+                    },
+                    "avg_price": {
+                      "type": "number",
+                      "x-parser-schema-id": "<anonymous-schema-144>"
+                    },
+                    "fill_state": {
+                      "type": "string",
+                      "x-parser-schema-id": "<anonymous-schema-145>"
+                    },
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "FILLED",
+                        "PARTIAL",
+                        "REJECTED",
+                        "PENDING"
+                      ],
+                      "x-parser-schema-id": "<anonymous-schema-146>"
+                    },
+                    "reason_value": {
+                      "type": "string",
+                      "x-parser-schema-id": "<anonymous-schema-147>"
+                    },
+                    "price": {
+                      "type": "number",
+                      "x-parser-schema-id": "<anonymous-schema-148>"
+                    }
+                  },
+                  "x-parser-schema-id": "live_trade"
+                },
+                "x-parser-schema-id": "<anonymous-schema-128>"
+              }
+            },
+            "x-parser-schema-id": "live_trades_payload"
+          },
+          "x-parser-message-name": "live_trades_pub"
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "apiKey": {
+        "type": "httpApiKey",
+        "in": "query",
+        "name": "token",
+        "description": "The token to authenticate the user."
+      }
+    },
+    "parameters": {
+      "key": {
+        "description": "key of channel",
+        "schema": {
+          "type": "string",
+          "equals": "ws",
+          "x-parser-schema-id": "key"
+        }
+      }
+    },
+    "schemas": {
+      "status": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "boolean",
+            "x-parser-schema-id": "<anonymous-schema-151>"
+          }
+        },
+        "x-parser-schema-id": "status"
+      },
+      "error": {
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "x-parser-schema-id": "<anonymous-schema-152>"
+          },
+          "message": {
+            "type": "string",
+            "description": "Human readable error message.",
+            "x-parser-schema-id": "<anonymous-schema-153>"
+          },
+          "details": {
+            "description": "Additional details about the error.",
+            "x-parser-schema-id": "<anonymous-schema-154>"
+          }
+        },
+        "x-parser-schema-id": "error"
+      },
+      "account_balance": "$ref:$.channels.account_balance.publish.message.payload.properties.account_balances.items",
+      "accounts_balances_payload": "$ref:$.channels.account_balance.publish.message.payload",
+      "common_status": "$ref:$.channels.maker_status.publish.message.payload.properties.maker_status.items",
+      "maker_status_payload": "$ref:$.channels.maker_status.publish.message.payload",
+      "depth_feeding_status_payload": "$ref:$.channels.depth_feeding_status.publish.message.payload",
+      "trading_status_payload": "$ref:$.channels.trading_status.publish.message.payload",
+      "feeder_status": "$ref:$.channels.feeder_status.publish.message.payload.properties.feeder_status.items",
+      "feeder_status_payload": "$ref:$.channels.feeder_status.publish.message.payload",
+      "position": "$ref:$.channels.position.publish.message.payload.properties.position_report.items",
+      "position_payload": "$ref:$.channels.position.publish.message.payload",
+      "market_watch": "$ref:$.channels.market_watch.publish.message.payload.properties.feed_symbols.items",
+      "market_watch_payload": "$ref:$.channels.market_watch.publish.message.payload",
+      "subscribe_alert_payload": "$ref:$.channels.subscribe_alert.publish.message.payload",
+      "live_trade": "$ref:$.channels.live_trades.publish.message.payload.properties.live_trades.items",
+      "live_trades_payload": "$ref:$.channels.live_trades.publish.message.payload"
+    },
+    "messages": {
+      "account_balance_sub": "$ref:$.channels.account_balance.subscribe.message",
+      "account_balance_pub": "$ref:$.channels.account_balance.publish.message",
+      "maker_status_sub": "$ref:$.channels.maker_status.subscribe.message",
+      "maker_status_pub": "$ref:$.channels.maker_status.publish.message",
+      "depth_feeding_status_sub": "$ref:$.channels.depth_feeding_status.subscribe.message",
+      "depth_feeding_status_pub": "$ref:$.channels.depth_feeding_status.publish.message",
+      "trading_status_sub": "$ref:$.channels.trading_status.subscribe.message",
+      "trading_status_pub": "$ref:$.channels.trading_status.publish.message",
+      "feeder_status_sub": "$ref:$.channels.feeder_status.subscribe.message",
+      "feeder_status_pub": "$ref:$.channels.feeder_status.publish.message",
+      "position_sub": "$ref:$.channels.position.subscribe.message",
+      "position_pub": "$ref:$.channels.position.publish.message",
+      "market_watch_sub": "$ref:$.channels.market_watch.subscribe.message",
+      "market_watch_pub": "$ref:$.channels.market_watch.publish.message",
+      "subscribe_alert_sub": "$ref:$.channels.subscribe_alert.subscribe.message",
+      "subscribe_alert_pub": "$ref:$.channels.subscribe_alert.publish.message",
+      "live_trades_sub": "$ref:$.channels.live_trades.subscribe.message",
+      "live_trades_pub": "$ref:$.channels.live_trades.publish.message"
+    }
+  },
+  "x-parser-spec-parsed": true,
+  "x-parser-api-version": 3,
+  "x-parser-spec-stringified": true
+}

@@ -16,10 +16,19 @@ public class PositionManager
     public void LoadMappings(IEnumerable<SymbolMapping> mappings)
     {
         _mappings.Clear();
+        BridgePipResolver.Overrides.Clear();
         foreach (var m in mappings.Where(m => m.IsActive))
         {
             _mappings[m.BBookSymbol.ToUpperInvariant()] = m;
             _mappings[m.CoverageSymbol.ToUpperInvariant()] = m;
+
+            // Feed explicit pip sizes into the Bridge tab's pip resolver.
+            if (m.PipSize is { } pip && pip > 0m)
+            {
+                BridgePipResolver.Overrides[m.CanonicalName] = pip;
+                BridgePipResolver.Overrides[m.BBookSymbol] = pip;
+                BridgePipResolver.Overrides[m.CoverageSymbol] = pip;
+            }
         }
     }
 

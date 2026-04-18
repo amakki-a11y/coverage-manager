@@ -476,6 +476,8 @@ public sealed class MT5ManagerConnection : BackgroundService
             Swap = (decimal)raw.Storage,
             Fee = (decimal)raw.Fee,
             Entry = raw.Entry,
+            OrderId = raw.OrderId,
+            PositionId = raw.PositionId,
             Time = DateTimeOffset.FromUnixTimeMilliseconds(raw.TimeMsc).UtcDateTime
         };
     }
