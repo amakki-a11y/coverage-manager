@@ -278,7 +278,7 @@ export function PnLPanel() {
             fontFamily: 'monospace',
             color: grandTotal.net >= 0 ? THEME.green : THEME.red,
           }}>
-            {grandTotal.net >= 0 ? '+' : ''}{grandTotal.net.toFixed(2)}
+            {fmtPnl(grandTotal.net)}
           </span>
           <span style={{ color: THEME.t3, fontSize: 12 }}>
             {safeData.totalDeals} deals | {safeData.symbols.length} symbols | {(safeData.daily ?? []).length} days
@@ -309,7 +309,7 @@ export function PnLPanel() {
                 <td style={{ ...cellStyle, textAlign: 'left', color: THEME.t1, fontWeight: 600, fontFamily: 'inherit' }}>
                   {s.symbol}
                 </td>
-                <td style={{ ...cellStyle, color: THEME.t2 }}>{s.totalVolume.toFixed(2)}</td>
+                <td style={{ ...cellStyle, color: THEME.t2 }}>{s.totalVolume.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                 <td style={{ ...cellStyle, color: pnlColor(s.totalProfit) }}>{fmtPnl(s.totalProfit)}</td>
                 <td style={{ ...cellStyle, color: s.totalCommission < 0 ? THEME.red : THEME.t2 }}>
                   {fmtPnl(s.totalCommission)}
@@ -337,7 +337,7 @@ export function PnLPanel() {
               <td style={{ ...cellStyle, textAlign: 'left', color: THEME.t2, fontWeight: 700, fontFamily: 'inherit' }}>
                 TOTAL
               </td>
-              <td style={{ ...cellStyle, color: THEME.t2 }}>{grandTotal.volume.toFixed(2)}</td>
+              <td style={{ ...cellStyle, color: THEME.t2 }}>{grandTotal.volume.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
               <td style={{ ...cellStyle, color: pnlColor(grandTotal.profit) }}>{fmtPnl(grandTotal.profit)}</td>
               <td style={{ ...cellStyle, color: grandTotal.commission < 0 ? THEME.red : THEME.t2 }}>
                 {fmtPnl(grandTotal.commission)}
@@ -383,7 +383,7 @@ function DayRow({ day, isExpanded, formatDate, onToggle, showCoverage, coverageD
         </td>
         <td style={{ ...cellStyle, color: THEME.t2 }}>{day.dealCount}</td>
         <td style={{ ...cellStyle, color: THEME.t2 }}>
-          {day.symbols.reduce((a, s) => a + s.totalVolume, 0).toFixed(2)}
+          {day.symbols.reduce((a, s) => a + s.totalVolume, 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
         </td>
         <td style={{ ...cellStyle, color: pnlColor(day.totalProfit) }}>{fmtPnl(day.totalProfit)}</td>
         <td style={{ ...cellStyle, color: day.totalCommission < 0 ? THEME.red : THEME.t2 }}>
@@ -403,7 +403,7 @@ function DayRow({ day, isExpanded, formatDate, onToggle, showCoverage, coverageD
             {s.symbol}
           </td>
           <td style={{ ...cellStyle, color: THEME.t3 }}>{s.dealCount}</td>
-          <td style={{ ...cellStyle, color: THEME.t3 }}>{s.totalVolume.toFixed(2)}</td>
+          <td style={{ ...cellStyle, color: THEME.t3 }}>{s.totalVolume.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
           <td style={{ ...cellStyle, color: pnlColor(s.totalProfit) }}>{fmtPnl(s.totalProfit)}</td>
           <td style={{ ...cellStyle, color: s.totalCommission < 0 ? THEME.red : THEME.t3 }}>
             {fmtPnl(s.totalCommission)}
@@ -430,7 +430,13 @@ function DayRow({ day, isExpanded, formatDate, onToggle, showCoverage, coverageD
 }
 
 function fmtPnl(v: number): string {
-  return (v >= 0 ? '+' : '') + v.toFixed(2);
+  // Match the Exposure / Compare / Net P&L tabs: signed, 2 decimals, thousand separators.
+  const sign = v >= 0 ? '+' : '';
+  return sign + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function fmtNum(v: number): string {
+  return v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function pnlColor(v: number): string {
