@@ -398,6 +398,55 @@ public class SupabaseService
         }
     }
 
+    /// <summary>
+    /// Delete deal rows by (source, deal_id). Used by the reconciliation sweep to remove
+    /// "ghost" deals that exist in Supabase but were deleted from MT5 Manager (dealer
+    /// reversals, compliance removals, etc). Returns rows attempted — caller should
+    /// compare counts if precise tracking is required.
+    /// </summary>
+    public async Task<int> DeleteDealsAsync(string source, IEnumerable<long> dealIds)
+    {
+        var ids = dealIds.Distinct().ToList();
+        if (ids.Count == 0) return 0;
+        var deleted = 0;
+        try
+        {
+            foreach (var chunk in ids.Chunk(500))
+            {
+                var idList = string.Join(",", chunk);
+                var url = $"{_url}/rest/v1/deals?source=eq.{source}&deal_id=in.({idList})";
+                var req = new HttpRequestMessage(HttpMethod.Delete, url);
+                // count=exact tells PostgREST to return Content-Range: 0-N-1/N with actual affected rows.
+                req.Headers.Add("Prefer", "return=minimal,count=exact");
+                var res = await _http.SendAsync(req);
+                if (!res.IsSuccessStatusCode)
+                {
+                    var err = await res.Content.ReadAsStringAsync();
+                    _logger.LogWarning("DeleteDealsAsync batch failed {Status}: {Body}", res.StatusCode, err);
+                    continue;
+                }
+                // Parse "Content-Range: 0-N-1/N" → N is actual deleted count
+                var range = res.Content.Headers.ContentRange?.ToString() ?? string.Empty;
+                var actualCount = chunk.Length;
+                if (!string.IsNullOrEmpty(range) && range.Contains('/'))
+                {
+                    var tail = range.Substring(range.LastIndexOf('/') + 1);
+                    if (int.TryParse(tail, out var n)) actualCount = n;
+                }
+                deleted += actualCount;
+                if (actualCount != chunk.Length)
+                    _logger.LogWarning("DeleteDealsAsync: requested {Req} ids but only {Act} rows matched (source={Src})", chunk.Length, actualCount, source);
+            }
+            _logger.LogInformation("Deleted {Count} ghost deals (source={Source})", deleted, source);
+            return deleted;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "DeleteDealsAsync failed");
+            return deleted;
+        }
+    }
+
     public async Task<int> UpsertDealsAsync(IEnumerable<DealRecord> deals)
     {
         try
@@ -743,14 +792,18 @@ public class SupabaseService
     {
         try
         {
-            // Supabase PostgREST supports DISTINCT ON via the `order` + `limit` gymnastics. Simplest:
-            // fetch all rows <= anchor ordered by (canonical_symbol asc, snapshot_time desc), then
-            // keep the first row per symbol.
-            var q = $"{_url}/rest/v1/exposure_snapshots?select=*&snapshot_time=lte.{Uri.EscapeDataString(anchorUtc.ToString("o"))}&order=canonical_symbol.asc,snapshot_time.desc";
-            var res = await _http.GetAsync(q);
+            // Server-side DISTINCT ON via RPC — returns only the latest row per symbol
+            // (≤ 30 rows vs the 3.8K+ rows we were pulling before).
+            var url = $"{_url}/rest/v1/rpc/latest_snapshots_before";
+            var payload = JsonSerializer.Serialize(new { anchor = anchorUtc.ToString("o") }, JsonOptions);
+            var req = new HttpRequestMessage(HttpMethod.Post, url)
+            {
+                Content = new StringContent(payload, Encoding.UTF8, "application/json"),
+            };
+            var res = await _http.SendAsync(req);
             if (!res.IsSuccessStatusCode)
             {
-                _logger.LogWarning("GetNearestSnapshotsBefore failed {Status}", res.StatusCode);
+                _logger.LogWarning("latest_snapshots_before RPC failed {Status}", res.StatusCode);
                 return new();
             }
             var json = await res.Content.ReadAsStringAsync();
@@ -759,7 +812,7 @@ public class SupabaseService
             foreach (var r in rows)
             {
                 var key = r.CanonicalSymbol.ToUpperInvariant();
-                if (!result.ContainsKey(key)) result[key] = r; // first row per symbol = latest <= anchor
+                result[key] = r;
             }
             return result;
         }
@@ -832,6 +885,103 @@ public class SupabaseService
         {
             _logger.LogError(ex, "AggregateBBookSettledPnlAsync failed");
             return new(StringComparer.Ordinal);
+        }
+    }
+
+    // Fast per-symbol full aggregation — used by /api/exposure/pnl. Includes volume
+    // and direction breakdown on top of net P&L so the P&L tab can render the full
+    // grid with a single sub-second RPC instead of paginating 100K+ rows.
+    public async Task<List<SymbolPnL>> AggregateBBookPnLFullAsync(
+        DateTime fromUtc, DateTime toUtc, IEnumerable<long> excludedLogins)
+    {
+        try
+        {
+            var body = new
+            {
+                from_ts = fromUtc.ToUniversalTime().ToString("o"),
+                to_ts = toUtc.ToUniversalTime().ToString("o"),
+                excluded_logins = excludedLogins.ToArray(),
+            };
+            var json = JsonSerializer.Serialize(body, JsonOptions);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            var res = await _http.PostAsync($"{_url}/rest/v1/rpc/aggregate_bbook_pnl_full", content);
+            if (!res.IsSuccessStatusCode)
+            {
+                var txt = await res.Content.ReadAsStringAsync();
+                _logger.LogWarning("aggregate_bbook_pnl_full RPC failed {Status}: {Body}", res.StatusCode, txt);
+                return new();
+            }
+            var text = await res.Content.ReadAsStringAsync();
+            using var doc = JsonDocument.Parse(text);
+            var result = new List<SymbolPnL>();
+            foreach (var row in doc.RootElement.EnumerateArray())
+            {
+                result.Add(new SymbolPnL
+                {
+                    Symbol          = row.GetProperty("symbol").GetString() ?? "",
+                    DealCount       = (int)row.GetProperty("deal_count").GetInt64(),
+                    TotalProfit     = row.GetProperty("total_profit").GetDecimal(),
+                    TotalCommission = row.GetProperty("total_commission").GetDecimal(),
+                    TotalSwap       = row.GetProperty("total_swap").GetDecimal(),
+                    TotalFee        = row.GetProperty("total_fee").GetDecimal(),
+                    TotalVolume     = row.GetProperty("total_volume").GetDecimal(),
+                    BuyVolume       = row.GetProperty("buy_volume").GetDecimal(),
+                    SellVolume      = row.GetProperty("sell_volume").GetDecimal(),
+                });
+            }
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "AggregateBBookPnLFullAsync failed");
+            return new();
+        }
+    }
+
+    // =========================================================================
+    // Reconciliation-run audit log
+    // =========================================================================
+
+    public async Task<ReconciliationRun?> InsertReconciliationRunAsync(ReconciliationRun run)
+    {
+        try
+        {
+            run.Id = null; // let Supabase assign
+            var json = JsonSerializer.Serialize(run, JsonOptions);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            var req = new HttpRequestMessage(HttpMethod.Post, $"{_url}/rest/v1/reconciliation_runs") { Content = content };
+            req.Headers.Add("Prefer", "return=representation");
+            var res = await _http.SendAsync(req);
+            if (!res.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("InsertReconciliationRunAsync failed {Status}: {Body}",
+                    res.StatusCode, await res.Content.ReadAsStringAsync());
+                return null;
+            }
+            var body = await res.Content.ReadAsStringAsync();
+            var list = JsonSerializer.Deserialize<List<ReconciliationRun>>(body, JsonOptions);
+            return list?.FirstOrDefault();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "InsertReconciliationRunAsync failed");
+            return null;
+        }
+    }
+
+    public async Task<List<ReconciliationRun>> ListReconciliationRunsAsync(int limit = 50)
+    {
+        try
+        {
+            var res = await _http.GetAsync($"{_url}/rest/v1/reconciliation_runs?select=*&order=started_at.desc&limit={Math.Clamp(limit, 1, 500)}");
+            if (!res.IsSuccessStatusCode) return new();
+            var json = await res.Content.ReadAsStringAsync();
+            return JsonSerializer.Deserialize<List<ReconciliationRun>>(json, JsonOptions) ?? new();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "ListReconciliationRunsAsync failed");
+            return new();
         }
     }
 

@@ -1,5 +1,6 @@
 import { THEME } from '../theme';
 import type { Position } from '../types';
+import { formatBeirut } from '../utils/time';
 
 interface PositionsGridProps {
   positions: Position[];
@@ -84,7 +85,7 @@ export function PositionsGrid({ positions }: PositionsGridProps) {
               </td>
               <td style={{ ...cellStyle, color: THEME.t3 }}>{p.swap.toFixed(2)}</td>
               <td style={{ ...cellStyle, color: THEME.t2, fontSize: 11 }}>
-                {p.openTime ? new Date(p.openTime).toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—'}
+                {formatBeirut(p.openTime)}
               </td>
             </tr>
           ))}

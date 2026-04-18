@@ -150,3 +150,21 @@ export interface ExposureSnapshot {
   trigger_type: string;
   label: string;
 }
+
+// ---- Reconciliation ----
+
+export interface ReconciliationRun {
+  id: string;
+  trigger_type: 'scheduled' | 'manual';
+  window_from: string;
+  window_to: string;
+  started_at: string;
+  finished_at?: string | null;
+  mt5_deal_count: number;
+  supabase_deal_count: number;
+  backfilled: number;
+  ghost_deleted: number;
+  modified: number;
+  error?: string | null;
+  notes: string;
+}

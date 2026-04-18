@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { THEME } from '../theme';
 import type { AlertEvent } from '../types';
+import { formatBeirutTime } from '../utils/time';
 
 const TOAST_DURATION = 8000;
 const MAX_TOASTS = 5;
@@ -150,7 +151,7 @@ export function AlertToast({
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
               <span style={{ fontSize: 10, color: THEME.t3 }}>
-                {new Date(t.alert.triggered_at).toLocaleTimeString()}
+                {formatBeirutTime(t.alert.triggered_at)}
               </span>
               <button
                 onClick={() => { onAcknowledge(t.id); dismiss(t.id); }}

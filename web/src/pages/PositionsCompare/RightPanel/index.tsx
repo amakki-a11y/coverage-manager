@@ -2,8 +2,7 @@ import { THEME } from '../../../theme';
 import type { SymbolExposure, TradeRecord } from '../../../types/compare';
 import { DetailHeader } from './DetailHeader';
 import { SummaryCards } from './SummaryCards';
-import { PriceChart } from './PriceChart';
-import { VolPnlChart } from './VolPnlChart';
+import { PnLRings } from './PnLRings';
 import { CompareTable } from './CompareTable';
 import { LoginsWidget } from './LoginsWidget';
 
@@ -45,26 +44,16 @@ export function RightPanel({ selectedSymbol, symbolData, trades }: RightPanelPro
       <SummaryCards data={symbolData} />
 
       <div style={{ flex: 1, display: 'flex', overflow: 'auto', padding: '0 16px 16px' }}>
-        {/* Left: Charts (70%) */}
-        <div style={{ flex: 7, display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 }}>
-          <div style={{
-            background: THEME.card,
-            borderRadius: 6,
-            border: `1px solid ${THEME.border}`,
-            padding: 8,
-          }}>
-            <PriceChart trades={symbolTrades} symbol={selectedSymbol} />
-          </div>
-          <div style={{
-            background: THEME.card,
-            borderRadius: 6,
-            border: `1px solid ${THEME.border}`,
-            padding: 8,
-            flex: 1,
-            minHeight: 180,
-          }}>
-            <VolPnlChart trades={symbolTrades} symbol={selectedSymbol} />
-          </div>
+        {/* Left: P&L Rings widget (70%) */}
+        <div style={{
+          flex: 7,
+          display: 'flex',
+          minWidth: 0,
+          background: THEME.card,
+          borderRadius: 6,
+          border: `1px solid ${THEME.border}`,
+        }}>
+          <PnLRings symbol={selectedSymbol} data={symbolData} trades={symbolTrades} />
         </div>
 
         {/* Right: Compare table + Logins (30%) */}

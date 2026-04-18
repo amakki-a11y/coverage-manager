@@ -26,11 +26,14 @@ export function usePositionsCompare() {
     }
   }, []);
 
-  // Fetch trades when symbol changes
+  // Fetch trades when symbol changes. 2-day rolling window so the widget shows
+  // yesterday's closed activity early-UTC before today accumulates any fills.
   const fetchTrades = useCallback(async (symbol: string) => {
     try {
-      const today = new Date().toISOString().split('T')[0];
-      const res = await fetch(`${API_BASE}/api/compare/trades?symbol=${encodeURIComponent(symbol)}&from=${today}`);
+      const now = new Date();
+      const today = now.toISOString().split('T')[0];
+      const fromDate = new Date(now.getTime() - 24 * 3600_000).toISOString().split('T')[0];
+      const res = await fetch(`${API_BASE}/api/compare/trades?symbol=${encodeURIComponent(symbol)}&from=${fromDate}&to=${today}`);
       if (res.ok) {
         const data = await res.json();
         setTrades(data.trades ?? []);

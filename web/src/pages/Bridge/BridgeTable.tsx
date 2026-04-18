@@ -9,13 +9,17 @@ interface Props {
 
 function fmtTimeHms(iso: string): string {
   try {
-    // iso is UTC timestamptz. Render UTC HH:MM:SS.mmm to match spec.
+    // iso is UTC timestamptz. Render in Asia/Beirut (MT5 server TZ) so bridge rows match
+    // the dealer's MT5 Manager view. Milliseconds preserved from the UTC instant.
     const d = new Date(iso);
-    const h = String(d.getUTCHours()).padStart(2, '0');
-    const m = String(d.getUTCMinutes()).padStart(2, '0');
-    const s = String(d.getUTCSeconds()).padStart(2, '0');
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Beirut',
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+    }).formatToParts(d);
+    const map: Record<string, string> = {};
+    for (const p of parts) if (p.type !== 'literal') map[p.type] = p.value;
     const ms = String(d.getUTCMilliseconds()).padStart(3, '0');
-    return `${h}:${m}:${s}.${ms}`;
+    return `${map.hour}:${map.minute}:${map.second}.${ms}`;
   } catch {
     return iso;
   }

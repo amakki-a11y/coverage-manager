@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { THEME } from '../theme';
 import type { ExposureSummary, PriceQuote } from '../types';
+import { useDateRange } from '../hooks/useDateRange';
 
 type SortField = 'custom' | 'symbol' | 'bbNet' | 'bbPnL' | 'covNet' | 'covPnL' | 'netPnL' | 'hedge' | 'toCover';
 
@@ -64,8 +65,9 @@ export function ExposureTable({ summaries, prices }: ExposureTableProps) {
 
   const [bbClosedMap, setBbClosedMap] = useState<Record<string, ClosedSymbol>>({});
   const [covClosedMap, setCovClosedMap] = useState<Record<string, ClosedSymbol>>({});
-  const [closedFrom, setClosedFrom] = useState(todayStr);
-  const [closedTo, setClosedTo] = useState(todayStr);
+  // Shared date range — persisted to localStorage and synced across tabs so the picker
+  // doesn't reset when switching to P&L / Net P&L and back.
+  const [closedFrom, closedTo, setClosedFrom, setClosedTo] = useDateRange();
   // Tracks whether the closed-P&L fetch is in flight so the UI can show a loading badge
   // whenever the date range changes (otherwise stale totals look silently wrong).
   const [closedLoading, setClosedLoading] = useState(false);
@@ -123,14 +125,29 @@ export function ExposureTable({ summaries, prices }: ExposureTableProps) {
         if (bbRes.ok) {
           const bb = await bbRes.json();
           for (const s of (bb.symbols ?? []) as ClosedSymbol[]) {
-            // Store with both raw key and canonical key (strip trailing - or .)
-            const canonical = s.symbol.replace(/[-.]$/, '');
-            bbMap[s.symbol] = s;
-            bbMap[s.symbol.toUpperCase()] = s;
-            bbMap[canonical] = s;
-            bbMap[canonical.toUpperCase()] = s;
+            // Key under a single UPPERCASE canonical so multi-variant lookups all land on
+            // one entry. Prior version stored 4 keys (raw, raw-upper, canonical,
+            // canonical-upper) all pointing at the same object — Object.values() then
+            // double/triple-counted netPnL in the footer total. Case-insensitive consumer
+            // lookups normalize the key before indexing.
+            const canonical = s.symbol.replace(/[-.]$/, '').toUpperCase();
+            if (bbMap[canonical]) {
+              // If two raw symbols map to the same canonical (e.g. "US30-" + "US30"),
+              // merge them additively so volumes and P&L accumulate correctly.
+              const existing = bbMap[canonical];
+              existing.netPnL += s.netPnL;
+              existing.totalProfit += s.totalProfit;
+              existing.totalCommission += s.totalCommission;
+              existing.totalSwap += s.totalSwap;
+              existing.totalFee += s.totalFee;
+              existing.totalVolume += s.totalVolume;
+              existing.buyVolume += s.buyVolume;
+              existing.sellVolume += s.sellVolume;
+              existing.dealCount += s.dealCount;
+            } else {
+              bbMap[canonical] = { ...s };
+            }
             bbSymbols.push(s.symbol);
-            bbSymbols.push(canonical);
           }
         }
         setBbClosedMap(bbMap);
@@ -491,7 +508,7 @@ export function ExposureTable({ summaries, prices }: ExposureTableProps) {
         <tbody>
           {sortedSummaries.map((s) => {
             const hr = s.hedgeRatio ?? 0;
-            const bb = bbClosedMap[s.canonicalSymbol] || bbClosedMap[s.canonicalSymbol.toUpperCase()];
+            const bb = bbClosedMap[s.canonicalSymbol.replace(/[-.]$/, '').toUpperCase()];
             const cv = covClosedMap[s.canonicalSymbol] || covClosedMap[s.canonicalSymbol.toUpperCase()];
             const hasClosed = bb || cv;
             return (

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { THEME } from '../../../theme';
 import type { SymbolExposure } from '../../../types/compare';
 import type { PriceQuote, ExposureSummary } from '../../../types';
+import { useDateRange } from '../../../hooks/useDateRange';
 
 interface ClosedSymbol {
   symbol: string;
@@ -69,8 +70,9 @@ const cellBase: React.CSSProperties = {
 
 export function ExpandedTable({ symbols, selectedSymbol, onSelect }: ExpandedTableProps) {
   const [showClosed, setShowClosed] = useState(true);
-  const [closedFrom, setClosedFrom] = useState(todayStr);
-  const [closedTo, setClosedTo] = useState(todayStr);
+  // Shared range — same localStorage key as Exposure / P&L / Net P&L so the Full
+  // Table settled totals match the other tabs without the user re-picking.
+  const [closedFrom, closedTo, setClosedFrom, setClosedTo] = useDateRange();
   const [bbClosedMap, setBbClosedMap] = useState<Record<string, ClosedSymbol>>({});
   const [covClosedMap, setCovClosedMap] = useState<Record<string, ClosedSymbol>>({});
   const [prices, setPrices] = useState<PriceQuote[]>([]);
@@ -125,13 +127,21 @@ export function ExpandedTable({ symbols, selectedSymbol, onSelect }: ExpandedTab
         if (bbRes.ok) {
           const bb = await bbRes.json();
           for (const s of (bb.symbols ?? []) as ClosedSymbol[]) {
-            const canonical = s.symbol.replace(/[-.]$/, '');
-            bbMap[s.symbol] = s;
-            bbMap[s.symbol.toUpperCase()] = s;
-            bbMap[canonical] = s;
-            bbMap[canonical.toUpperCase()] = s;
+            // Single uppercase canonical key — prevents Object.values() from double-counting
+            // when the footer totals reduce across entries.
+            const canonical = s.symbol.replace(/[-.]$/, '').toUpperCase();
+            if (bbMap[canonical]) {
+              const e = bbMap[canonical];
+              e.dealCount += s.dealCount;
+              e.netPnL += s.netPnL;
+              e.totalProfit += s.totalProfit;
+              e.totalVolume += s.totalVolume;
+              e.buyVolume += s.buyVolume;
+              e.sellVolume += s.sellVolume;
+            } else {
+              bbMap[canonical] = { ...s };
+            }
             bbSymbols.push(s.symbol);
-            bbSymbols.push(canonical);
           }
         }
         setBbClosedMap(bbMap);
@@ -144,7 +154,7 @@ export function ExpandedTable({ symbols, selectedSymbol, onSelect }: ExpandedTab
             if (m.coverage_symbol) covToCanonical[m.coverage_symbol] = m.canonical_name;
           }
           const toCanonical = (sym: string): string => {
-            return covToCanonical[sym] || sym.replace(/[-.].*$/, '') || sym;
+            return (covToCanonical[sym] || sym.replace(/[-.].*$/, '') || sym).toUpperCase();
           };
           const remapped: Record<string, ClosedSymbol> = {};
           for (const s of (cov.symbols ?? []) as ClosedSymbol[]) {
@@ -159,7 +169,6 @@ export function ExpandedTable({ symbols, selectedSymbol, onSelect }: ExpandedTab
             } else {
               remapped[canonical] = { ...s, symbol: canonical };
             }
-            remapped[canonical.toUpperCase()] = remapped[canonical];
           }
           setCovClosedMap(remapped);
         }
@@ -270,8 +279,9 @@ export function ExpandedTable({ symbols, selectedSymbol, onSelect }: ExpandedTab
           </thead>
           <tbody>
             {symbols.map(s => {
-              const bb = bbClosedMap[s.symbol] || bbClosedMap[s.symbol.toUpperCase()];
-              const cv = covClosedMap[s.symbol] || covClosedMap[s.symbol.toUpperCase()];
+              const canonKey = s.symbol.replace(/[-.]$/, '').toUpperCase();
+              const bb = bbClosedMap[canonKey];
+              const cv = covClosedMap[canonKey];
               const price = findPrice(s.symbol);
               const dir = price ? (priceDir.current[price.symbol] || 'flat') : 'flat';
               const dirColor = dir === 'up' ? THEME.green : dir === 'down' ? THEME.red : THEME.t3;
@@ -353,6 +363,67 @@ export function ExpandedTable({ symbols, selectedSymbol, onSelect }: ExpandedTab
               );
             })}
           </tbody>
+          <tfoot>
+            {(() => {
+              // Aggregate open (from symbols) + closed (from bb/cv maps keyed by canonical).
+              const sumOpen = symbols.reduce((a, s) => ({
+                cliBuy:  a.cliBuy  + s.clientBuyVolume,
+                cliSell: a.cliSell + s.clientSellVolume,
+                cliNet:  a.cliNet  + s.clientNetVolume,
+                cliPnl:  a.cliPnl  + s.clientPnl,
+                covBuy:  a.covBuy  + s.coverageBuyVolume,
+                covSell: a.covSell + s.coverageSellVolume,
+                covNet:  a.covNet  + s.coverageNetVolume,
+                covPnl:  a.covPnl  + s.coveragePnl,
+                netPnl:  a.netPnl  + s.netPnl,
+              }), { cliBuy:0, cliSell:0, cliNet:0, cliPnl:0, covBuy:0, covSell:0, covNet:0, covPnl:0, netPnl:0 });
+
+              const closedBB = Object.values(bbClosedMap).reduce((a, r) => ({
+                buy: a.buy + r.buyVolume, sell: a.sell + r.sellVolume, total: a.total + r.totalVolume, pnl: a.pnl + r.netPnL,
+              }), { buy:0, sell:0, total:0, pnl:0 });
+              const closedCV = Object.values(covClosedMap).reduce((a, r) => ({
+                buy: a.buy + r.buyVolume, sell: a.sell + r.sellVolume, total: a.total + r.totalVolume, pnl: a.pnl + r.netPnL,
+              }), { buy:0, sell:0, total:0, pnl:0 });
+
+              const openToCover = toCoverValue(sumOpen.cliNet, sumOpen.covNet);
+              return (
+                <>
+                  {/* OPEN totals */}
+                  <tr style={{ background: 'rgba(0,0,0,0.04)', borderTop: `2px solid ${THEME.border}` }}>
+                    <td style={{ ...c, ...gc, fontFamily: 'inherit', color: THEME.t2, fontWeight: 700, borderLeft: 'none', textAlign: 'left' }} rowSpan={showClosed ? 2 : 1}>TOTAL</td>
+                    <td style={{ ...typeCell, ...gc, color: THEME.blue }}>O</td>
+                    <td style={{ ...c, ...gc, borderLeft: gridSecBorder, color: THEME.t1 }}>{fmt(sumOpen.cliBuy)}</td>
+                    <td style={{ ...c, ...gc, color: THEME.t1 }}>{fmt(sumOpen.cliSell)}</td>
+                    <td style={{ ...c, ...gc, color: nc(sumOpen.cliNet), fontWeight: 600 }}>{fmt(sumOpen.cliNet)}</td>
+                    <td style={{ ...c, ...gc, color: nc(sumOpen.cliPnl), fontWeight: 600 }}>{fp(sumOpen.cliPnl)}</td>
+                    <td style={{ ...c, ...gc, borderLeft: gridSecBorder, color: THEME.t1 }}>{fmt(sumOpen.covBuy)}</td>
+                    <td style={{ ...c, ...gc, color: THEME.t1 }}>{fmt(sumOpen.covSell)}</td>
+                    <td style={{ ...c, ...gc, color: nc(sumOpen.covNet), fontWeight: 600 }}>{fmt(sumOpen.covNet)}</td>
+                    <td style={{ ...c, ...gc, color: nc(sumOpen.covPnl), fontWeight: 600 }}>{fp(sumOpen.covPnl)}</td>
+                    <td style={{ ...c, ...gc, borderLeft: gridSecBorder, color: nc(openToCover), fontWeight: 600 }}>{fmtToCover(openToCover)}</td>
+                    <td style={{ ...c, ...gc, color: nc(sumOpen.netPnl), fontWeight: 700 }}>{fp(sumOpen.netPnl)}</td>
+                    <td style={{ ...c, ...gc }}></td>
+                  </tr>
+                  {showClosed && (
+                    <tr style={{ background: 'rgba(0,0,0,0.02)' }}>
+                      <td style={{ ...typeCell, ...gc, color: THEME.t3 }}>C</td>
+                      <td style={{ ...c, ...gc, borderLeft: gridSecBorder, color: THEME.t1 }}>{fmt(closedBB.buy)}</td>
+                      <td style={{ ...c, ...gc, color: THEME.t1 }}>{fmt(closedBB.sell)}</td>
+                      <td style={{ ...c, ...gc, color: THEME.t1 }}>{fmt(closedBB.total)}</td>
+                      <td style={{ ...c, ...gc, color: nc(closedBB.pnl), fontWeight: 600 }}>{fp(closedBB.pnl)}</td>
+                      <td style={{ ...c, ...gc, borderLeft: gridSecBorder, color: THEME.t1 }}>{fmt(closedCV.buy)}</td>
+                      <td style={{ ...c, ...gc, color: THEME.t1 }}>{fmt(closedCV.sell)}</td>
+                      <td style={{ ...c, ...gc, color: THEME.t1 }}>{fmt(closedCV.total)}</td>
+                      <td style={{ ...c, ...gc, color: nc(closedCV.pnl), fontWeight: 600 }}>{fp(closedCV.pnl)}</td>
+                      <td style={{ ...c, ...gc, borderLeft: gridSecBorder }}></td>
+                      <td style={{ ...c, ...gc, color: nc(closedCV.pnl - closedBB.pnl), fontWeight: 700 }}>{fp(closedCV.pnl - closedBB.pnl)}</td>
+                      <td style={{ ...c, ...gc }}></td>
+                    </tr>
+                  )}
+                </>
+              );
+            })()}
+          </tfoot>
         </table>
       </div>
     </div>

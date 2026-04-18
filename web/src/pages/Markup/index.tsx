@@ -1,5 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { THEME } from '../../theme';
+import { formatBeirutTime } from '../../utils/time';
 
 interface BookSide {
   deals: number;
@@ -396,7 +397,7 @@ export function MarkupPanel() {
                             </td>
                             <td style={{ ...tdStyle, color: THEME.t1 }}>{m.clientVolume.toFixed(2)}</td>
                             <td style={{ ...tdStyle, fontWeight: 600 }}>{m.clientPrice.toFixed(5)}</td>
-                            <td style={{ ...tdStyle, fontSize: 10 }}>{m.clientTime}</td>
+                            <td style={{ ...tdStyle, fontSize: 10 }}>{formatBeirutTime(m.clientTime)}</td>
                             <td style={tdStyle}></td>
                             <td rowSpan={1 + m.coverageMatches.length} style={{
                               ...tdStyle,
@@ -435,7 +436,7 @@ export function MarkupPanel() {
                               </td>
                               <td style={{ ...tdStyle, color: THEME.t1 }}>{c.volume.toFixed(2)}</td>
                               <td style={{ ...tdStyle, fontWeight: 600 }}>{c.price.toFixed(5)}</td>
-                              <td style={{ ...tdStyle, fontSize: 10 }}>{c.time}</td>
+                              <td style={{ ...tdStyle, fontSize: 10 }}>{formatBeirutTime(c.time)}</td>
                               <td style={{
                                 ...tdStyle, fontSize: 10,
                                 color: Math.abs(c.timeDiffMs) < 200 ? THEME.green : THEME.amber,

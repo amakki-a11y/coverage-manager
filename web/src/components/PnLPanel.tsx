@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { THEME } from '../theme';
+import { useDateRange } from '../hooks/useDateRange';
 
 interface SymbolPnL {
   symbol: string;
@@ -97,24 +98,33 @@ function todayStr() {
 export function PnLPanel() {
   const [data, setData] = useState<PnLData | null>(null);
   const [expandedDay, setExpandedDay] = useState<string | null>(null);
-  const [fromDate, setFromDate] = useState(todayStr());
-  const [toDate, setToDate] = useState(todayStr());
+  // Shared date range — persisted across tab switches via localStorage.
+  const [fromDate, toDate, setFromDate, setToDate] = useDateRange();
   const [loading, setLoading] = useState(false);
   const [showCoverage, setShowCoverage] = useState(false);
   const [coverageData, setCoverageData] = useState<Record<string, CoverageSymbolPnL>>({});
 
-  // Auto-fetch current data on mount
+  // Auto-fetch on mount + every 15s. Polls the CURRENT date range (prior version
+  // polled no-params = "today" which silently overwrote the user's selection every
+  // 3s). A multi-day range takes several seconds server-side, so the 3s cadence
+  // caused overlapping in-flight requests that visibly flashed the table. A
+  // `inFlight` ref guards against re-entry.
   useEffect(() => {
+    let cancelled = false;
+    let inFlight = false;
     const fetchPnL = async () => {
+      if (inFlight) return;
+      inFlight = true;
       try {
-        const res = await fetch('http://localhost:5000/api/exposure/pnl');
-        if (res.ok) setData(await res.json());
+        const res = await fetch(`http://localhost:5000/api/exposure/pnl?from=${fromDate}&to=${toDate}`);
+        if (!cancelled && res.ok) setData(await res.json());
       } catch { /* ignore */ }
+      inFlight = false;
     };
     fetchPnL();
-    const interval = setInterval(fetchPnL, 3000);
-    return () => clearInterval(interval);
-  }, []);
+    const interval = setInterval(fetchPnL, 15000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [fromDate, toDate]);
 
   const fetchCoverageDeals = useCallback(async () => {
     try {
@@ -190,9 +200,11 @@ export function PnLPanel() {
     if (showCoverage) fetchCoverageDeals();
   }, [showCoverage, fetchCoverageDeals]);
 
-  if (!data) return <div style={{ padding: 20, color: THEME.t3 }}>Loading P&L data...</div>;
+  // Show the layout (date pickers, reload button) even before the first fetch resolves
+  // so the user can re-pick a range without waiting on a multi-second query.
+  const safeData = data ?? { totalDeals: 0, symbols: [] as SymbolPnL[], daily: [] as DailyPnL[] };
 
-  const grandTotal = data.symbols.reduce(
+  const grandTotal = safeData.symbols.reduce(
     (acc, s) => ({
       deals: acc.deals + s.dealCount,
       profit: acc.profit + s.totalProfit,
@@ -269,7 +281,8 @@ export function PnLPanel() {
             {grandTotal.net >= 0 ? '+' : ''}{grandTotal.net.toFixed(2)}
           </span>
           <span style={{ color: THEME.t3, fontSize: 12 }}>
-            {data.totalDeals} deals | {data.symbols.length} symbols | {(data.daily ?? []).length} days
+            {safeData.totalDeals} deals | {safeData.symbols.length} symbols | {(safeData.daily ?? []).length} days
+            {!data && ' · loading…'}
           </span>
         </div>
       </div>
@@ -291,7 +304,7 @@ export function PnLPanel() {
             </tr>
           </thead>
           <tbody>
-            {data.symbols.map((s) => (
+            {safeData.symbols.map((s) => (
               <tr key={s.symbol} style={{ borderBottom: `1px solid ${THEME.border}` }}>
                 <td style={{ ...cellStyle, textAlign: 'left', color: THEME.t1, fontWeight: 600, fontFamily: 'inherit' }}>
                   {s.symbol}

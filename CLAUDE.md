@@ -86,7 +86,7 @@ coverage-manager/
 └── CLAUDE.md
 ```
 
-## Supabase Tables (15)
+## Supabase Tables (18)
 1. `symbol_mappings` — B-Book ↔ LP symbol mapping + contract sizes (also holds `pip_size` override for Bridge)
 2. `positions` — Open positions snapshot
 3. `deals` — Deal history with dedup on (source, deal_id), includes direction/fee/entry/**order_id**. 280K+ deals persisted.
@@ -104,9 +104,12 @@ coverage-manager/
 15. `snapshot_schedules` — Dealer-configurable cadences for `exposure_snapshots` captures. Columns: `cadence` (daily/weekly/monthly/custom), `cron_expr`, `tz` (default `Asia/Beirut`), `enabled`, `last_run_at`, `next_run_at`. Seeded with Daily/Weekly/Monthly Lebanon-time rows.
 16. `bridge_settings` — Centroid Bridge credentials + mode (Stub/Live/Replay) + enabled flag.
 17. `bridge_executions` — Paired CLIENT ↔ COV_OUT rows from the Centroid Dropcopy feed; includes `client_mt_login/ticket/deal_id`.
+18. `reconciliation_runs` — Audit log for the nightly deal-reconciliation sweep. Columns: `trigger_type` (scheduled/manual), `window_from/to`, `mt5_deal_count`, `supabase_deal_count`, `backfilled`, `ghost_deleted`, `modified`, `error`, `notes`.
 
 ### Supabase functions
 - `aggregate_bbook_settled_pnl(from_ts, to_ts, excluded_logins)` — server-side SQL aggregation used by the Net P&L tab. Normalizes canonical keys (strips `.c` / `.m` / trailing `-`, uppercases) and sums `profit + swap` on OUT deals + `commission + fee` on all trade deals. Replaces a 46s client-side "pull 200K rows and GROUP BY" roundtrip with a sub-second RPC.
+- `aggregate_bbook_pnl_full(from_ts, to_ts, excluded_logins)` — full per-symbol aggregation for `/api/exposure/pnl` (Exposure tab's closed row, P&L tab, Compare Full Table). Returns deal count + profit/commission/swap/fee + total/buy/sell volume + net. Replaced an 81-second page-by-page GROUP BY over 121K rows with a sub-second RPC.
+- `latest_snapshots_before(anchor)` — `DISTINCT ON (canonical_symbol)` scan over `exposure_snapshots` for the Net P&L tab's Begin anchor. Previously pulled the full 3.8K-row table every call; now returns ≤ 30 rows.
 
 ## Data Sync Architecture
 - **DataSyncService** (background): Syncs deals to Supabase every 30s with change detection
@@ -188,15 +191,14 @@ dotnet test CoverageManager.sln
 ## Positions Compare Tab
 - **Split layout:** Resizable left panel (drag handle) + right detail panel
 - **Left panel compact:** Each row shows Symbol | Hedge% | Net (CLI/COV/Δ) | P&L (CLI/COV/Δ)
-- **Left panel expanded:** Full table matching Exposure layout with Open/Closed rows, bid prices, date picker, To Cover, Hedge%
-- **Right panel detail:** Shows when a symbol is selected — DetailHeader, 5 SummaryCards, PriceChart (Canvas), VolPnlChart (Canvas), CompareTable
-- **Canvas charts:** PriceChart (entry/exit markers, teal sparkline), VolPnlChart (hourly volume bars, cumulative P&L lines)
-- **Charts debounced:** Redraw on symbol change + ResizeObserver, 200ms minimum interval
+- **Left panel expanded (Full Table):** Full table matching Exposure layout with Open/Closed rows, bid prices, date picker (shared with other tabs via `useDateRange`), To Cover, Hedge%, and a TOTAL footer row summing OPEN + CLOSED across CLIENTS/COVERAGE/SUMMARY.
+- **Right panel detail:** Shows when a symbol is selected — DetailHeader, 5 SummaryCards, `PnLRings` widget, CompareTable.
+- **PnLRings widget:** SVG concentric-rings view (inner = floating, outer = settled) with broker-edge math (`coverage − client`). Replaces the older Price + VolPnl canvas charts. Source: [`web/src/pages/PositionsCompare/RightPanel/PnLRings.tsx`](web/src/pages/PositionsCompare/RightPanel/PnLRings.tsx).
 - **Drag reorder:** Symbols can be drag-reordered in compact mode (persisted to localStorage)
 - **Panel resize:** Left panel width adjustable by dragging right edge (persisted to localStorage)
 - **Hedge % colors:** green >= 80%, amber >= 50%, red < 50%
 - **Entry Δ colors:** positive (client paid more) = red, negative = green
-- **Data source:** Polls `/api/compare/exposure` every 500ms, `/api/compare/trades` every 5s
+- **Data source:** Polls `/api/compare/exposure` every 500ms, `/api/compare/trades` every 5s (2-day rolling window so closed/settled values appear before today accumulates fills).
 
 ## Net P&L Tab (Period P&L)
 Separate tab (kept alongside the original P&L tab) that computes full broker period P&L:
@@ -214,6 +216,7 @@ Edge Net  = Coverage.Net − Clients.Net   (positive = broker profited)
 - **Sentinel snapshots**: rows with `canonical_symbol` starting `__`, or containing `SEED_TOTAL` / `PORTFOLIO`, feed the TOTAL only (no per-symbol row). Lets a dealer seed portfolio-level Begin without per-symbol values.
 - **"No position"**: rows whose live summary has 0 volume on a side render `—` for Begin/Current/ΔFloat on that side; Settled/Net still show real realized P&L.
 - **Loading badge**: date-change fetches show a ≥450ms amber pill next to the date pickers; interval polls (every 10s) refresh silently.
+- **Tab-revisit cache**: a module-level `periodCache` keyed by `(from,to)` survives component unmount. Revisiting the tab renders the previous result immediately (no "Loading…" flash); a background refresh updates it silently. First visit for a new range still shows the badge.
 
 ### Scheduler
 - Three seeded schedules (Daily/Weekly/Monthly at 00:00 Asia/Beirut). Manage in Settings tab → "Snapshot Schedules".
@@ -236,6 +239,33 @@ Edge Net  = Coverage.Net − Clients.Net   (positive = broker profited)
 ### NuGet
 - `Cronos 0.10.0` — cron + DST-aware timezone handling for schedule dispatch.
 
+## Date + Timezone Model (important)
+All dealer-facing dates and times are interpreted and displayed in **Asia/Beirut** (MT5 server TZ). Stored data stays UTC (Postgres standard) — conversion happens at query + render time.
+
+- **Every date picker** (Exposure, P&L, Net P&L, Compare Full Table) is interpreted as Beirut midnight and converted to UTC for the Supa query (DST-aware, spring-forward retries +1h).
+- **Shared date state**: [`web/src/hooks/useDateRange.ts`](web/src/hooks/useDateRange.ts) backs the picker on every tab with a single localStorage-keyed range. Switching tabs keeps the range; a change in one tab updates the others instantly via the `storage` event.
+- **Every timestamp rendered in the UI** (position open time, snapshot history, reconciliation runs, alert times, Bridge exec times, Markup match times) uses the [`formatBeirut` / `formatBeirutDate` / `formatBeirutTime`](web/src/utils/time.ts) helpers — not browser-local (which on the dealer's Windows machine is PDT).
+- **All four settled-P&L surfaces** (Exposure closed row, P&L tab, Compare Full Table closed row, Net P&L `bBook.settled`) return identical sums for the same picker range — verified to the penny (e.g. 03-29 → 04-18 = −$481,278.05 on all four).
+
+## Deal Reconciliation Sweep (DATA-101)
+Nightly (02:05 UTC) + manual "Run Now" in Settings. Reconciles Supabase `deals` vs MT5 Manager's authoritative set for a rolling 14-day window.
+
+### What it does
+1. **Backfill**: MT5 deals missing from Supa → upsert.
+2. **Modifications**: Deals in both where fields differ → log to `trade_audit_log` + upsert.
+3. **Ghost deletion**: Supa rows absent from MT5 → DELETE (+ evict from in-memory `DealStore` so DataSyncService's 30s tick doesn't resurrect them).
+
+### Timezone workaround
+MT5's `DealRequest` interprets the request window as **server-local time**, not UTC — which shifted result sets several hours relative to Supa's UTC window and produced thousands of false-positive "ghosts" on both edges. The sweep now queries MT5 with a **±24h buffer** then filters both sides to UTC `deal_time ∈ [fromUtc, toUtc)`. Apples-to-apples regardless of server TZ. Verified empirically: clean data gives `mt5_deal_count == supabase_deal_count` with zero backfills and zero ghosts on repeat runs.
+
+### Files
+- `supabase/migrations/20260418_reconciliation_runs.sql` — audit table.
+- `src/CoverageManager.Core/Models/ReconciliationRun.cs` — DTO.
+- `src/CoverageManager.Core/Engines/DealStore.cs` — `RemoveDeals(ids)` for ghost eviction.
+- `src/CoverageManager.Api/Services/ReconciliationService.cs` — `BackgroundService` + `RunNowAsync`. Seeds `lastNightlyRun` from Supa so restarts after 02:05 don't re-fire.
+- `src/CoverageManager.Api/Controllers/ReconciliationController.cs` — `GET /status`, `POST /run`.
+- `web/src/components/SettingsPanel.tsx` — `ReconciliationCard` (history + Run Now button, Beirut times).
+
 ## UI Features
 - **Dark/Light theme toggle:** ThemeContext with mutable THEME object (Object.assign pattern)
 - **Theme persistence:** Saved to localStorage, applied on load
@@ -250,7 +280,7 @@ Edge Net  = Coverage.Net − Clients.Net   (positive = broker profited)
 ## API Endpoints
 ### C# Backend (port 5000)
 - `GET /api/exposure/summary` — Live exposure aggregation (WebSocket also available)
-- `GET /api/exposure/pnl?from=&to=` — B-Book realized P&L by symbol (queries Supabase with pagination)
+- `GET /api/exposure/pnl?from=&to=` — B-Book realized P&L by symbol. Dates interpreted as Asia/Beirut; runs on `aggregate_bbook_pnl_full` RPC (sub-second on 121K-row / 21-day windows — was 81s pre-RPC).
 - `GET /api/exposure/report?from=&to=` — Manager-style summary report (by symbol, login, day)
 - `GET /api/exposure/positions` — All open positions
 - `GET /api/exposure/status` — MT5 connection status
@@ -264,7 +294,9 @@ Edge Net  = Coverage.Net − Clients.Net   (positive = broker profited)
 - `GET /api/exposure/verify?from=&to=&fix=false` — Compare MT5 Manager deals vs Supabase (batched 1K logins). `fix=true` upserts missing deals.
 - `GET /api/markup/match?from=&to=` — Aggregates client vs coverage deals per canonical symbol; returns broker mark-up (Cov P&L − Client P&L) and VWAP price edge.
 - `GET /api/compare/exposure` — Full snapshot of symbol exposures for Compare tab
-- `GET /api/compare/trades?symbol=&from=` — Trade history for Compare charts
+- `GET /api/compare/trades?symbol=&from=&to=` — Trade history for the Compare tab. Merges B-Book (client) deals from Supabase with coverage deals from the Python collector, tagged `side: 'client' | 'coverage'`. Dates in Asia/Beirut.
+- `GET /api/reconciliation/status?limit=N` — Recent deal-reconciliation runs (for the Settings `ReconciliationCard`).
+- `POST /api/reconciliation/run` — Manually trigger a sweep. Body `{ fromUtc?, toUtc? }`, defaults to last 14 days.
 - `GET /api/bridge/executions?from=&to=&symbol=&limit=` — Bridge ExecutionPairs (persisted first, live store fallback). UTC date range.
 - `GET /api/bridge/live?limit=` — In-memory ExecutionPairs currently tracked by BridgeExecutionStore.
 - `GET /api/bridge/health` — Centroid feed state (mode, connection, messages received, pairs in memory).
@@ -330,5 +362,6 @@ CLIENT fills paired with COV OUT coverage legs from the Centroid CS 360 Dropcopy
 - [x] Phase 2.7: Positions Compare (side-by-side client vs coverage analysis with charts, resizable panels, drag reorder)
 - [x] Phase 2.5: Bridge Execution Analysis (Live REST/WS mode wired to Centroid CS 360; resolves real MT5 deal # on both CLIENT and COV via DealStore + CoverageDealIndex)
 - [x] Phase 2.8: Net P&L Tab — `FloatingΔ + Settled` period P&L with snapshot scheduler, Lebanon-time date picker, sentinel portfolio-anchor rows
+- [x] Phase 2.9: Deal Reconciliation Sweep (DATA-101) — nightly backfill + modifications + ghost-delete with ±24h MT5 TZ buffer, `ReconciliationCard` UI, shared date range across tabs, Beirut-TZ alignment across every surface, compare-tab PnLRings widget, P&L/Exposure perf RPC (81s → 0.5s)
 - [ ] Phase 3: Risk Alerts (news events, threshold warnings)
 - [ ] Phase 4: Hedge Execution (one-click hedging via LP terminal — mt5.order_send() ready)

@@ -2,7 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { THEME } from '../theme';
 import type { AccountSettings } from '../types';
 import { BridgeSettingsCard } from './BridgeSettingsCard';
-import type { SnapshotSchedule, SnapshotCadence, ExposureSnapshot } from '../types';
+import type { SnapshotSchedule, SnapshotCadence, ExposureSnapshot, ReconciliationRun } from '../types';
+import { formatBeirut, formatBeirutDate } from '../utils/time';
 
 const API_BASE = 'http://localhost:5000/api/settings/accounts';
 
@@ -328,6 +329,9 @@ export function SettingsPanel() {
       {/* Snapshot history — recent captures from manual + scheduled runs */}
       <SnapshotHistoryCard />
 
+      {/* Reconciliation — ghost-deal deletion + modification sweep */}
+      <ReconciliationCard />
+
       {/* Moved Accounts */}
       {movedAccounts.length > 0 && (
         <div style={{ marginTop: 32 }}>
@@ -353,7 +357,7 @@ export function SettingsPanel() {
                     <td style={{ ...tdStyle, textAlign: 'left', fontFamily: 'monospace' }}>{a.login}</td>
                     <td style={{ ...tdStyle, textAlign: 'left', color: THEME.t1 }}>{a.name}</td>
                     <td style={{ ...tdStyle, textAlign: 'left' }}>{a.reason}</td>
-                    <td style={{ ...tdStyle, textAlign: 'left' }}>{new Date(a.moved_at).toLocaleDateString()}</td>
+                    <td style={{ ...tdStyle, textAlign: 'left' }}>{formatBeirutDate(a.moved_at)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -886,8 +890,8 @@ function SnapshotSchedulesCard() {
                 <td style={{ ...tdStyle, color: THEME.teal }}>{s.cadence}</td>
                 <td style={{ ...tdStyle, color: THEME.t3 }}>{s.cron_expr ?? '—'}</td>
                 <td style={tdStyle}>{s.tz}</td>
-                <td style={{ ...tdStyle, color: THEME.t3 }}>{s.last_run_at ? new Date(s.last_run_at).toLocaleString() : '—'}</td>
-                <td style={{ ...tdStyle, color: THEME.t3 }}>{s.next_run_at ? new Date(s.next_run_at).toLocaleString() : '—'}</td>
+                <td style={{ ...tdStyle, color: THEME.t3 }}>{formatBeirut(s.last_run_at)}</td>
+                <td style={{ ...tdStyle, color: THEME.t3 }}>{formatBeirut(s.next_run_at)}</td>
                 <td style={tdStyle}>
                   <button
                     onClick={() => toggleEnabled(s)}
@@ -1020,7 +1024,7 @@ function SnapshotHistoryCard() {
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, fontFamily: 'monospace' }}>
           <thead>
             <tr style={{ borderBottom: `1px solid ${THEME.border}` }}>
-              <th style={{ ...thStyle, textAlign: 'left' }}>Captured At (UTC)</th>
+              <th style={{ ...thStyle, textAlign: 'left' }}>Captured At (Beirut)</th>
               <th style={thStyle}>Trigger</th>
               <th style={{ ...thStyle, textAlign: 'left' }}>Label</th>
               <th style={thStyle}>Symbols</th>
@@ -1037,7 +1041,7 @@ function SnapshotHistoryCard() {
                   style={{ borderBottom: `1px solid ${THEME.border}`, cursor: 'pointer', background: expandedTime === g.snapshotTime ? 'rgba(91,158,255,0.04)' : undefined }}
                 >
                   <td style={{ ...tdStyle, textAlign: 'left', color: THEME.t1 }}>
-                    {expandedTime === g.snapshotTime ? '▼' : '▶'} {new Date(g.snapshotTime).toISOString().replace('T', ' ').replace(/\.\d+Z$/, 'Z')}
+                    {expandedTime === g.snapshotTime ? '▼' : '▶'} {formatBeirut(g.snapshotTime)}
                   </td>
                   <td style={{ ...tdStyle, color: THEME.teal }}>{g.triggerType}</td>
                   <td style={{ ...tdStyle, textAlign: 'left', color: THEME.t2 }}>{g.label || '—'}</td>
@@ -1063,6 +1067,123 @@ function SnapshotHistoryCard() {
               <tr>
                 <td colSpan={7} style={{ ...tdStyle, color: THEME.t3, padding: 24 }}>
                   No snapshots captured yet. Use "Capture Snapshot Now" on the Net P&amp;L tab or set up a schedule above.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+const RECON_API = 'http://localhost:5000/api/reconciliation';
+
+function ReconciliationCard() {
+  const [runs, setRuns] = useState<ReconciliationRun[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchRuns = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${RECON_API}/status?limit=30`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setRuns(data.runs ?? []);
+      setError(null);
+    } catch (e: any) {
+      setError(e?.message ?? 'Failed to load reconciliation runs');
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { fetchRuns(); }, [fetchRuns]);
+
+  const runNow = async () => {
+    if (!confirm('Run reconciliation sweep now? Defaults to last 14 days. This will backfill missing deals, patch modifications, and delete ghost deals.')) return;
+    setRunning(true);
+    setError(null);
+    try {
+      const res = await fetch(`${RECON_API}/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await fetchRuns();
+    } catch (e: any) {
+      setError(e?.message ?? 'Reconciliation run failed');
+    }
+    setRunning(false);
+  };
+
+  const fmtTime = (s?: string | null) => formatBeirut(s);
+  const fmtDate = (s?: string | null) => formatBeirutDate(s);
+  const fmtNum = (n: number) => (n ?? 0).toLocaleString();
+  const colorFor = (n: number) => n > 0 ? THEME.amber : THEME.t3;
+
+  return (
+    <div style={{ marginTop: 32 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <div>
+          <h3 style={{ color: '#ffa726', margin: 0, fontSize: 14 }}>Deal Reconciliation</h3>
+          <p style={{ color: THEME.t3, margin: '4px 0 0', fontSize: 12 }}>
+            Nightly sweep (02:05 UTC) diffs MT5 Manager vs Supabase: backfills missed deals, patches dealer modifications, deletes ghost deals. Default lookback 14 days.
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={fetchRuns} disabled={loading || running} style={{ ...btnStyle, background: THEME.bg3, color: THEME.t2 }}>
+            {loading ? 'Refreshing…' : 'Refresh'}
+          </button>
+          <button onClick={runNow} disabled={running} style={{ ...btnStyle, background: THEME.teal, color: '#fff' }}>
+            {running ? 'Running…' : 'Run Now'}
+          </button>
+        </div>
+      </div>
+
+      {error && (
+        <div style={{ ...cardStyle, borderColor: THEME.red, color: THEME.red, fontSize: 12, marginBottom: 12 }}>
+          {error}
+        </div>
+      )}
+
+      <div style={{ ...cardStyle, padding: 0, overflow: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, fontFamily: 'monospace' }}>
+          <thead>
+            <tr style={{ borderBottom: `1px solid ${THEME.border}` }}>
+              <th style={{ ...thStyle, textAlign: 'left' }}>Started (Beirut)</th>
+              <th style={thStyle}>Trigger</th>
+              <th style={thStyle}>Window</th>
+              <th style={thStyle}>MT5</th>
+              <th style={thStyle}>Supa</th>
+              <th style={thStyle}>Backfilled</th>
+              <th style={thStyle}>Ghosts Deleted</th>
+              <th style={thStyle}>Modified</th>
+              <th style={{ ...thStyle, textAlign: 'left' }}>Notes / Error</th>
+            </tr>
+          </thead>
+          <tbody>
+            {runs.map(r => (
+              <tr key={r.id} style={{ borderBottom: `1px solid ${THEME.border}` }}>
+                <td style={{ ...tdStyle, textAlign: 'left', color: THEME.t1 }}>{fmtTime(r.started_at)}</td>
+                <td style={{ ...tdStyle, color: r.trigger_type === 'manual' ? THEME.teal : THEME.t2 }}>{r.trigger_type}</td>
+                <td style={{ ...tdStyle, color: THEME.t3 }}>{fmtDate(r.window_from)} → {fmtDate(r.window_to)}</td>
+                <td style={{ ...tdStyle, color: THEME.t2 }}>{fmtNum(r.mt5_deal_count)}</td>
+                <td style={{ ...tdStyle, color: THEME.t2 }}>{fmtNum(r.supabase_deal_count)}</td>
+                <td style={{ ...tdStyle, color: colorFor(r.backfilled), fontWeight: r.backfilled > 0 ? 600 : 400 }}>{fmtNum(r.backfilled)}</td>
+                <td style={{ ...tdStyle, color: r.ghost_deleted > 0 ? THEME.red : THEME.t3, fontWeight: r.ghost_deleted > 0 ? 600 : 400 }}>{fmtNum(r.ghost_deleted)}</td>
+                <td style={{ ...tdStyle, color: colorFor(r.modified), fontWeight: r.modified > 0 ? 600 : 400 }}>{fmtNum(r.modified)}</td>
+                <td style={{ ...tdStyle, textAlign: 'left', color: r.error ? THEME.red : THEME.t3 }}>
+                  {r.error ? r.error : (r.notes || '—')}
+                </td>
+              </tr>
+            ))}
+            {runs.length === 0 && (
+              <tr>
+                <td colSpan={9} style={{ ...tdStyle, color: THEME.t3, padding: 24 }}>
+                  No reconciliation runs yet. Click "Run Now" to trigger the first sweep.
                 </td>
               </tr>
             )}

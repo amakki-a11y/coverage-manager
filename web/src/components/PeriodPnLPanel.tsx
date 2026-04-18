@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { THEME } from '../theme';
 import type { PeriodPnLResponse, PeriodPnLRow, PeriodPnLSide } from '../types';
+import { useDateRange } from '../hooks/useDateRange';
 
 const API_BASE = 'http://localhost:5000';
 
@@ -128,10 +129,16 @@ function SideCells({ side, bg, divider }: { side: PeriodPnLSide; bg?: string; di
   );
 }
 
+// Module-level cache keyed by date range. Survives tab switches (which unmount the
+// component) so the user doesn't see a blank "Loading" flash every time they come
+// back — we render cached data immediately, then a background fetch refreshes it.
+const periodCache = new Map<string, PeriodPnLResponse>();
+const cacheKey = (from: string, to: string) => `${from}|${to}`;
+
 export function PeriodPnLPanel() {
-  const [fromDate, setFromDate] = useState(todayStr());
-  const [toDate, setToDate] = useState(todayStr());
-  const [data, setData] = useState<PeriodPnLResponse | null>(null);
+  // Shared date range — persisted to localStorage and mirrored to Exposure + P&L tabs.
+  const [fromDate, toDate, setFromDate, setToDate] = useDateRange();
+  const [data, setData] = useState<PeriodPnLResponse | null>(() => periodCache.get(cacheKey(fromDate, toDate)) ?? null);
   const [loading, setLoading] = useState(false);
   const [capturing, setCapturing] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -147,6 +154,7 @@ export function PeriodPnLPanel() {
       const res = await fetch(`${API_BASE}/api/exposure/pnl/period?from=${fromDate}&to=${toDate}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json: PeriodPnLResponse = await res.json();
+      periodCache.set(cacheKey(fromDate, toDate), json);
       if (ticket === loadSeq.current) setData(json);
     } catch (e) {
       if (ticket === loadSeq.current && showLoading) setErr(e instanceof Error ? e.message : 'fetch failed');
@@ -160,10 +168,13 @@ export function PeriodPnLPanel() {
   }, [fromDate, toDate]);
 
   useEffect(() => {
-    fetchPeriod(true); // date change: show loading badge
+    // Show the loading badge only when we don't already have cached data for this
+    // range — re-mounting (tab revisit) with a warm cache triggers a silent refresh.
+    const hasCached = periodCache.has(cacheKey(fromDate, toDate));
+    fetchPeriod(!hasCached);
     const interval = setInterval(() => fetchPeriod(false), 10_000); // silent refresh for "current" values
     return () => clearInterval(interval);
-  }, [fetchPeriod]);
+  }, [fetchPeriod, fromDate, toDate]);
 
   const captureNow = async () => {
     setCapturing(true);

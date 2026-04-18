@@ -79,44 +79,35 @@ public class ExposureController : ControllerBase
     [HttpGet("pnl")]
     public async Task<IActionResult> GetPnL([FromQuery] DateTime? from = null, [FromQuery] DateTime? to = null)
     {
-        var fromDate = from ?? DateTime.UtcNow.Date;
-        var toDate = (to ?? DateTime.UtcNow.Date).AddDays(1); // Include full end day
+        var fromDate = (from ?? DateTime.UtcNow.Date).Date;
+        var toDate = (to ?? DateTime.UtcNow.Date).Date;
 
-        // Query Supabase for the date range (has full history)
-        var deals = await _supabase.GetDealsAsync("bbook", fromDate, toDate);
+        // Interpret the date picker in Lebanon local time so the window matches what
+        // the dealer sees in MT5 (also Asia/Beirut) and the Net P&L tab. Without this
+        // conversion the two tabs returned different sums for the same date — UTC
+        // days are offset ~3h from Lebanon days under DST.
+        TimeZoneInfo beirut;
+        try { beirut = TimeZoneInfo.FindSystemTimeZoneById("Asia/Beirut"); }
+        catch { beirut = TimeZoneInfo.Utc; }
+        static DateTime LocalMidnightToUtc(DateTime localDate, TimeZoneInfo tz)
+        {
+            var local = DateTime.SpecifyKind(localDate.Date, DateTimeKind.Unspecified);
+            try { return TimeZoneInfo.ConvertTimeToUtc(local, tz); }
+            catch (ArgumentException) { return TimeZoneInfo.ConvertTimeToUtc(local.AddHours(1), tz); }
+        }
+        var fromUtc = LocalMidnightToUtc(fromDate,               beirut);
+        var toUtc   = LocalMidnightToUtc(toDate.AddDays(1),       beirut);
+
+        // Server-side SQL aggregation — replaces a paginated 121K-deal fetch + LINQ
+        // GroupBy that took 80+s for 3-week ranges. Sub-second now.
         var movedLogins = await _supabase.GetMovedLoginsAsync();
-
-        var tradeDeals = deals
-            .Where(d => d.Action <= 1) // Exclude balance/credit (Action >= 2)
-            .Where(d => !string.IsNullOrEmpty(d.Symbol))
-            .Where(d => !movedLogins.Contains(d.Login)) // Exclude moved accounts
-            .ToList();
-
-        var symbols = tradeDeals
-            .GroupBy(d => d.Symbol)
-            .Select(g =>
-            {
-                var outDeals = g.Where(d => d.Entry == 1 || d.Entry == 2 || d.Entry == 3).ToList();
-                return new SymbolPnL
-                {
-                    Symbol = g.Key,
-                    DealCount = g.Count(),
-                    TotalProfit = outDeals.Sum(d => d.Profit),
-                    TotalCommission = g.Sum(d => d.Commission),
-                    TotalSwap = outDeals.Sum(d => d.Swap),
-                    TotalFee = g.Sum(d => d.Fee),
-                    TotalVolume = g.Sum(d => d.Volume),
-                    BuyVolume = g.Where(d => d.Direction == "BUY").Sum(d => d.Volume),
-                    SellVolume = g.Where(d => d.Direction == "SELL").Sum(d => d.Volume)
-                };
-            })
-            .OrderByDescending(p => Math.Abs(p.NetPnL))
-            .ToList();
+        var symbols = await _supabase.AggregateBBookPnLFullAsync(
+            fromUtc, toUtc, movedLogins.Select(l => (long)l));
 
         return Ok(new
         {
-            totalDeals = tradeDeals.Count,
-            symbols,
+            totalDeals = symbols.Sum(s => s.DealCount),
+            symbols = symbols.OrderByDescending(p => Math.Abs(p.NetPnL)).ToList(),
             from = fromDate,
             to = to ?? DateTime.UtcNow.Date
         });
@@ -267,7 +258,8 @@ public class ExposureController : ControllerBase
     public async Task<IActionResult> VerifyDeals(
         [FromQuery] DateTime? from = null,
         [FromQuery] DateTime? to = null,
-        [FromQuery] bool fix = false)
+        [FromQuery] bool fix = false,
+        [FromQuery] bool delete = false)
     {
         if (!_mt5Connection.IsConnected)
             return StatusCode(503, new { error = "MT5 not connected" });
@@ -289,7 +281,7 @@ public class ExposureController : ControllerBase
             .Where(d => !movedLogins.Contains(d.Login))
             .ToList();
 
-        // Fix: find deals in MT5 but not in Supabase, upsert them
+        // Fix: find deals in MT5 but not in Supabase, upsert them.
         var fixedCount = 0;
         if (fix)
         {
@@ -323,6 +315,23 @@ public class ExposureController : ControllerBase
                 await _supabase.UpsertDealsAsync(missingDeals);
                 fixedCount = missingDeals.Count;
             }
+        }
+
+        // Delete: find deals in Supabase but not in MT5 (ghost deals — dealer reversed /
+        // compliance removed / reassigned) and remove them so future P&L matches MT5.
+        // Opt-in because it's destructive. Moved-account deals are already excluded from
+        // supaTradeDeals so they won't be caught here.
+        var deletedCount = 0;
+        var deletedIds = new List<long>();
+        if (delete)
+        {
+            var mt5DealIds = new HashSet<long>(mt5Deals.Select(d => (long)d.DealId));
+            deletedIds = supaTradeDeals
+                .Where(d => !mt5DealIds.Contains(d.DealId))
+                .Select(d => d.DealId)
+                .ToList();
+            if (deletedIds.Count > 0)
+                deletedCount = await _supabase.DeleteDealsAsync("bbook", deletedIds);
         }
 
         // 3. Aggregate MT5 by symbol
@@ -395,6 +404,8 @@ public class ExposureController : ControllerBase
             mt5TotalDeals = mt5Deals.Count,
             supabaseTotalDeals = supaTradeDeals.Count,
             fixed_ = fixedCount,
+            deleted_ = deletedCount,
+            deletedDealIds = deletedIds,
             elapsed = sw.Elapsed.ToString(@"hh\:mm\:ss")
         });
     }

@@ -131,6 +131,11 @@ try
     // Period P&L scheduler — dispatches snapshot_schedules every 60s.
     builder.Services.AddSingleton<ExposureSnapshotService>();
     builder.Services.AddHostedService(sp => sp.GetRequiredService<ExposureSnapshotService>());
+
+    // Nightly deal reconciliation — finds ghosts (Supa has, MT5 doesn't) and patches
+    // modifications so our historical P&L stays aligned with MT5 Manager over time.
+    builder.Services.AddSingleton<ReconciliationService>();
+    builder.Services.AddHostedService(sp => sp.GetRequiredService<ReconciliationService>());
     // -----------------------------------------------------------------------
 
     builder.Services.AddControllers()

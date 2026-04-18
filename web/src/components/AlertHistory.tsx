@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { THEME } from '../theme';
 import type { AlertEvent } from '../types';
+import { formatBeirut } from '../utils/time';
 
 const severityColor = (s: string) =>
   s === 'critical' ? THEME.red : s === 'warning' ? THEME.amber : THEME.blue;
@@ -172,7 +173,7 @@ export function AlertHistory({
                   </div>
                   <div style={{ textAlign: 'right', flexShrink: 0 }}>
                     <div style={{ fontSize: 10, color: THEME.t3 }}>
-                      {new Date(a.triggered_at).toLocaleString()}
+                      {formatBeirut(a.triggered_at)}
                     </div>
                     {!a.acknowledged ? (
                       <button

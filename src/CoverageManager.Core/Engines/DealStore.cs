@@ -46,6 +46,26 @@ public class DealStore
     }
 
     /// <summary>
+    /// Evict deals by id. Used by the reconciliation sweep to drop ghosts from the
+    /// in-memory cache so DataSyncService doesn't re-upsert them to Supa 30s later.
+    /// Returns the number of deals actually removed from the primary store.
+    /// </summary>
+    public int RemoveDeals(IEnumerable<ulong> dealIds)
+    {
+        var removed = 0;
+        foreach (var id in dealIds)
+        {
+            if (_deals.TryRemove(id, out var d))
+            {
+                removed++;
+                if (d.Login != 0 && d.OrderId != 0)
+                    _dealIdByOrder.TryRemove((d.Login, d.OrderId), out _);
+            }
+        }
+        return removed;
+    }
+
+    /// <summary>
     /// Get all stored deals.
     /// </summary>
     public IReadOnlyList<ClosedDeal> GetAllDeals() =>
