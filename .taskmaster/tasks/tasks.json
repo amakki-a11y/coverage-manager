@@ -25,7 +25,9 @@
       "phase": 3,
       "priority": "high",
       "status": "pending",
-      "dependencies": [1],
+      "dependencies": [
+        1
+      ],
       "subtasks": [
         "Create ThresholdsController with CRUD endpoints",
         "Build RiskThresholds settings page in React",
@@ -42,7 +44,9 @@
       "phase": 3,
       "priority": "high",
       "status": "pending",
-      "dependencies": [1],
+      "dependencies": [
+        1
+      ],
       "subtasks": [
         "Push alerts via WebSocket to connected clients",
         "Build AlertToast component (auto-dismiss after X seconds)",
@@ -59,7 +63,10 @@
       "phase": 3,
       "priority": "medium",
       "status": "pending",
-      "dependencies": [1, 3],
+      "dependencies": [
+        1,
+        3
+      ],
       "subtasks": [
         "Research and select economic calendar API source",
         "Build EconomicCalendarService to fetch and cache events",
@@ -76,7 +83,10 @@
       "phase": 3,
       "priority": "medium",
       "status": "pending",
-      "dependencies": [1, 3],
+      "dependencies": [
+        1,
+        3
+      ],
       "subtasks": [
         "Create INotificationChannel interface",
         "Implement EmailChannel (SMTP or SendGrid)",
@@ -111,7 +121,9 @@
       "phase": 4,
       "priority": "high",
       "status": "pending",
-      "dependencies": [6],
+      "dependencies": [
+        6
+      ],
       "subtasks": [
         "LP account management UI (add/edit/remove LP connections)",
         "Default hedge settings per symbol (auto-fill %, confirmation required)",
@@ -126,7 +138,9 @@
       "phase": 4,
       "priority": "medium",
       "status": "pending",
-      "dependencies": [6],
+      "dependencies": [
+        6
+      ],
       "subtasks": [
         "Populate hedge_executions table on each execution",
         "Build HedgeAuditLog component (filterable by symbol, date, status)",
@@ -141,7 +155,10 @@
       "phase": 4,
       "priority": "medium",
       "status": "pending",
-      "dependencies": [6, 7],
+      "dependencies": [
+        6,
+        7
+      ],
       "subtasks": [
         "Check LP account margin before sending order",
         "Verify symbol is tradeable on LP terminal",
@@ -173,7 +190,9 @@
       "phase": 5,
       "priority": "medium",
       "status": "pending",
-      "dependencies": [10],
+      "dependencies": [
+        10
+      ],
       "subtasks": [
         "Add export endpoints: GET /api/reports/export?format=csv|xlsx|pdf",
         "CSV generation (server-side)",
@@ -190,7 +209,10 @@
       "phase": 5,
       "priority": "medium",
       "status": "pending",
-      "dependencies": [8, 10],
+      "dependencies": [
+        8,
+        10
+      ],
       "subtasks": [
         "Store periodic hedge ratio snapshots (from exposure_snapshots)",
         "Build HedgeEffectivenessReport page",
@@ -206,7 +228,9 @@
       "phase": 5,
       "priority": "medium",
       "status": "pending",
-      "dependencies": [10],
+      "dependencies": [
+        10
+      ],
       "subtasks": [
         "GET /api/reports/account-activity?login=&from=&to=",
         "Build AccountActivityReport page",
@@ -222,7 +246,12 @@
       "phase": 5,
       "priority": "low",
       "status": "pending",
-      "dependencies": [10, 11, 12, 13],
+      "dependencies": [
+        10,
+        11,
+        12,
+        13
+      ],
       "subtasks": [
         "Report builder UI — drag-and-drop columns, filter rows",
         "Data source selection (deals, positions, exposure, accounts)",
@@ -254,7 +283,9 @@
       "phase": 6,
       "priority": "high",
       "status": "pending",
-      "dependencies": [15],
+      "dependencies": [
+        15
+      ],
       "subtasks": [
         "Setup Supabase Auth (or custom JWT auth)",
         "Login/register pages in React",
@@ -271,7 +302,10 @@
       "phase": 6,
       "priority": "low",
       "status": "pending",
-      "dependencies": [15, 16],
+      "dependencies": [
+        15,
+        16
+      ],
       "subtasks": [
         "Tenant branding config (logo_url, primary_color, app_name)",
         "Apply branding dynamically in React (ThemeContext extension)",
@@ -287,7 +321,10 @@
       "phase": 6,
       "priority": "medium",
       "status": "pending",
-      "dependencies": [15, 16],
+      "dependencies": [
+        15,
+        16
+      ],
       "subtasks": [
         "Onboarding wizard component (multi-step form)",
         "Step 1: Broker info (name, contact)",
@@ -305,7 +342,9 @@
       "phase": 7,
       "priority": "high",
       "status": "pending",
-      "dependencies": [15],
+      "dependencies": [
+        15
+      ],
       "subtasks": [
         "Refactor MT5ManagerConnection to support multiple instances",
         "Refactor Python collector to handle multiple coverage accounts",
@@ -321,7 +360,10 @@
       "phase": 7,
       "priority": "medium",
       "status": "pending",
-      "dependencies": [15, 16],
+      "dependencies": [
+        15,
+        16
+      ],
       "subtasks": [
         "API key generation and management (per tenant)",
         "API key auth middleware",
@@ -338,7 +380,10 @@
       "phase": 7,
       "priority": "low",
       "status": "pending",
-      "dependencies": [1, 20],
+      "dependencies": [
+        1,
+        20
+      ],
       "subtasks": [
         "Webhook registration API (URL, events, secret)",
         "WebhookDispatcher service",
@@ -389,13 +434,561 @@
       "phase": 8,
       "priority": "medium",
       "status": "pending",
-      "dependencies": [5, 22],
+      "dependencies": [
+        5,
+        22
+      ],
       "subtasks": [
         "Health check endpoint: GET /api/health (all services)",
         "System dashboard page: connection statuses, uptime, metrics",
         "Alert on service down (MT5 disconnect, collector offline)",
         "Uptime monitoring integration (UptimeRobot or similar)",
         "Logging aggregation (structured logs, searchable)"
+      ]
+    },
+    {
+      "id": 25,
+      "title": "[CRITICAL] Rotate Supabase anon key + remove from appsettings.json",
+      "description": "appsettings.json:31 ships the Supabase anon JWT in the repo. Rotate the key in the Supabase dashboard, move it to an environment variable / User Secrets, add appsettings.Development.json to .gitignore, and scrub git history if the key has ever been public.",
+      "phase": 2.9,
+      "priority": "high",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Rotate Supabase anon + (if present) service_role keys",
+        "Replace hardcoded JWT with env var / User Secrets",
+        "Update Program.cs / SupabaseService to read from config at runtime",
+        "Rewrite git history if repo was ever public (git-filter-repo)"
+      ]
+    },
+    {
+      "id": 26,
+      "title": "[CRITICAL] Enable RLS on every Supabase table + block raw password reads",
+      "description": "All 18 public tables have RLS disabled (advisor lint 0013). account_settings.password + bridge_settings.password are plaintext and readable over PostgREST with the anon key. Enable RLS everywhere with a deny-all default and explicit service_role-only policies for sensitive columns.",
+      "phase": 2.9,
+      "priority": "high",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Enable RLS on all 18 tables",
+        "Deny-all policy by default",
+        "Move password reads behind a service_role RPC",
+        "Re-run mcp__supabase__get_advisors until zero security ERRORs"
+      ]
+    },
+    {
+      "id": 27,
+      "title": "[CRITICAL] MT5 deal subscription race — snapshot + backfill before OnDealAdd",
+      "description": "MT5ManagerConnection.cs:122 subscribes to the deal callback before the position snapshot and backfill, so deals arriving in that window are lost or double-counted. Reorder: GetPositions() → BackfillDeals() → OnDealAdd += handler.",
+      "phase": 2.9,
+      "priority": "high",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Reorder bring-up in MT5ManagerConnection.ExecuteAsync",
+        "Add a reconnect-flow integration test that replays deals during the gap",
+        "Document the ordering invariant in CLAUDE.md"
+      ]
+    },
+    {
+      "id": 28,
+      "title": "[CRITICAL] BridgePipResolver.Overrides — thread-safe dictionary",
+      "description": "BridgePipResolver.cs:13 holds a plain Dictionary<string, decimal> loaded by PositionManager.LoadMappings and read concurrently from the Bridge worker + controller threads. Torn reads / missing entries possible. Switch to ConcurrentDictionary or swap the reference atomically on reload.",
+      "phase": 2.9,
+      "priority": "high",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Switch Overrides to ConcurrentDictionary<string, decimal>",
+        "Reload path uses atomic replace (Interlocked.Exchange on a wrapper ref)",
+        "Unit test: concurrent reload + lookup"
+      ]
+    },
+    {
+      "id": 29,
+      "title": "[CRITICAL] Convert MT5 RawTypes financial fields double -> decimal",
+      "description": "RawTypes.cs:15-40 declares Price / Profit / Commission / Storage / Fee as double. FX precision loss flows into every downstream P&L. Change to decimal and update MT5ApiReal.CopyDeal + GetPositions conversions.",
+      "phase": 2.9,
+      "priority": "high",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Change RawDeal/RawPosition/RawAccount money fields to decimal",
+        "Update MT5ApiReal conversions (native returns double — cast at the edge)",
+        "Add a test that exercises tiny/price-sensitive cases (EURUSD 1.08547 × 100000)"
+      ]
+    },
+    {
+      "id": 30,
+      "title": "[CRITICAL] Set search_path on 5 Supabase RPCs",
+      "description": "aggregate_bbook_settled_pnl, aggregate_bbook_pnl_full, latest_snapshots_before, bridge_executions_touch_updated_at, bridge_settings_touch_updated_at have mutable search_path (advisor lint 0011). Recreate each with `SET search_path = public, pg_temp` and commit as migration files (currently applied inline only).",
+      "phase": 2.9,
+      "priority": "high",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Rewrite each RPC with SET search_path = public, pg_temp",
+        "Create migration files (supabase/migrations/*.sql)",
+        "Re-run security advisors until zero WARN"
+      ]
+    },
+    {
+      "id": 31,
+      "title": "[CRITICAL] Authenticate /ws/exposure and /ws/bridge",
+      "description": "Program.cs:229 and :264 accept any WebSocket connection on the LAN. Exposure data and hedge gaps are commercially sensitive. Add bearer-token gate on AcceptWebSocketAsync, or bind to 127.0.0.1 behind an authenticated reverse proxy.",
+      "phase": 2.9,
+      "priority": "high",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Decide auth model (bearer / session cookie)",
+        "Gate both WS endpoints on AcceptWebSocketAsync",
+        "Add dashboard-side token issuance + include in WS upgrade headers"
+      ]
+    },
+    {
+      "id": 32,
+      "title": "[CRITICAL] Remove light theme — dark-only per spec",
+      "description": "ThemeContext.tsx exposes LIGHT_THEME and App.tsx includes a toggle. Spec forbids light theme. Delete LIGHT_THEME or pin THEME to DARK_THEME at boot and remove the toggle UI.",
+      "phase": 2.9,
+      "priority": "high",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Remove LIGHT_THEME from theme.ts or mark internal-only",
+        "Remove toggle button in App.tsx",
+        "Verify localStorage migration (existing 'light' entries ignored)"
+      ]
+    },
+    {
+      "id": 33,
+      "title": "[HIGH] Add appsettings.Development.json to .gitignore",
+      "description": ".gitignore excludes .env but not appsettings.Development.json. Add the line and `git rm --cached` the current tracked (empty) file so no future dev ever commits dev secrets.",
+      "phase": 2.9,
+      "priority": "high",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Add appsettings.Development.json to .gitignore",
+        "git rm --cached the file",
+        "Document User Secrets usage in README"
+      ]
+    },
+    {
+      "id": 34,
+      "title": "[HIGH] ConfigureAwait(false) across SupabaseService",
+      "description": "SupabaseService has ~100 awaits with no ConfigureAwait(false). Kestrel has no SyncContext today so it's latent, but it becomes a thread-pool landmine the moment anyone hosts in IIS or blocks on async. Sweep the file.",
+      "phase": 2.9,
+      "priority": "high",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Add .ConfigureAwait(false) on every await in library services",
+        "Run .NET analyzer CA2007 to enforce"
+      ]
+    },
+    {
+      "id": 35,
+      "title": "[HIGH] DataSyncService — map CanonicalSymbol before upsert",
+      "description": "DataSyncService.cs:135 TODO. CanonicalSymbol = d.Symbol writes raw MT5 names. Any downstream consumer that doesn't re-normalize fragments on 'US30-' vs 'US30'. Resolve via _positionManager.FindMapping before upsert.",
+      "phase": 2.9,
+      "priority": "high",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Call FindMapping('bbook') in DataSyncService before building DealRecord",
+        "Fall back to NormalizeKey if mapping missing",
+        "Backfill historical canonical_symbol column"
+      ]
+    },
+    {
+      "id": 36,
+      "title": "[HIGH] Python collector — env-source BACKEND_URL",
+      "description": "collector/main.py:14 hardcodes BACKEND_URL = 'http://localhost:5000'. Switch to os.getenv with that as default; document in .env.example.",
+      "phase": 2.9,
+      "priority": "high",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "os.getenv('BACKEND_URL', 'http://localhost:5000')",
+        "Update .env.example"
+      ]
+    },
+    {
+      "id": 37,
+      "title": "[HIGH] Python collector — reconnect on MT5 drop",
+      "description": "position_loop catches generic Exception and retries the POST forever without reconnecting MT5. Coverage goes silently stale. Catch MT5 errors distinctly, call mt5.shutdown()+initialize() with exponential backoff, expose last_position_update on /health.",
+      "phase": 2.9,
+      "priority": "high",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Distinguish mt5 errors from HTTP errors",
+        "Exponential backoff on reconnect (1s → 60s cap)",
+        "/health returns last_position_update_utc",
+        "Backend alerts if stale > 5s"
+      ]
+    },
+    {
+      "id": 38,
+      "title": "[HIGH] Batch bridge_executions writes",
+      "description": "BridgeSupabaseWriter writes one pair per UPSERT. With the table already at 4.3K rows and growing, Supa REST becomes the bottleneck. Batch VALUES (...), (...), ... up to 500/batch with backpressure.",
+      "phase": 2.9,
+      "priority": "high",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Channel-based queue with bounded capacity",
+        "Flush on N pairs OR M ms, whichever first",
+        "Drop-oldest under sustained backpressure"
+      ]
+    },
+    {
+      "id": 39,
+      "title": "[HIGH] BridgePairingEngine — prune stale COV_OUT on ingest",
+      "description": "Pairing window is enforced inside the greedy loop; stale COV_OUT rows older than PairingWindowMs linger in _buffer and keep competing for matches. Prune on each publish, or reject on Observe().",
+      "phase": 2.9,
+      "priority": "high",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Prune _buffer entries where (now - observed) > PairingWindowMs",
+        "Add test: stale COV_OUT does not match a younger CLIENT",
+        "Metric: bufferEvictionCount"
+      ]
+    },
+    {
+      "id": 40,
+      "title": "[HIGH] Guarantee CanonicalSymbol before Bridge pairing",
+      "description": "BridgePairingEngine requires pre-populated CanonicalSymbol. Verify every ingest path (Stub, Rest/FIX) applies mapping BEFORE Publish() and assert non-empty.",
+      "phase": 2.9,
+      "priority": "high",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Add assertion in BridgeExecutionStore.Observe()",
+        "Apply mapping in RestCentroidBridgeService ingest",
+        "Test: unmapped symbol → loud rejection, not silent pairing miss"
+      ]
+    },
+    {
+      "id": 41,
+      "title": "[HIGH] React — positions tab polling cadence",
+      "description": "App.tsx:61 polls /api/exposure/positions every 1s continuously. Overkill for a view that doesn't need 1 Hz refresh. Switch to 5s or WS-driven.",
+      "phase": 2.9,
+      "priority": "high",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Raise interval to 5s OR source from useExposureSocket",
+        "Pause polling when tab is hidden (visibilitychange)"
+      ]
+    },
+    {
+      "id": 42,
+      "title": "[HIGH] WebSocket hook — log malformed JSON",
+      "description": "useExposureSocket.ts:73 swallows JSON parse errors silently. Upstream protocol breaks become invisible. Log with a truncated payload and surface via a hook state.",
+      "phase": 2.9,
+      "priority": "high",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Log parse errors with first 200 chars of payload",
+        "Expose lastParseError on the hook return"
+      ]
+    },
+    {
+      "id": 43,
+      "title": "[HIGH] AccountModal — formatBeirut for all timestamps",
+      "description": "web/src/pages/PositionsCompare/RightPanel/AccountModal.tsx:60-62 uses raw .toLocaleString('en-GB'). Regresses the Beirut alignment done elsewhere. Use formatBeirut / formatBeirutDate.",
+      "phase": 2.9,
+      "priority": "high",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Swap toLocaleString calls for formatBeirut helpers",
+        "Grep to confirm no other regressions"
+      ]
+    },
+    {
+      "id": 44,
+      "title": "[HIGH] Surface fetch failures in Exposure/Settings panels",
+      "description": "ExposureTable and SettingsPanel have bare `catch {}` on parallel fetches. Partial failure shows stale data with zero warning. Track per-fetch status and render a warning pill.",
+      "phase": 2.9,
+      "priority": "high",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Replace empty catches with per-request error state",
+        "Render warning badge near affected cells",
+        "Bubble error count into the toolbar"
+      ]
+    },
+    {
+      "id": 45,
+      "title": "MT5ApiReal — queue tick/deal callbacks off the native thread",
+      "description": "FireTick / FireDealAdd invoke handlers synchronously inside native MT5 callbacks. A slow handler (Supa write, disk log) stalls the feed thread. Queue to a bounded Channel<T> drained on a dedicated task.",
+      "phase": 2.9,
+      "priority": "medium",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Introduce Channel<Tick> + Channel<Deal>",
+        "Native callback does TryWrite only",
+        "Document ≤ 1ms handler budget"
+      ]
+    },
+    {
+      "id": 46,
+      "title": "SupabaseService — centralize PostgREST DateTime UTC normalization",
+      "description": "PostgREST timestamptz → DateTime Kind=Local is a recurring bug (already cost us the minute-firing scheduler). Centralize a ReadUtc helper and use everywhere timestamps are parsed.",
+      "phase": 2.9,
+      "priority": "medium",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Add ReadUtc(JsonElement) returning Kind=Utc DateTime",
+        "Refactor every Supabase DateTime deserialization",
+        "Add unit test covering the deserialization"
+      ]
+    },
+    {
+      "id": 47,
+      "title": "Split fat files: SupabaseService, ExposureController, SettingsPanel, ExposureTable",
+      "description": "SupabaseService 1060 LOC, ExposureController 861 LOC, SettingsPanel 1195 LOC, ExposureTable 658 LOC. Split into focused repositories / subcomponents.",
+      "phase": 2.9,
+      "priority": "medium",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "SupabaseService → DealsRepository / SnapshotsRepository / AccountsRepository / BridgeRepository / ReconciliationRepository",
+        "ExposureController → PnLCalculationService",
+        "SettingsPanel → AccountsCard / VerifyCard / MovedAccountsTable / SnapshotSchedulesCard / ReconciliationCard (already partially split)",
+        "ExposureTable → ExposureToolbar + ExposureRow"
+      ]
+    },
+    {
+      "id": 48,
+      "title": "Supabase — drop duplicate index + index FK + audit unused",
+      "description": "Duplicate idx_deals_deal_time + idx_deals_time (advisor WARN). Unindexed FK alert_events.threshold_id. 18 unused indexes flagged. Audit and prune.",
+      "phase": 2.9,
+      "priority": "medium",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Drop duplicate index",
+        "CREATE INDEX on alert_events(threshold_id)",
+        "Audit 18 unused indexes; drop or document why kept"
+      ]
+    },
+    {
+      "id": 49,
+      "title": "Supabase — partition / archive deals table",
+      "description": "deals has 287K+ rows with no partitioning or archival. Sync jobs and reconciliation scan ever-larger tables. Partition by month on deal_time or archive > 90 days into deals_historical.",
+      "phase": 2.9,
+      "priority": "medium",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Decide partition vs archive",
+        "Migration + retention policy",
+        "Update DataSyncService + ReconciliationService to respect partition pruning"
+      ]
+    },
+    {
+      "id": 50,
+      "title": "Commit inline-applied Supabase RPCs to migrations",
+      "description": "aggregate_bbook_settled_pnl, aggregate_bbook_pnl_full, latest_snapshots_before were applied via MCP with no migration files. A fresh deploy has no RPCs.",
+      "phase": 2.9,
+      "priority": "medium",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Write supabase/migrations/20260418_aggregate_rpcs.sql",
+        "Include SET search_path = public, pg_temp",
+        "Verify mcp__supabase__list_migrations shows them"
+      ]
+    },
+    {
+      "id": 51,
+      "title": "Python /health — report position_loop liveness",
+      "description": "Current /health checks terminal_info only. Doesn't detect a stalled position loop. Track last_position_update_utc and mark unhealthy if > 5s.",
+      "phase": 2.9,
+      "priority": "medium",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Thread-safe last_update timestamp",
+        "/health returns status='ok'/'stale' with last_update",
+        "Backend surfaces stale state in the UI"
+      ]
+    },
+    {
+      "id": 52,
+      "title": "PositionsGrid — source badge uses theme tokens, not hex",
+      "description": "PositionsGrid.tsx:65-66 hardcodes rgba(91,158,255,0.15) + #FF8A80. Replace with THEME.blue / THEME.red + an opacity helper.",
+      "phase": 2.9,
+      "priority": "medium",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Replace hex literals with THEME.*",
+        "Add alpha() helper in theme.ts if needed"
+      ]
+    },
+    {
+      "id": 53,
+      "title": "CompareTable — sign prefix on Net P&L total",
+      "description": "CompareTable.tsx ~:112 renders the Net P&L total without a +/- prefix. Inconsistent with every other P&L cell.",
+      "phase": 2.9,
+      "priority": "medium",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Add sign prefix consistent with fmtPnl"
+      ]
+    },
+    {
+      "id": 54,
+      "title": "PnLPanel — formatDate uses Beirut weekday, not UTC",
+      "description": "PnLPanel.tsx formatDate uses d.getUTCDay() for the weekday — ignores Beirut TZ convention. Rename + route through formatBeirutDate + weekday derivation on a Beirut-normalized date.",
+      "phase": 2.9,
+      "priority": "medium",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Use formatBeirutDate + derive weekday from Beirut date",
+        "Handle DST transitions correctly"
+      ]
+    },
+    {
+      "id": 55,
+      "title": "AlertEngine — thread-safe threshold list",
+      "description": "AlertEngine._thresholds plain List<T>. Hot-read while admin reloads. Torn reads possible. Interlocked.Exchange on the ref, or ReaderWriterLockSlim.",
+      "phase": 2.9,
+      "priority": "medium",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Atomic swap on reload",
+        "Test: concurrent reload + evaluation"
+      ]
+    },
+    {
+      "id": 56,
+      "title": "Delete UnitTest1.cs template leftover",
+      "description": "src/CoverageManager.Tests/UnitTest1.cs is an empty placeholder method TestMethod1. Remove.",
+      "phase": 2.9,
+      "priority": "low",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Delete the file + remove from test run"
+      ]
+    },
+    {
+      "id": 57,
+      "title": "DataSyncService — pagination for large deal ranges",
+      "description": "DataSyncService.cs:32 30s tick scans all deals. 280K rows today; will timeout eventually. Paginate or use a bulk-diff RPC.",
+      "phase": 2.9,
+      "priority": "low",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Implement cursor-based pagination OR a bulk diff RPC",
+        "Add integration test with a synthetic 1M-row window"
+      ]
+    },
+    {
+      "id": 58,
+      "title": "Python collector — pin exact dependency versions",
+      "description": "requirements.txt uses >= minimum bounds. Pin exact for reproducible prod builds.",
+      "phase": 2.9,
+      "priority": "low",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Pin via uv lock / pip-tools",
+        "Add renovate config for routine bumps"
+      ]
+    },
+    {
+      "id": 59,
+      "title": "useDateRange — migrate to BroadcastChannel API",
+      "description": "Current cross-tab sync uses manual StorageEvent dispatch. BroadcastChannel is the modern idiom and avoids the storage-event footgun.",
+      "phase": 2.9,
+      "priority": "low",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Replace StorageEvent with BroadcastChannel('coverage-manager')",
+        "Fallback to StorageEvent in old browsers"
+      ]
+    },
+    {
+      "id": 60,
+      "title": "AlertToast — type-safe audio handler",
+      "description": "AlertToast.tsx:49 uses `as any` cast. Define an AudioHandler interface instead.",
+      "phase": 2.9,
+      "priority": "low",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Define AudioHandler interface",
+        "Remove any-cast"
+      ]
+    },
+    {
+      "id": 61,
+      "title": "TotalBar — remove tautological ternary",
+      "description": "TotalBar.tsx:60 `color: highlight ? color : color` is a no-op. Clean up.",
+      "phase": 2.9,
+      "priority": "low",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Either add a second color branch or drop the ternary"
+      ]
+    },
+    {
+      "id": 62,
+      "title": "Program.cs — simplify HttpClient registration",
+      "description": "Program.cs:48-53 calls AddHttpClient<T>() then overrides with AddSingleton<T>. Works but confusing; drop the typed client and use IHttpClientFactory.CreateClient(name) explicitly.",
+      "phase": 2.9,
+      "priority": "low",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Use named HttpClient instead of typed",
+        "Apply to SupabaseService, BridgeSupabaseWriter, RestCentroidBridgeService, CoverageDealIndex"
+      ]
+    },
+    {
+      "id": 63,
+      "title": "Add test asserting broker identity: net = -Client + Coverage",
+      "description": "Spec's load-bearing P&L identity has no explicit test. Add one in CoverageManager.Tests covering positive/negative/mixed cases.",
+      "phase": 2.9,
+      "priority": "high",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Test case: client wins + coverage wins → broker zero",
+        "Test case: client loss + coverage loss → broker neutral",
+        "Test case: sign asymmetry"
+      ]
+    },
+    {
+      "id": 64,
+      "title": "MT5 reconnect backoff — implementation + integration test",
+      "description": "Rule says 1s → 60s exponential backoff on MT5 drop. Verify the code does this and add a test that simulates disconnect.",
+      "phase": 2.9,
+      "priority": "high",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Audit MT5ManagerConnection retry logic",
+        "Add exponential backoff if missing",
+        "Simulated-drop integration test"
       ]
     }
   ]
