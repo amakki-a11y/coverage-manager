@@ -71,6 +71,12 @@ export function ExposureTable({ summaries, prices }: ExposureTableProps) {
   // Tracks whether the closed-P&L fetch is in flight so the UI can show a loading badge
   // whenever the date range changes (otherwise stale totals look silently wrong).
   const [closedLoading, setClosedLoading] = useState(false);
+  // Tracks failures of the three parallel closed-deal fetches (B-Book / coverage /
+  // mappings). A single bare empty catch used to hide silent partial failures so
+  // stale rows kept rendering with no warning — a real-money risk if the dealer
+  // acts on incomplete numbers. We now list which side failed in an amber pill
+  // next to the loading badge.
+  const [closedErrors, setClosedErrors] = useState<string[]>([]);
   const closedLoadSeq = useRef(0);
   const [showGrid, setShowGrid] = useState(() => {
     return localStorage.getItem('exposureGrid') !== 'false';
@@ -113,16 +119,20 @@ export function ExposureTable({ summaries, prices }: ExposureTableProps) {
     const MIN_VISIBLE_MS = 450; // keep badge on screen at least this long
     const myTicket = ++closedLoadSeq.current;
     const fetchClosed = async () => {
+      const errs: string[] = [];
       try {
         const [bbRes, covRes, mapRes] = await Promise.all([
-          fetch(`http://localhost:5000/api/exposure/pnl?from=${closedFrom}&to=${closedTo}`),
-          fetch(`http://localhost:8100/deals?from=${closedFrom}&to=${closedTo}`),
-          fetch('http://localhost:5000/api/mappings'),
+          fetch(`http://localhost:5000/api/exposure/pnl?from=${closedFrom}&to=${closedTo}`).catch(() => null),
+          fetch(`http://localhost:8100/deals?from=${closedFrom}&to=${closedTo}`).catch(() => null),
+          fetch('http://localhost:5000/api/mappings').catch(() => null),
         ]);
+        if (!bbRes || !bbRes.ok) errs.push('B-Book');
+        if (!covRes || !covRes.ok) errs.push('coverage');
+        if (!mapRes || !mapRes.ok) errs.push('mappings');
 
         const bbMap: Record<string, ClosedSymbol> = {};
         const bbSymbols: string[] = [];
-        if (bbRes.ok) {
+        if (bbRes?.ok) {
           const bb = await bbRes.json();
           for (const s of (bb.symbols ?? []) as ClosedSymbol[]) {
             // Key under a single UPPERCASE canonical so multi-variant lookups all land on
@@ -152,7 +162,7 @@ export function ExposureTable({ summaries, prices }: ExposureTableProps) {
         }
         setBbClosedMap(bbMap);
 
-        if (covRes.ok && mapRes.ok) {
+        if (covRes?.ok && mapRes?.ok) {
           const cov = await covRes.json();
           const mappings: { canonical_name: string; coverage_symbol: string }[] = await mapRes.json();
           // Case-insensitive lookup — mapping data can have mixed case like "GCM6.C"
@@ -185,18 +195,16 @@ export function ExposureTable({ summaries, prices }: ExposureTableProps) {
           }
           setCovClosedMap(remapped);
         }
-      } catch { /* ignore */ }
-      finally {
-        // Only the latest request clears the badge so an old in-flight call
-        // that resolves after a newer date-change doesn't hide the spinner.
-        if (myTicket === closedLoadSeq.current) {
-          const elapsed = Date.now() - shownAt;
-          const remaining = Math.max(0, MIN_VISIBLE_MS - elapsed);
-          // Keep the badge up for a minimum period so fast fetches don't "flash".
-          setTimeout(() => {
-            if (myTicket === closedLoadSeq.current) setClosedLoading(false);
-          }, remaining);
-        }
+      } catch { errs.push('network'); }
+
+      // Publish error state + clear the loading badge on the latest request only.
+      if (myTicket === closedLoadSeq.current) {
+        setClosedErrors(errs);
+        const elapsed = Date.now() - shownAt;
+        const remaining = Math.max(0, MIN_VISIBLE_MS - elapsed);
+        setTimeout(() => {
+          if (myTicket === closedLoadSeq.current) setClosedLoading(false);
+        }, remaining);
       }
     };
     fetchClosed();
@@ -475,6 +483,26 @@ export function ExposureTable({ summaries, prices }: ExposureTableProps) {
               }}
             />
             Loading…
+          </span>
+        )}
+        {closedErrors.length > 0 && (
+          <span
+            title={`Failed to fetch: ${closedErrors.join(', ')}. Totals may be stale.`}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '3px 10px',
+              borderRadius: 10,
+              fontSize: 11,
+              fontWeight: 600,
+              color: THEME.red,
+              background: THEME.badgeRed,
+              border: `1px solid ${THEME.red}`,
+              fontFamily: 'inherit',
+            }}
+          >
+            ⚠ {closedErrors.join(' · ')} unavailable
           </span>
         )}
       </div>

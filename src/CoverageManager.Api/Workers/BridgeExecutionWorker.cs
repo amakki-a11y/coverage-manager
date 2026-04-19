@@ -76,21 +76,40 @@ public class BridgeExecutionWorker : BackgroundService
         _store.PairUpdated += OnPairUpdated;
         _subscription = _feed.Subscribe(OnDealReceived);
 
-        // Persistence loop — reads from the channel and upserts each pair to Supabase.
+        // Persistence loop — drain up to BatchMax pairs per flush, or flush after
+        // FlushMs of inactivity. One HTTP round trip per batch instead of per pair;
+        // critical once deal velocity climbs into the hundreds/sec range.
+        const int BatchMax = 100;
+        const int FlushMs = 500;
         _ = Task.Run(async () =>
         {
-            await foreach (var pair in _persistQueue.Reader.ReadAllAsync(stoppingToken))
+            var reader = _persistQueue.Reader;
+            var buffer = new List<ExecutionPair>(BatchMax);
+            try
             {
-                try
+                while (await reader.WaitToReadAsync(stoppingToken).ConfigureAwait(false))
                 {
-                    await _writer.UpsertAsync(pair, stoppingToken);
-                }
-                catch (OperationCanceledException) { break; }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Persist loop error for pair {DealId}", pair.ClientDealId);
+                    buffer.Clear();
+                    while (buffer.Count < BatchMax && reader.TryRead(out var pair))
+                        buffer.Add(pair);
+
+                    if (buffer.Count > 0)
+                    {
+                        try { await _writer.UpsertBatchAsync(buffer, stoppingToken).ConfigureAwait(false); }
+                        catch (OperationCanceledException) { break; }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Bridge persist batch failed ({Count} pairs)", buffer.Count);
+                        }
+                    }
+
+                    // Small delay so bursts coalesce; but if the channel keeps feeding we
+                    // loop immediately (WaitToReadAsync returns true) and keep draining.
+                    try { await Task.Delay(FlushMs, stoppingToken).ConfigureAwait(false); }
+                    catch (OperationCanceledException) { break; }
                 }
             }
+            catch (OperationCanceledException) { /* shutdown */ }
         }, stoppingToken);
 
         // Eviction + health tick every minute

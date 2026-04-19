@@ -48,17 +48,72 @@ def init_mt5(account):
     print(f"Account: {acc_info.login} on {acc_info.server}, balance={acc_info.balance}")
 
 
+# Tracks the last time MT5 returned usable data. /health exposes this so the
+# backend can detect a stalled collector even when the Python process is alive.
+_last_position_update_utc: datetime | None = None
+
+# Cached account login so a brief acc==None mid-session doesn't reset it to 0.
+_cached_login: int = 0
+
+
+async def _reconnect_mt5() -> bool:
+    """Attempt to re-init MT5 after a drop. Returns True on success."""
+    try:
+        mt5.shutdown()
+    except Exception:
+        pass
+    try:
+        # Prefer the already-running terminal when possible.
+        if mt5.initialize():
+            return mt5.account_info() is not None
+        # Otherwise fall back to backend-supplied creds.
+        account = await fetch_coverage_account()
+        if account is None:
+            return False
+        init_mt5(account)
+        return mt5.account_info() is not None
+    except Exception as e:
+        print(f"[collector] MT5 reconnect failed: {e}")
+        return False
+
+
 async def position_loop():
-    """Read MT5 positions every 100ms and POST to backend."""
+    """Read MT5 positions every POLL_INTERVAL seconds and POST to backend.
+
+    On MT5 error the loop now distinguishes MT5 failures from HTTP failures,
+    reconnects MT5 with exponential backoff (1s → 60s cap), and publishes
+    `last_position_update_utc` on /health so the C# side can detect stalls.
+    """
+    global _last_position_update_utc, _cached_login
     url = f"{BACKEND_URL}/api/coverage/positions"
+    mt5_backoff_s = 1.0
+    MT5_BACKOFF_MAX = 60.0
+
     async with httpx.AsyncClient(timeout=2.0) as client:
         while True:
             try:
                 positions = mt5.positions_get()
+                if positions is None:
+                    # mt5.positions_get() returns None on MT5 session drop. Reconnect.
+                    err = mt5.last_error()
+                    print(f"[collector] positions_get returned None; MT5 error={err}. Reconnecting in {mt5_backoff_s:.1f}s…")
+                    await asyncio.sleep(mt5_backoff_s)
+                    mt5_backoff_s = min(mt5_backoff_s * 2, MT5_BACKOFF_MAX)
+                    if await _reconnect_mt5():
+                        print("[collector] MT5 reconnected")
+                        mt5_backoff_s = 1.0
+                    continue
+
+                # Healthy tick — reset backoff + record freshness.
+                mt5_backoff_s = 1.0
+                _last_position_update_utc = datetime.now(tz=timezone.utc)
+
+                acc = mt5.account_info()
+                if acc is not None:
+                    _cached_login = int(acc.login)
+                login = _cached_login
+
                 if positions:
-                    # Account login is constant per session, read once per tick (cheap).
-                    acc = mt5.account_info()
-                    login = int(acc.login) if acc else 0
                     data = [{
                         "symbol": p.symbol,
                         "direction": "BUY" if p.type == 0 else "SELL",
@@ -72,11 +127,23 @@ async def position_loop():
                         # p.time is seconds since Unix epoch (UTC) per MT5 spec.
                         "openTime": datetime.fromtimestamp(p.time, tz=timezone.utc).isoformat(),
                     } for p in positions]
-                    await client.post(url, json=data)
+                    try:
+                        await client.post(url, json=data)
+                    except httpx.HTTPError as http_err:
+                        # Backend blip — DON'T reconnect MT5, just skip this tick.
+                        print(f"[collector] backend POST failed: {http_err}")
                 else:
-                    await client.post(url, json=[])
+                    try:
+                        await client.post(url, json=[])
+                    except httpx.HTTPError as http_err:
+                        print(f"[collector] backend POST failed (empty): {http_err}")
             except Exception as e:
-                print(f"Error: {e}")
+                # Anything else (unexpected MT5 behavior, e.g. connection drop mid-call).
+                print(f"[collector] position_loop unexpected error: {e}; reconnecting in {mt5_backoff_s:.1f}s")
+                await asyncio.sleep(mt5_backoff_s)
+                mt5_backoff_s = min(mt5_backoff_s * 2, MT5_BACKOFF_MAX)
+                await _reconnect_mt5()
+
             await asyncio.sleep(POLL_INTERVAL)
 
 
@@ -113,11 +180,18 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 def health():
     info = mt5.terminal_info()
     acc = mt5.account_info()
+    now = datetime.now(tz=timezone.utc)
+    last = _last_position_update_utc
+    # Consider the collector stale if we haven't successfully read positions in 10s.
+    stale = last is None or (now - last).total_seconds() > 10
+    status = "stale" if (info and stale) else ("ok" if info else "disconnected")
     return {
-        "status": "ok" if info else "disconnected",
+        "status": status,
         "terminal": info.name if info else None,
-        "login": acc.login if acc else None,
+        "login": acc.login if acc else _cached_login if _cached_login else None,
         "server": acc.server if acc else None,
+        "last_position_update_utc": last.isoformat() if last else None,
+        "stale": stale,
     }
 
 

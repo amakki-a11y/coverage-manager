@@ -35,26 +35,40 @@ public class BridgeSupabaseWriter
         _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", key);
     }
 
-    public async Task UpsertAsync(ExecutionPair pair, CancellationToken ct = default)
+    public Task UpsertAsync(ExecutionPair pair, CancellationToken ct = default) =>
+        UpsertBatchAsync(new[] { pair }, ct);
+
+    /// <summary>
+    /// Batched UPSERT — the worker's drain loop collects N pairs or waits a tick
+    /// before invoking, so a burst of deals becomes one HTTP round trip instead of
+    /// N. PostgREST accepts an array body and dedupes on <c>client_deal_id</c>.
+    /// Chunk at 500 to stay under PostgREST's body-size + conflict-list limits.
+    /// </summary>
+    public async Task UpsertBatchAsync(IReadOnlyCollection<ExecutionPair> pairs, CancellationToken ct = default)
     {
+        if (pairs.Count == 0) return;
         try
         {
-            var row = ToRow(pair);
-            var json = JsonSerializer.Serialize(new[] { row }, JsonOptions);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
-            var req = new HttpRequestMessage(HttpMethod.Post, $"{_url}/rest/v1/bridge_executions?on_conflict=client_deal_id") { Content = content };
-            req.Headers.Add("Prefer", "resolution=merge-duplicates,return=minimal");
-
-            var resp = await _http.SendAsync(req, ct);
-            if (!resp.IsSuccessStatusCode)
+            foreach (var chunk in pairs.Chunk(500))
             {
-                var body = await resp.Content.ReadAsStringAsync(ct);
-                _logger.LogWarning("bridge_executions upsert failed {Status}: {Body}", resp.StatusCode, body);
+                var rows = chunk.Select(ToRow).ToArray();
+                var json = JsonSerializer.Serialize(rows, JsonOptions);
+                var content = new StringContent(json, Encoding.UTF8, "application/json");
+                var req = new HttpRequestMessage(HttpMethod.Post, $"{_url}/rest/v1/bridge_executions?on_conflict=client_deal_id") { Content = content };
+                req.Headers.Add("Prefer", "resolution=merge-duplicates,return=minimal");
+
+                var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
+                if (!resp.IsSuccessStatusCode)
+                {
+                    var body = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                    _logger.LogWarning("bridge_executions batch upsert failed {Status} ({Count} rows): {Body}",
+                        resp.StatusCode, rows.Length, body);
+                }
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to upsert ExecutionPair {DealId}", pair.ClientDealId);
+            _logger.LogError(ex, "Failed to upsert bridge_executions batch ({Count} pairs)", pairs.Count);
         }
     }
 

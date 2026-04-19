@@ -26,10 +26,18 @@ public sealed class MT5ManagerConnection : BackgroundService
     private long _tickCount;
     private DateTime _lastAccountSync = DateTime.MinValue;
 
-    private const int InitialBackoffMs = 1000;
-    private const int MaxBackoffMs = 60000;
+    public const int InitialBackoffMs = 1000;
+    public const int MaxBackoffMs = 60000;
     private const int PositionSnapshotIntervalMs = 500;
     private const int AccountSyncIntervalMinutes = 5;
+
+    /// <summary>
+    /// Exponential-backoff progression used by the reconnect loop. Exposed public
+    /// so tests can lock the 1s → 60s sequence without spinning up a real MT5
+    /// session. Doubles on every failure, capped at <see cref="MaxBackoffMs"/>.
+    /// </summary>
+    public static int NextBackoffMs(int currentMs) =>
+        Math.Min(Math.Max(currentMs, 1) * 2, MaxBackoffMs);
 
     public bool IsConnected => _api?.IsConnected ?? false;
     public string? ConnectedServer { get; private set; }

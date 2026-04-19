@@ -48,6 +48,15 @@ public class BridgeExecutionStore
         if (string.IsNullOrEmpty(deal.CanonicalSymbol))
             deal.CanonicalSymbol = (deal.Symbol ?? string.Empty).ToUpperInvariant();
 
+        // Prune the pending-cov buffer on every inbound deal. Otherwise COV_OUT fills
+        // that never find a matching CLIENT (e.g. the CLIENT got classified as A-Book
+        // and skipped our feed) accumulate forever and continue to compete for matches
+        // against younger CLIENT deals, producing silent false pairings. Window: 2×
+        // pairingWindowMs — a CLIENT can arrive up to pairingWindowMs AFTER its COV_OUT
+        // (pre-hedge), so eviction must be at least that generous to avoid dropping
+        // legitimate-but-delayed pairings.
+        PruneStalePendingCov();
+
         switch (deal.Source)
         {
             case BridgeSource.CLIENT:
@@ -58,6 +67,37 @@ public class BridgeExecutionStore
                 OnCoverageFill(deal);
                 break;
         }
+    }
+
+    private DateTime _lastPrune = DateTime.MinValue;
+
+    /// <summary>
+    /// Evict pending COV_OUT fills whose TimeUtc is older than 2×pairingWindowMs.
+    /// Cheap O(n) scan; throttled to once/sec so a burst of inbound deals doesn't
+    /// repeatedly walk the buffer.
+    /// </summary>
+    private void PruneStalePendingCov()
+    {
+        var now = DateTime.UtcNow;
+        if ((now - _lastPrune).TotalMilliseconds < 1000) return;
+        _lastPrune = now;
+
+        var cutoff = now - TimeSpan.FromMilliseconds(_pairingWindowMs * 2);
+        var evicted = 0;
+        foreach (var kvp in _pendingCovByCenOrdId)
+        {
+            var list = kvp.Value;
+            lock (list)
+            {
+                var before = list.Count;
+                list.RemoveAll(d => d.TimeUtc < cutoff);
+                evicted += before - list.Count;
+                if (list.Count == 0)
+                    _pendingCovByCenOrdId.TryRemove(kvp.Key, out _);
+            }
+        }
+        if (evicted > 0)
+            _logger.LogInformation("Bridge pairing: evicted {Count} stale pending-cov fills (> {Ms}ms old)", evicted, _pairingWindowMs * 2);
     }
 
     private void OnClientFill(BridgeDeal client)
