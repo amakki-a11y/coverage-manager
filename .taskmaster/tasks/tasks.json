@@ -633,7 +633,7 @@
       "description": "position_loop catches generic Exception and retries the POST forever without reconnecting MT5. Coverage goes silently stale. Catch MT5 errors distinctly, call mt5.shutdown()+initialize() with exponential backoff, expose last_position_update on /health.",
       "phase": 2.9,
       "priority": "high",
-      "status": "pending",
+      "status": "done",
       "dependencies": [],
       "subtasks": [
         "Distinguish mt5 errors from HTTP errors",
@@ -648,7 +648,7 @@
       "description": "BridgeSupabaseWriter writes one pair per UPSERT. With the table already at 4.3K rows and growing, Supa REST becomes the bottleneck. Batch VALUES (...), (...), ... up to 500/batch with backpressure.",
       "phase": 2.9,
       "priority": "high",
-      "status": "pending",
+      "status": "done",
       "dependencies": [],
       "subtasks": [
         "Channel-based queue with bounded capacity",
@@ -662,7 +662,7 @@
       "description": "Pairing window is enforced inside the greedy loop; stale COV_OUT rows older than PairingWindowMs linger in _buffer and keep competing for matches. Prune on each publish, or reject on Observe().",
       "phase": 2.9,
       "priority": "high",
-      "status": "pending",
+      "status": "done",
       "dependencies": [],
       "subtasks": [
         "Prune _buffer entries where (now - observed) > PairingWindowMs",
@@ -729,7 +729,7 @@
       "description": "ExposureTable and SettingsPanel have bare `catch {}` on parallel fetches. Partial failure shows stale data with zero warning. Track per-fetch status and render a warning pill.",
       "phase": 2.9,
       "priority": "high",
-      "status": "pending",
+      "status": "done",
       "dependencies": [],
       "subtasks": [
         "Replace empty catches with per-request error state",
@@ -996,7 +996,7 @@
       "description": "Rule says 1s → 60s exponential backoff on MT5 drop. Verify the code does this and add a test that simulates disconnect.",
       "phase": 2.9,
       "priority": "high",
-      "status": "pending",
+      "status": "done",
       "dependencies": [],
       "subtasks": [
         "Audit MT5ManagerConnection retry logic",
