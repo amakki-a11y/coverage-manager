@@ -55,11 +55,6 @@ const c: React.CSSProperties = {
   whiteSpace: 'nowrap',
 };
 
-function todayStr() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
 export function ExposureTable({ summaries, prices }: ExposureTableProps) {
   const { fmtPrice } = useSymbolDigits();
   // Build price lookup by symbol (exact match + strip trailing - for canonical matching)
@@ -377,25 +372,6 @@ export function ExposureTable({ summaries, prices }: ExposureTableProps) {
     dragOverSymbol.current = null;
   }, [customOrder, sortedSummaries]);
 
-  const sortArrow = (field: SortField) => {
-    if (sortField !== field) return '';
-    return sortAsc ? ' \u25B2' : ' \u25BC';
-  };
-
-  const sortBtn: React.CSSProperties = {
-    background: 'transparent',
-    border: 'none',
-    cursor: 'pointer',
-    padding: 0,
-    font: 'inherit',
-    color: 'inherit',
-    fontWeight: 'inherit',
-    fontSize: 'inherit',
-    textTransform: 'inherit' as React.CSSProperties['textTransform'],
-    letterSpacing: 'inherit',
-    whiteSpace: 'nowrap',
-  };
-
   return (
     <div style={{ overflow: 'auto', flex: 1 }}>
       {/* Toolbar */}
@@ -547,7 +523,6 @@ export function ExposureTable({ summaries, prices }: ExposureTableProps) {
             const hr = s.hedgeRatio ?? 0;
             const bb = bbClosedMap[s.canonicalSymbol.replace(/[-.]$/, '').toUpperCase()];
             const cv = covClosedMap[s.canonicalSymbol] || covClosedMap[s.canonicalSymbol.toUpperCase()];
-            const hasClosed = bb || cv;
             return (
               <React.Fragment key={s.canonicalSymbol}>
                 {/* OPEN row */}

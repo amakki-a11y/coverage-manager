@@ -241,7 +241,6 @@ export function PriceChart({ trades, symbol }: PriceChartProps) {
       : `-$${Math.abs(lastPoint.cumPnl).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
     // Label background
-    const labelWidth = ctx.measureText(pnlLabel).width + 12;
     ctx.font = 'bold 10px monospace';
     const textWidth = ctx.measureText(pnlLabel).width;
     const labelX = Math.min(lastX + 8, pad.left + plotW - textWidth - 10);

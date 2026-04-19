@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { THEME } from '../../../theme';
 import type { SymbolExposure } from '../../../types/compare';
-import type { PriceQuote, ExposureSummary } from '../../../types';
+import type { PriceQuote } from '../../../types';
 import { useDateRange } from '../../../hooks/useDateRange';
 
 interface ClosedSymbol {
@@ -18,11 +18,6 @@ interface ExpandedTableProps {
   symbols: SymbolExposure[];
   selectedSymbol: string | null;
   onSelect: (symbol: string) => void;
-}
-
-function todayStr() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 function hedgeColor(pct: number): string {
@@ -46,12 +41,6 @@ function fmt(v: number): string {
 
 function toCoverValue(bbNet: number, covNet: number): number {
   return bbNet - covNet;
-}
-
-function toCoverColor(v: number): string {
-  if (v > 0.005) return THEME.green;
-  if (v < -0.005) return THEME.red;
-  return THEME.t3;
 }
 
 function fmtToCover(v: number): string {
@@ -211,12 +200,6 @@ export function ExpandedTable({ symbols, selectedSymbol, onSelect }: ExpandedTab
     width: 50,
     padding: '6px 6px',
   };
-
-  // Compute totals
-  const totalBBPnL = symbols.reduce((a, s) => a + s.clientPnl, 0);
-  const totalCovPnL = symbols.reduce((a, s) => a + s.coveragePnl, 0);
-  const closedBBPnL = Object.values(bbClosedMap).reduce((a, s) => a + s.netPnL, 0);
-  const closedCovPnL = Object.values(covClosedMap).reduce((a, s) => a + s.netPnL, 0);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>

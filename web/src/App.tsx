@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ThemeProvider, useTheme } from './ThemeContext';
-import { THEME } from './theme';
 import { useExposureSocket } from './hooks/useExposureSocket';
 import { TotalBar } from './components/TotalBar';
 import { ExposureTable } from './components/ExposureTable';

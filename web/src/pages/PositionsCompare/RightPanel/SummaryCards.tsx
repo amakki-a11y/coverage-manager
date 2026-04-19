@@ -71,6 +71,8 @@ export function SummaryCards({ data }: SummaryCardsProps) {
         <Row label="Net P&L" value={`${data.netPnl >= 0 ? '+' : ''}${data.netPnl.toFixed(2)}`} color={data.netPnl >= 0 ? THEME.green : THEME.red} />
         <Row label="CLI W/L" value={`${data.clientWins}/${data.clientTradeCount - data.clientWins}`} color={THEME.t2} />
         <Row label="CLI Win%" value={`${cliWinRate.toFixed(0)}%`} color={cliWinRate >= 50 ? THEME.green : THEME.red} />
+        <Row label="COV W/L" value={`${data.coverageWins}/${data.coverageTradeCount - data.coverageWins}`} color={THEME.t2} />
+        <Row label="COV Win%" value={`${covWinRate.toFixed(0)}%`} color={covWinRate >= 50 ? THEME.green : THEME.red} />
       </Card>
     </div>
   );
