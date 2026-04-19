@@ -579,7 +579,7 @@
       "description": ".gitignore excludes .env but not appsettings.Development.json. Add the line and `git rm --cached` the current tracked (empty) file so no future dev ever commits dev secrets.",
       "phase": 2.9,
       "priority": "high",
-      "status": "pending",
+      "status": "done",
       "dependencies": [],
       "subtasks": [
         "Add appsettings.Development.json to .gitignore",
@@ -620,7 +620,7 @@
       "description": "collector/main.py:14 hardcodes BACKEND_URL = 'http://localhost:5000'. Switch to os.getenv with that as default; document in .env.example.",
       "phase": 2.9,
       "priority": "high",
-      "status": "pending",
+      "status": "done",
       "dependencies": [],
       "subtasks": [
         "os.getenv('BACKEND_URL', 'http://localhost:5000')",
@@ -676,7 +676,7 @@
       "description": "BridgePairingEngine requires pre-populated CanonicalSymbol. Verify every ingest path (Stub, Rest/FIX) applies mapping BEFORE Publish() and assert non-empty.",
       "phase": 2.9,
       "priority": "high",
-      "status": "pending",
+      "status": "done",
       "dependencies": [],
       "subtasks": [
         "Add assertion in BridgeExecutionStore.Observe()",
@@ -690,7 +690,7 @@
       "description": "App.tsx:61 polls /api/exposure/positions every 1s continuously. Overkill for a view that doesn't need 1 Hz refresh. Switch to 5s or WS-driven.",
       "phase": 2.9,
       "priority": "high",
-      "status": "pending",
+      "status": "done",
       "dependencies": [],
       "subtasks": [
         "Raise interval to 5s OR source from useExposureSocket",
@@ -703,7 +703,7 @@
       "description": "useExposureSocket.ts:73 swallows JSON parse errors silently. Upstream protocol breaks become invisible. Log with a truncated payload and surface via a hook state.",
       "phase": 2.9,
       "priority": "high",
-      "status": "pending",
+      "status": "done",
       "dependencies": [],
       "subtasks": [
         "Log parse errors with first 200 chars of payload",
@@ -716,7 +716,7 @@
       "description": "web/src/pages/PositionsCompare/RightPanel/AccountModal.tsx:60-62 uses raw .toLocaleString('en-GB'). Regresses the Beirut alignment done elsewhere. Use formatBeirut / formatBeirutDate.",
       "phase": 2.9,
       "priority": "high",
-      "status": "pending",
+      "status": "done",
       "dependencies": [],
       "subtasks": [
         "Swap toLocaleString calls for formatBeirut helpers",
