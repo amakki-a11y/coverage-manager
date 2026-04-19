@@ -299,7 +299,7 @@ export function PnLPanel() {
               <th style={{ ...headerStyle, fontWeight: 700 }}>Net P&L</th>
               {showCoverage && <>
                 <th style={{ ...headerStyle, borderLeft: `1px solid ${THEME.border}` }}>Cov P&L</th>
-                <th style={{ ...headerStyle, fontWeight: 700 }}>Combined</th>
+                <th style={{ ...headerStyle, fontWeight: 700 }}>Broker Net</th>
               </>}
             </tr>
           </thead>
@@ -319,13 +319,17 @@ export function PnLPanel() {
                 {showCoverage && (() => {
                   const cov = coverageData[s.symbol];
                   const covPnL = cov?.netPnL ?? 0;
-                  const combined = s.netPnL + covPnL;
+                  // Broker net = −(client P&L) + coverage P&L (CLAUDE.md P&L framework).
+                  // When clients lose, the broker books a gain on the B-Book side; the
+                  // LP coverage leg nets against that. Adding the two raw numbers gives
+                  // the combined-loss-on-the-book which isn't a useful metric.
+                  const brokerNet = -s.netPnL + covPnL;
                   return <>
                     <td style={{ ...cellStyle, borderLeft: `1px solid ${THEME.border}`, color: covPnL !== 0 ? pnlColor(covPnL) : THEME.t3 }}>
                       {covPnL !== 0 ? fmtPnl(covPnL) : '—'}
                     </td>
-                    <td style={{ ...cellStyle, color: covPnL !== 0 ? pnlColor(combined) : pnlColor(s.netPnL), fontWeight: 600 }}>
-                      {covPnL !== 0 ? fmtPnl(combined) : fmtPnl(s.netPnL)}
+                    <td style={{ ...cellStyle, color: covPnL !== 0 ? pnlColor(brokerNet) : pnlColor(-s.netPnL), fontWeight: 600 }}>
+                      {covPnL !== 0 ? fmtPnl(brokerNet) : fmtPnl(-s.netPnL)}
                     </td>
                   </>;
                 })()}
@@ -346,10 +350,11 @@ export function PnLPanel() {
               <td style={{ ...cellStyle, color: pnlColor(grandTotal.net), fontWeight: 700 }}>{fmtPnl(grandTotal.net)}</td>
               {showCoverage && (() => {
                 const totalCovPnL = Object.values(coverageData).reduce((a, c) => a + c.netPnL, 0);
-                const combined = grandTotal.net + totalCovPnL;
+                // Broker net = −(client P&L) + coverage P&L per CLAUDE.md.
+                const brokerNet = -grandTotal.net + totalCovPnL;
                 return <>
                   <td style={{ ...cellStyle, color: pnlColor(totalCovPnL), borderLeft: `1px solid ${THEME.border}` }}>{fmtPnl(totalCovPnL)}</td>
-                  <td style={{ ...cellStyle, color: pnlColor(combined), fontWeight: 700 }}>{fmtPnl(combined)}</td>
+                  <td style={{ ...cellStyle, color: pnlColor(brokerNet), fontWeight: 700 }}>{fmtPnl(brokerNet)}</td>
                 </>;
               })()}
             </tr>
