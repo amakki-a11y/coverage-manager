@@ -484,13 +484,14 @@
       "description": "MT5ManagerConnection.cs:122 subscribes to the deal callback before the position snapshot and backfill, so deals arriving in that window are lost or double-counted. Reorder: GetPositions() → BackfillDeals() → OnDealAdd += handler.",
       "phase": 2.9,
       "priority": "high",
-      "status": "pending",
+      "status": "done",
       "dependencies": [],
       "subtasks": [
         "Reorder bring-up in MT5ManagerConnection.ExecuteAsync",
         "Add a reconnect-flow integration test that replays deals during the gap",
         "Document the ordering invariant in CLAUDE.md"
-      ]
+      ],
+      "notes": "Bring-up reordered to logins -> snapshot -> backfill -> subscribe. Verified in API logs (commit 0a1def2). Invariant documented in CLAUDE.md + call-site comment. Regression test deferred (requires injectable IMT5Api factory)."
     },
     {
       "id": 28,

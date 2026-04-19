@@ -135,6 +135,8 @@ public sealed class MT5ApiReal : IMT5Api
 
     private static RawDeal CopyDeal(CIMTDeal deal)
     {
+        // Native API returns double; cast to decimal at the boundary so the rest of
+        // the system operates on exact money types. Single place the cast happens.
         return new RawDeal
         {
             DealId = deal.Deal(),
@@ -143,11 +145,11 @@ public sealed class MT5ApiReal : IMT5Api
             Symbol = deal.Symbol(),
             Action = deal.Action(),
             VolumeRaw = (ulong)deal.Volume(),
-            Price = deal.Price(),
-            Profit = deal.Profit(),
-            Commission = deal.Commission(),
-            Storage = deal.Storage(),
-            Fee = deal.Fee(),
+            Price = (decimal)deal.Price(),
+            Profit = (decimal)deal.Profit(),
+            Commission = (decimal)deal.Commission(),
+            Storage = (decimal)deal.Storage(),
+            Fee = (decimal)deal.Fee(),
             Entry = deal.Entry(),
             OrderId = deal.Order(),
             PositionId = (ulong)deal.PositionID(),
@@ -221,11 +223,11 @@ public sealed class MT5ApiReal : IMT5Api
                 Login = pos.Login(),
                 Symbol = pos.Symbol(),
                 Action = pos.Action(),
-                Volume = pos.Volume() / 10000.0,
-                PriceOpen = pos.PriceOpen(),
-                PriceCurrent = pos.PriceCurrent(),
-                Profit = pos.Profit(),
-                Storage = pos.Storage(),
+                Volume = (decimal)pos.Volume() / 10000m,
+                PriceOpen = (decimal)pos.PriceOpen(),
+                PriceCurrent = (decimal)pos.PriceCurrent(),
+                Profit = (decimal)pos.Profit(),
+                Storage = (decimal)pos.Storage(),
                 TimeMsc = (long)pos.TimeCreate() * 1000
             });
         }
@@ -252,8 +254,8 @@ public sealed class MT5ApiReal : IMT5Api
             return new RawTick
             {
                 Symbol = symbol,
-                Bid = tick.bid,
-                Ask = tick.ask,
+                Bid = (decimal)tick.bid,
+                Ask = (decimal)tick.ask,
                 TimeMsc = tick.datetime_msc
             };
         }
@@ -300,16 +302,16 @@ public sealed class MT5ApiReal : IMT5Api
                 Name = user.Name(),
                 Group = user.Group(),
                 Leverage = user.Leverage(),
-                Balance = user.Balance(),
-                Equity = equity,
-                Margin = margin,
-                FreeMargin = freeMargin,
+                Balance = (decimal)user.Balance(),
+                Equity = (decimal)equity,
+                Margin = (decimal)margin,
+                FreeMargin = (decimal)freeMargin,
                 Currency = currency,
                 RegistrationTime = (long)user.Registration(),
                 LastTradeTime = (long)user.LastAccess(),
                 Comment = user.Comment(),
-                BalancePrevDay = 0,
-                EquityPrevDay = 0
+                BalancePrevDay = 0m,
+                EquityPrevDay = 0m
             };
 
             user.Dispose();
@@ -376,8 +378,8 @@ public sealed class MT5ApiReal : IMT5Api
             _owner.FireTick(new RawTick
             {
                 Symbol = symbol,
-                Bid = tick.bid,
-                Ask = tick.ask,
+                Bid = (decimal)tick.bid,
+                Ask = (decimal)tick.ask,
                 TimeMsc = tick.datetime_msc
             });
         }
@@ -389,8 +391,8 @@ public sealed class MT5ApiReal : IMT5Api
                 _owner.FireTick(new RawTick
                 {
                     Symbol = tick.symbol,
-                    Bid = tick.bid,
-                    Ask = tick.ask,
+                    Bid = (decimal)tick.bid,
+                    Ask = (decimal)tick.ask,
                     TimeMsc = tick.datetime_msc
                 });
             }

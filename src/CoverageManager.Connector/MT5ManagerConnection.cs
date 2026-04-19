@@ -258,10 +258,10 @@ public sealed class MT5ManagerConnection : BackgroundService
                     Name = raw.Name,
                     GroupName = raw.Group,
                     Leverage = (int)raw.Leverage,
-                    Balance = (decimal)raw.Balance,
-                    Equity = (decimal)raw.Equity,
-                    Margin = (decimal)raw.Margin,
-                    FreeMargin = (decimal)raw.FreeMargin,
+                    Balance = raw.Balance,
+                    Equity = raw.Equity,
+                    Margin = raw.Margin,
+                    FreeMargin = raw.FreeMargin,
                     Currency = raw.Currency,
                     RegistrationTime = raw.RegistrationTime > 0
                         ? DateTimeOffset.FromUnixTimeSeconds(raw.RegistrationTime).UtcDateTime
@@ -309,11 +309,11 @@ public sealed class MT5ManagerConnection : BackgroundService
                         Login = pos.Login,
                         Symbol = pos.Symbol,
                         Direction = pos.Action == 0 ? "BUY" : "SELL",
-                        VolumeLots = (decimal)pos.Volume,
-                        OpenPrice = (decimal)pos.PriceOpen,
-                        CurrentPrice = (decimal)pos.PriceCurrent,
-                        Profit = (decimal)pos.Profit,
-                        Swap = (decimal)pos.Storage,
+                        VolumeLots = pos.Volume,
+                        OpenPrice = pos.PriceOpen,
+                        CurrentPrice = pos.PriceCurrent,
+                        Profit = pos.Profit,
+                        Swap = pos.Storage,
                         OpenTime = DateTimeOffset.FromUnixTimeMilliseconds(pos.TimeMsc).UtcDateTime,
                         UpdatedAt = DateTime.UtcNow
                     };
@@ -342,7 +342,7 @@ public sealed class MT5ManagerConnection : BackgroundService
                 count, raw.Symbol, raw.Bid, raw.Ask);
         }
 
-        _priceCache.Update(raw.Symbol, (decimal)raw.Bid, (decimal)raw.Ask);
+        _priceCache.Update(raw.Symbol, raw.Bid, raw.Ask);
         _onUpdate();
     }
 
@@ -488,12 +488,12 @@ public sealed class MT5ManagerConnection : BackgroundService
             Login = raw.Login,
             Symbol = raw.Symbol,
             Direction = direction,
-            VolumeLots = (decimal)raw.VolumeLots,
-            Price = (decimal)raw.Price,
-            Profit = (decimal)raw.Profit,
-            Commission = (decimal)raw.Commission,
-            Swap = (decimal)raw.Storage,
-            Fee = (decimal)raw.Fee,
+            VolumeLots = raw.VolumeLots,
+            Price = raw.Price,
+            Profit = raw.Profit,
+            Commission = raw.Commission,
+            Swap = raw.Storage,
+            Fee = raw.Fee,
             Entry = raw.Entry,
             OrderId = raw.OrderId,
             PositionId = raw.PositionId,

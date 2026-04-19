@@ -178,7 +178,7 @@ public class BridgeEdgeCalculationTests
         }
         finally
         {
-            BridgePipResolver.Overrides.Remove("XRPUSD");
+            BridgePipResolver.Overrides.TryRemove("XRPUSD", out _);
         }
     }
 

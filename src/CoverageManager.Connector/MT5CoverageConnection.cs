@@ -190,6 +190,6 @@ public sealed class MT5CoverageConnection : BackgroundService
                 count, raw.Symbol, raw.Bid, raw.Ask);
         }
 
-        _priceCache.Update(raw.Symbol, (decimal)raw.Bid, (decimal)raw.Ask);
+        _priceCache.Update(raw.Symbol, raw.Bid, raw.Ask);
     }
 }

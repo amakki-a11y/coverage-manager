@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+
 namespace CoverageManager.Core.Engines;
 
 /// <summary>
@@ -9,8 +11,13 @@ public static class BridgePipResolver
     /// <summary>
     /// Per-symbol overrides. Takes precedence over the heuristic.
     /// Consumer code populates this from symbol_mappings or a config file.
+    ///
+    /// Thread-safe by construction — <see cref="PositionManager.LoadMappings"/> rewrites
+    /// these entries on every admin save while the Bridge worker + REST controllers are
+    /// reading. Plain <c>Dictionary&lt;,&gt;</c> would tear or throw on concurrent enumeration.
     /// </summary>
-    public static readonly Dictionary<string, decimal> Overrides = new(StringComparer.OrdinalIgnoreCase);
+    public static readonly ConcurrentDictionary<string, decimal> Overrides =
+        new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Resolve pip size.
