@@ -131,7 +131,7 @@ export function LoginsWidget({ symbol }: LoginsWidgetProps) {
           <tbody>
             {logins.map(l => (
               <tr key={l.login} style={{ cursor: 'pointer' }} onClick={() => setSelectedLogin(l.login)}
-                onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
+                onMouseEnter={e => e.currentTarget.style.background = THEME.rowHover}
                 onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
               >
                 <td style={{ ...cell, textAlign: 'left', color: THEME.teal, fontWeight: 600, textDecoration: 'underline', textUnderlineOffset: 2 }}>{l.login}</td>

@@ -110,7 +110,7 @@ export function AlertToast({
               borderLeft: `4px solid ${c}`,
               borderRadius: 8,
               padding: '10px 14px',
-              boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
+              boxShadow: THEME.shadow,
               opacity: t.fadeOut ? 0 : 1,
               transform: t.fadeOut ? 'translateX(100%)' : 'translateX(0)',
               transition: 'all 0.3s ease',

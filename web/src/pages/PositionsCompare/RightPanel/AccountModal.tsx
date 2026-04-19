@@ -153,7 +153,7 @@ export function AccountModal({ login, onClose }: AccountModalProps) {
       style={{
         position: 'fixed',
         inset: 0,
-        background: 'rgba(0,0,0,0.6)',
+        background: THEME.shadowOverlay,
         zIndex: 1000,
         display: 'flex',
         alignItems: 'center',
@@ -172,7 +172,7 @@ export function AccountModal({ login, onClose }: AccountModalProps) {
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
-          boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+          boxShadow: THEME.shadowModal,
         }}
       >
         {/* Title bar */}
@@ -314,7 +314,7 @@ export function AccountModal({ login, onClose }: AccountModalProps) {
                     </tr>
                   ))}
                   {/* Totals row */}
-                  <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
+                  <tr style={{ background: THEME.rowAlt }}>
                     <td colSpan={7} style={{ ...cell, textAlign: 'right', color: THEME.t2, fontWeight: 700, borderBottom: 'none' }}>Total:</td>
                     <td style={{ ...cell, color: nc(totalPnl), fontWeight: 700, borderBottom: 'none' }}>{totalPnl >= 0 ? '+' : ''}{fmtMoney(totalPnl)}</td>
                   </tr>

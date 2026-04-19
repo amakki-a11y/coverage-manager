@@ -63,9 +63,10 @@ const COVERAGE_DIVIDER = `2px solid ${THEME.teal}`;
 const EDGE_DIVIDER     = `2px solid ${THEME.t2}`;
 
 // Slight background tint to visually group the Coverage section and set it apart
-// from Clients. Alpha-mixed against the card background so it doesn't overpower.
-const COVERAGE_BG = 'rgba(77, 208, 225, 0.045)'; // teal @ 4.5%
-const EDGE_BG     = 'rgba(255, 255, 255, 0.03)'; // neutral dim
+// from Clients. Use mid-gray so the tint renders in both light AND dark themes
+// (the prior rgba(255,255,255,…) was invisible against the white light-theme card).
+const COVERAGE_BG = 'rgba(128, 128, 128, 0.05)';
+const EDGE_BG     = 'rgba(128, 128, 128, 0.04)';
 
 const inputStyle: React.CSSProperties = {
   background: THEME.bg3,

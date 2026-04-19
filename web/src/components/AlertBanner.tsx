@@ -10,7 +10,7 @@ export function AlertBanner({
   if (alertCount === 0) return null;
 
   const isCritical = alertCount >= 3;
-  const bg = isCritical ? 'rgba(255,82,82,0.15)' : 'rgba(255,186,66,0.12)';
+  const bg = isCritical ? THEME.badgeRed : THEME.badgeAmber;
   const borderColor = isCritical ? THEME.red : THEME.amber;
   const textColor = isCritical ? THEME.red : THEME.amber;
 

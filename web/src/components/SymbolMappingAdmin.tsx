@@ -242,7 +242,7 @@ export function SymbolMappingAdmin() {
               const d = editDraft!;
               const editRatio = (Number(d.coverage_contract_size) || 1) / (Number(d.bbook_contract_size) || 1);
               return (
-                <tr key={m.id} style={{ borderBottom: `1px solid ${THEME.border}`, background: 'rgba(91,158,255,0.04)' }}>
+                <tr key={m.id} style={{ borderBottom: `1px solid ${THEME.border}`, background: THEME.rowSelected }}>
                   <td style={cellStyle}>
                     <input style={cellInput} value={d.canonical_name} onChange={e => setEditDraft({ ...d, canonical_name: e.target.value })} />
                   </td>
@@ -297,13 +297,13 @@ export function SymbolMappingAdmin() {
                 <td style={{ ...cellStyle, textAlign: 'right', display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
                   <button
                     onClick={() => startEdit(m)}
-                    style={{ ...btnStyle, background: 'rgba(91,158,255,0.15)', color: THEME.blue }}
+                    style={{ ...btnStyle, background: THEME.badgeBlue, color: THEME.blue }}
                   >
                     Edit
                   </button>
                   <button
                     onClick={() => handleDelete(m.id)}
-                    style={{ ...btnStyle, background: 'rgba(255,82,82,0.15)', color: THEME.red }}
+                    style={{ ...btnStyle, background: THEME.badgeRed, color: THEME.red }}
                   >
                     Delete
                   </button>

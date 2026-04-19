@@ -555,16 +555,21 @@
     },
     {
       "id": 32,
-      "title": "[CRITICAL] Remove light theme — dark-only per spec",
-      "description": "ThemeContext.tsx exposes LIGHT_THEME and App.tsx includes a toggle. Spec forbids light theme. Delete LIGHT_THEME or pin THEME to DARK_THEME at boot and remove the toggle UI.",
+      "title": "[CRITICAL] Light theme polish pass (contrast, tokens, surfaces)",
+      "description": "Reversal of prior spec: light theme is kept and brought to production quality instead of being removed. Audit every financial cell + surface for WCAG AA contrast, replace remaining hardcoded hex with LIGHT_THEME tokens, re-tune layered backgrounds so panels/cards still have depth, and QA every component in both modes. Dark remains the default on first install.",
       "phase": 2.9,
       "priority": "high",
       "status": "pending",
       "dependencies": [],
       "subtasks": [
-        "Remove LIGHT_THEME from theme.ts or mark internal-only",
-        "Remove toggle button in App.tsx",
-        "Verify localStorage migration (existing 'light' entries ignored)"
+        "Enforce dark as default on first install (no stored preference -> DARK)",
+        "Audit LIGHT_THEME contrast on green/red/amber/blue against card + bg2 + bg3 (WCAG AA >= 4.5:1 body, >= 3:1 bold numbers)",
+        "Re-tune layered backgrounds so card/bg/bg2/bg3 have visible separation in light mode",
+        "Replace hardcoded hex in PositionsGrid source badge (#FF8A80, rgba(91,158,255,0.15)) with tokens",
+        "Per-theme selected-row tint + per-theme grid border alpha (dark uses 0.10, light probably needs 0.15)",
+        "Re-tune PriceChart + VolPnlChart stroke/fill colors for white background",
+        "Sweep inline hex across all components - report + fix each site",
+        "Keyboard + visual QA every tab in light mode (Exposure, P&L, Net P&L, Compare, Markup, Bridge, Settings)"
       ]
     },
     {

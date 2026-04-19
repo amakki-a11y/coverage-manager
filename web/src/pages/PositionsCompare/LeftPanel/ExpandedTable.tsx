@@ -295,10 +295,10 @@ export function ExpandedTable({ symbols, selectedSymbol, onSelect }: ExpandedTab
                     style={{
                       cursor: 'pointer',
                       borderTop: `2px solid ${THEME.border}`,
-                      background: s.symbol === selectedSymbol ? 'rgba(20,184,166,0.06)' : 'transparent',
+                      background: s.symbol === selectedSymbol ? THEME.rowSelected : 'transparent',
                     }}
-                    onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.02)'}
-                    onMouseLeave={e => e.currentTarget.style.background = s.symbol === selectedSymbol ? 'rgba(20,184,166,0.06)' : 'transparent'}
+                    onMouseEnter={e => e.currentTarget.style.background = THEME.rowHover}
+                    onMouseLeave={e => e.currentTarget.style.background = s.symbol === selectedSymbol ? THEME.rowSelected : 'transparent'}
                   >
                     <td rowSpan={showClosed ? 2 : 1} style={{
                       ...c, ...gc, color: THEME.t1, fontWeight: 700, fontFamily: 'inherit',
@@ -332,7 +332,7 @@ export function ExpandedTable({ symbols, selectedSymbol, onSelect }: ExpandedTab
                     onClick={() => onSelect(s.symbol)}
                     style={{
                       cursor: 'pointer',
-                      background: s.symbol === selectedSymbol ? 'rgba(20,184,166,0.04)' : 'rgba(255,255,255,0.015)',
+                      background: s.symbol === selectedSymbol ? THEME.rowSelected : THEME.rowAlt,
                       borderBottom: gridBorder,
                     }}
                   >
@@ -389,7 +389,7 @@ export function ExpandedTable({ symbols, selectedSymbol, onSelect }: ExpandedTab
               return (
                 <>
                   {/* OPEN totals */}
-                  <tr style={{ background: 'rgba(0,0,0,0.04)', borderTop: `2px solid ${THEME.border}` }}>
+                  <tr style={{ background: THEME.bg3, borderTop: `2px solid ${THEME.border}` }}>
                     <td style={{ ...c, ...gc, fontFamily: 'inherit', color: THEME.t2, fontWeight: 700, borderLeft: 'none', textAlign: 'left' }} rowSpan={showClosed ? 2 : 1}>TOTAL</td>
                     <td style={{ ...typeCell, ...gc, color: THEME.blue }}>O</td>
                     <td style={{ ...c, ...gc, borderLeft: gridSecBorder, color: THEME.t1 }}>{fmt(sumOpen.cliBuy)}</td>
@@ -405,7 +405,7 @@ export function ExpandedTable({ symbols, selectedSymbol, onSelect }: ExpandedTab
                     <td style={{ ...c, ...gc }}></td>
                   </tr>
                   {showClosed && (
-                    <tr style={{ background: 'rgba(0,0,0,0.02)' }}>
+                    <tr style={{ background: THEME.rowAlt }}>
                       <td style={{ ...typeCell, ...gc, color: THEME.t3 }}>C</td>
                       <td style={{ ...c, ...gc, borderLeft: gridSecBorder, color: THEME.t1 }}>{fmt(closedBB.buy)}</td>
                       <td style={{ ...c, ...gc, color: THEME.t1 }}>{fmt(closedBB.sell)}</td>

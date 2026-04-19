@@ -459,7 +459,7 @@ export function ExposureTable({ summaries, prices }: ExposureTableProps) {
               fontSize: 11,
               fontWeight: 600,
               color: THEME.amber,
-              background: 'rgba(255, 167, 38, 0.12)',
+              background: THEME.badgeAmber,
               border: `1px solid ${THEME.amber}`,
               fontFamily: 'inherit',
             }}
@@ -553,7 +553,7 @@ export function ExposureTable({ summaries, prices }: ExposureTableProps) {
                 </tr>
                 {/* CLOSED row — always shown for consistent row height */}
                 <tr
-                  style={{ background: 'rgba(255,255,255,0.015)', borderBottom: gridBorder }}
+                  style={{ background: THEME.rowAlt, borderBottom: gridBorder }}
                   onDragOver={(e) => handleDragOver(e, s.canonicalSymbol)}
                   onDrop={handleDrop}
                 >
@@ -601,7 +601,7 @@ export function ExposureTable({ summaries, prices }: ExposureTableProps) {
             <td style={{ ...c, ...gc }} />
           </tr>
           {/* Closed totals */}
-          <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
+          <tr style={{ background: THEME.rowAlt }}>
             <td style={{ ...c, ...gc, fontFamily: 'inherit', color: THEME.t3, fontWeight: 600, borderLeft: 'none' }}>TOTAL</td>
             <td style={{ ...typeCell, ...gc, color: THEME.t3 }}>C</td>
             <td style={{ ...c, ...gc, borderLeft: gridSecBorder }}></td>

@@ -329,7 +329,7 @@ export function BridgeSettingsCard() {
           <div style={{
             marginTop: 12,
             padding: 10,
-            background: testResult.success ? 'rgba(102,187,106,0.08)' : 'rgba(255,82,82,0.08)',
+            background: testResult.success ? THEME.badgeGreen : THEME.badgeRed,
             border: `1px solid ${testResult.success ? THEME.green : THEME.red}`,
             borderRadius: 4,
             color: testResult.success ? THEME.green : THEME.red,
@@ -382,18 +382,18 @@ export function BridgeSettingsCard() {
         </div>
 
         {error && (
-          <div style={{ marginTop: 12, padding: 10, background: 'rgba(255,82,82,0.08)', border: `1px solid ${THEME.red}`, borderRadius: 4, color: THEME.red, fontSize: 12 }}>
+          <div style={{ marginTop: 12, padding: 10, background: THEME.badgeRed, border: `1px solid ${THEME.red}`, borderRadius: 4, color: THEME.red, fontSize: 12 }}>
             {error}
           </div>
         )}
         {info && !error && (
-          <div style={{ marginTop: 12, padding: 10, background: 'rgba(102,187,106,0.08)', border: `1px solid ${THEME.green}`, borderRadius: 4, color: THEME.green, fontSize: 12 }}>
+          <div style={{ marginTop: 12, padding: 10, background: THEME.badgeGreen, border: `1px solid ${THEME.green}`, borderRadius: 4, color: THEME.green, fontSize: 12 }}>
             {info}
           </div>
         )}
 
         {state.feedHealth?.lastError && (
-          <div style={{ marginTop: 12, padding: 10, background: 'rgba(255,186,66,0.08)', border: `1px solid ${THEME.amber}`, borderRadius: 4, color: THEME.amber, fontSize: 12 }}>
+          <div style={{ marginTop: 12, padding: 10, background: THEME.badgeAmber, border: `1px solid ${THEME.amber}`, borderRadius: 4, color: THEME.amber, fontSize: 12 }}>
             Feed error: {state.feedHealth.lastError}
           </div>
         )}

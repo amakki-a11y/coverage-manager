@@ -15,7 +15,10 @@ const ThemeContext = createContext<ThemeContextType>({
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [mode, setMode] = useState<'dark' | 'light'>(() => {
-    return (localStorage.getItem('theme') as 'dark' | 'light') || 'dark';
+    // Whitelist: only the literal 'light' flips to light mode. Any other value
+    // (null, legacy, corrupt) coerces to dark so the UI can't boot into an
+    // unsupported mode.
+    return localStorage.getItem('theme') === 'light' ? 'light' : 'dark';
   });
 
   const toggleTheme = useCallback(() => {

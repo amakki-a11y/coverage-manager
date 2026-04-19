@@ -131,7 +131,7 @@ export function BridgePanel() {
       {error && (
         <div style={{
           padding: 12,
-          background: 'rgba(255,82,82,0.08)',
+          background: THEME.badgeRed,
           border: `1px solid ${THEME.red}`,
           borderRadius: 4,
           color: THEME.red,

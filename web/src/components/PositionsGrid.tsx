@@ -62,8 +62,8 @@ export function PositionsGrid({ positions }: PositionsGridProps) {
                   fontSize: 10,
                   fontWeight: 600,
                   fontFamily: 'inherit',
-                  background: p.source === 'bbook' ? 'rgba(91,158,255,0.15)' : 'rgba(255,82,82,0.15)',
-                  color: p.source === 'bbook' ? THEME.blue : '#FF8A80',
+                  background: p.source === 'bbook' ? THEME.badgeBlue : THEME.badgeRed,
+                  color: p.source === 'bbook' ? THEME.blue : THEME.red,
                 }}>
                   {p.source === 'bbook' ? 'B-BOOK' : 'COVERAGE'}
                 </span>

@@ -502,7 +502,7 @@ export function SettingsPanel() {
                 ...cardStyle,
                 marginBottom: 12,
                 borderColor: THEME.green,
-                background: 'rgba(76,175,80,0.08)',
+                background: THEME.badgeGreen,
               }}>
                 <span style={{ color: THEME.green, fontSize: 13, fontWeight: 600 }}>
                   Fixed {fixedCount} missing deals — upserted to Supabase successfully.
@@ -546,7 +546,7 @@ export function SettingsPanel() {
                       key={s.symbol}
                       style={{
                         borderBottom: `1px solid ${THEME.border}`,
-                        background: s.match ? 'transparent' : 'rgba(255,82,82,0.08)',
+                        background: s.match ? 'transparent' : THEME.badgeRed,
                       }}
                     >
                       <td style={{ ...tdStyle, fontWeight: 600, color: THEME.t1 }}>{s.symbol}</td>
@@ -719,7 +719,7 @@ function AccountCard({
         <button onClick={() => onEdit(account)} style={{ ...btnStyle, background: THEME.bg3, color: THEME.t2 }}>
           Edit
         </button>
-        <button onClick={() => onDelete(account.id)} style={{ ...btnStyle, background: 'rgba(255,82,82,0.15)', color: THEME.red }}>
+        <button onClick={() => onDelete(account.id)} style={{ ...btnStyle, background: THEME.badgeRed, color: THEME.red }}>
           Delete
         </button>
       </div>
@@ -895,7 +895,7 @@ function SnapshotSchedulesCard() {
                 <td style={tdStyle}>
                   <button
                     onClick={() => toggleEnabled(s)}
-                    style={{ ...btnStyle, background: s.enabled ? 'rgba(76,175,80,0.15)' : 'rgba(153,153,153,0.15)', color: s.enabled ? THEME.green : THEME.t3 }}
+                    style={{ ...btnStyle, background: s.enabled ? THEME.badgeGreen : THEME.bg3, color: s.enabled ? THEME.green : THEME.t3 }}
                   >
                     {s.enabled ? 'On' : 'Off'}
                   </button>
@@ -904,12 +904,12 @@ function SnapshotSchedulesCard() {
                   <button
                     onClick={() => runNow(s.id)}
                     disabled={busy === s.id}
-                    style={{ ...btnStyle, background: 'rgba(91,158,255,0.15)', color: THEME.blue, opacity: busy === s.id ? 0.5 : 1 }}
+                    style={{ ...btnStyle, background: THEME.badgeBlue, color: THEME.blue, opacity: busy === s.id ? 0.5 : 1 }}
                   >
                     {busy === s.id ? '…' : 'Run Now'}
                   </button>
                   <button onClick={() => startEdit(s)} style={{ ...btnStyle, background: THEME.bg3, color: THEME.t2 }}>Edit</button>
-                  <button onClick={() => del(s.id)} style={{ ...btnStyle, background: 'rgba(255,82,82,0.15)', color: THEME.red }}>Delete</button>
+                  <button onClick={() => del(s.id)} style={{ ...btnStyle, background: THEME.badgeRed, color: THEME.red }}>Delete</button>
                 </td>
               </tr>
             ))}
@@ -1038,7 +1038,7 @@ function SnapshotHistoryCard() {
               <React.Fragment key={g.snapshotTime}>
                 <tr
                   onClick={() => toggleExpand(g.snapshotTime)}
-                  style={{ borderBottom: `1px solid ${THEME.border}`, cursor: 'pointer', background: expandedTime === g.snapshotTime ? 'rgba(91,158,255,0.04)' : undefined }}
+                  style={{ borderBottom: `1px solid ${THEME.border}`, cursor: 'pointer', background: expandedTime === g.snapshotTime ? THEME.rowSelected : undefined }}
                 >
                   <td style={{ ...tdStyle, textAlign: 'left', color: THEME.t1 }}>
                     {expandedTime === g.snapshotTime ? '▼' : '▶'} {formatBeirut(g.snapshotTime)}
@@ -1051,7 +1051,7 @@ function SnapshotHistoryCard() {
                   <td style={{ ...tdStyle, color: colorFor(g.totalNetPnl), fontWeight: 700 }}>{fmtUsd(g.totalNetPnl)}</td>
                 </tr>
                 {expandedTime === g.snapshotTime && expandedRows.map(r => (
-                  <tr key={g.snapshotTime + r.canonical_symbol} style={{ borderBottom: `1px solid ${THEME.border}`, background: 'rgba(255,255,255,0.02)' }}>
+                  <tr key={g.snapshotTime + r.canonical_symbol} style={{ borderBottom: `1px solid ${THEME.border}`, background: THEME.rowAlt }}>
                     <td style={{ ...tdStyle, textAlign: 'left', color: THEME.t2, paddingLeft: 32, fontFamily: 'inherit' }} colSpan={3}>
                       {r.canonical_symbol}
                     </td>

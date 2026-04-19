@@ -100,7 +100,7 @@ export function BridgeTable({ pairs, pipThresholdForAnomaly }: Props) {
             const isAnomaly =
               p.covFills.length === 0 ||
               Math.abs(p.pips) > pipThresholdForAnomaly;
-            const bgTint = isAnomaly ? 'rgba(255, 82, 82, 0.06)' : 'transparent';
+            const bgTint = isAnomaly ? THEME.badgeRed : 'transparent';
             const spanRows = 1 + p.covFills.length;
 
             return (
