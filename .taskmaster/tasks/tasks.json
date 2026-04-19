@@ -499,13 +499,14 @@
       "description": "BridgePipResolver.cs:13 holds a plain Dictionary<string, decimal> loaded by PositionManager.LoadMappings and read concurrently from the Bridge worker + controller threads. Torn reads / missing entries possible. Switch to ConcurrentDictionary or swap the reference atomically on reload.",
       "phase": 2.9,
       "priority": "high",
-      "status": "pending",
+      "status": "done",
       "dependencies": [],
       "subtasks": [
         "Switch Overrides to ConcurrentDictionary<string, decimal>",
         "Reload path uses atomic replace (Interlocked.Exchange on a wrapper ref)",
         "Unit test: concurrent reload + lookup"
-      ]
+      ],
+      "notes": "Overrides switched to ConcurrentDictionary; test updated to TryRemove. Build clean, 21 Bridge tests passing. Commit b8a667b."
     },
     {
       "id": 29,
@@ -513,13 +514,14 @@
       "description": "RawTypes.cs:15-40 declares Price / Profit / Commission / Storage / Fee as double. FX precision loss flows into every downstream P&L. Change to decimal and update MT5ApiReal.CopyDeal + GetPositions conversions.",
       "phase": 2.9,
       "priority": "high",
-      "status": "pending",
+      "status": "done",
       "dependencies": [],
       "subtasks": [
         "Change RawDeal/RawPosition/RawAccount money fields to decimal",
         "Update MT5ApiReal conversions (native returns double — cast at the edge)",
         "Add a test that exercises tiny/price-sensitive cases (EURUSD 1.08547 × 100000)"
-      ]
+      ],
+      "notes": "RawDeal/Position/Tick/Account money fields now decimal. Native->decimal cast happens once in MT5ApiReal. Downstream (decimal)raw.X casts removed. Runtime verified: ticks streaming with clean decimal values, /api/exposure/summary returns sane P&L. Commit b8a667b."
     },
     {
       "id": 30,
