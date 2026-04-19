@@ -89,12 +89,17 @@ The MT5 Manager + LP account credentials go in the **Settings tab in the UI** (s
 
 ## 5. MT5 Manager DLLs
 
-Copy the 4 MetaQuotes DLLs into `src\CoverageManager.Connector\Libs\`. These ship privately — grab them from the existing dev machine or from your broker's backend team.
+The MT5 Manager API DLLs are committed to the repo and arrive with the clone — **there is nothing to copy**. They live in `src\CoverageManager.Connector\Libs\`:
 
-```powershell
-# From your dev machine, e.g. via scp or an RDP copy-paste:
-# MT5APIManager64.dll, MT5APIServer64.dll, MT5APIManager.dll, MT5APIServer.dll
-```
+| File | How it's wired |
+|---|---|
+| `MetaQuotes.MT5CommonAPI64.dll` | Managed wrapper — `<Reference>` in `CoverageManager.Connector.csproj` |
+| `MetaQuotes.MT5ManagerAPI64.dll` | Managed wrapper — `<Reference>` in `CoverageManager.Connector.csproj` |
+| `MT5APIManager64.dll` | Native Manager API — `<None CopyToOutputDirectory="PreserveNewest">` so it lands next to the built assemblies |
+
+`MT5_API_AVAILABLE` is defined unconditionally in the csproj, so `MT5ApiReal.cs` (guarded by `#if MT5_API_AVAILABLE`) always compiles. The `dotnet publish` step in §6 picks all three DLLs up automatically — no manual copy, no dev-machine hand-off.
+
+> **Licensing — flag for review, not an assertion:** these DLLs are proprietary to MetaQuotes. Whether tracking them in this git repository is clean under your MetaQuotes Manager API license is a separate legal question worth checking before making the repo public or distributing it beyond the original licensee. Out of scope for this doc; calling it out so it doesn't get missed.
 
 ---
 
