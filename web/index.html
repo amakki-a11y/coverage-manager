@@ -5,9 +5,34 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Coverage Manager</title>
+
+    <!-- Typography: DM Sans for text/labels, JetBrains Mono for every number. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
+    />
+
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
-      body { overflow: hidden; }
+      body {
+        overflow: hidden;
+        /* DM Sans is the default for all prose/labels. Numeric cells opt into
+           JetBrains Mono via the .cm-num utility class or an inline font-family.
+           tabular-nums + lining-nums force equal-width digits so financial
+           cells line up column-wise regardless of content. */
+        font-family: 'DM Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+        font-feature-settings: 'tnum' 1, 'lnum' 1;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      /* Utility classes + opt-ins for numeric renders.  */
+      .cm-num, code, pre, kbd, samp, [data-num] {
+        font-family: 'JetBrains Mono', ui-monospace, 'Cascadia Code', 'Menlo', monospace;
+        font-feature-settings: 'tnum' 1, 'lnum' 1;
+        font-variant-numeric: tabular-nums lining-nums;
+      }
     </style>
   </head>
   <body>

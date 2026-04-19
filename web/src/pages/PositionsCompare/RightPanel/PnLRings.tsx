@@ -174,7 +174,7 @@ export function PnLRings({ symbol, data, trades }: Props) {
         gap: 12,
         width: '100%',
         maxWidth: 320,
-        fontFamily: 'monospace',
+        fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace",
       }}>
         <div style={{
           background: THEME.bg2,

@@ -89,7 +89,7 @@ export function LoginsWidget({ symbol }: LoginsWidgetProps) {
 
   const cell: React.CSSProperties = {
     padding: '4px 8px',
-    fontFamily: 'monospace',
+    fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace",
     fontSize: 11,
     textAlign: 'right',
     borderBottom: `1px solid ${THEME.border}`,

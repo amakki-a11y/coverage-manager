@@ -23,21 +23,21 @@ export function DetailHeader({ data }: DetailHeaderProps) {
       background: THEME.bg2,
       flexShrink: 0,
     }}>
-      <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 14, color: THEME.teal }}>
+      <span style={{ fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace", fontWeight: 700, fontSize: 14, color: THEME.teal }}>
         {data.symbol}
       </span>
       <span style={{ fontSize: 11, color: THEME.t3 }}>
-        CLI <span style={{ fontFamily: 'monospace', color: THEME.blue, fontWeight: 600 }}>
+        CLI <span style={{ fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace", color: THEME.blue, fontWeight: 600 }}>
           {(data.clientBuyVolume + data.clientSellVolume).toFixed(2)}
         </span>
       </span>
       <span style={{ fontSize: 11, color: THEME.t3 }}>
-        COV <span style={{ fontFamily: 'monospace', color: THEME.amber, fontWeight: 600 }}>
+        COV <span style={{ fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace", color: THEME.amber, fontWeight: 600 }}>
           {(data.coverageBuyVolume + data.coverageSellVolume).toFixed(2)}
         </span>
       </span>
       <span style={{
-        fontFamily: 'monospace', fontSize: 12, fontWeight: 700,
+        fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace", fontSize: 12, fontWeight: 700,
         color: data.netPnl >= 0 ? THEME.green : THEME.red,
       }}>
         {data.netPnl >= 0 ? '+' : ''}{data.netPnl.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -45,7 +45,7 @@ export function DetailHeader({ data }: DetailHeaderProps) {
       <span style={{
         fontSize: 10,
         fontWeight: 700,
-        fontFamily: 'monospace',
+        fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace",
         padding: '2px 8px',
         borderRadius: 4,
         background: `${hedgeColor(data.hedgePercent)}22`,

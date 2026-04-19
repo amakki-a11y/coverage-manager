@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { THEME } from '../theme';
 import type { ExposureSummary, PriceQuote } from '../types';
 import { useDateRange } from '../hooks/useDateRange';
+import { useSymbolDigits } from '../hooks/useSymbolDigits';
 
 type SortField = 'custom' | 'symbol' | 'bbNet' | 'bbPnL' | 'covNet' | 'covPnL' | 'netPnL' | 'hedge' | 'toCover';
 
@@ -25,7 +26,7 @@ interface ClosedSymbol {
 
 const c: React.CSSProperties = {
   padding: '6px 10px',
-  fontFamily: 'monospace',
+  fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace",
   fontSize: 12,
   textAlign: 'center',
   verticalAlign: 'middle',
@@ -38,6 +39,7 @@ function todayStr() {
 }
 
 export function ExposureTable({ summaries, prices }: ExposureTableProps) {
+  const { fmtPrice } = useSymbolDigits();
   // Build price lookup by symbol (exact match + strip trailing - for canonical matching)
   const priceMap: Record<string, PriceQuote> = {};
   for (const p of prices) {
@@ -560,8 +562,8 @@ export function ExposureTable({ summaries, prices }: ExposureTableProps) {
                       const dir = priceDir.current[price.symbol] || 'flat';
                       const dirColor = dir === 'up' ? THEME.green : dir === 'down' ? THEME.red : THEME.t3;
                       return (
-                        <div style={{ fontSize: 11, fontWeight: 700, fontFamily: 'monospace', color: dirColor, marginTop: 2 }}>
-                          {price.bid}
+                        <div style={{ fontSize: 11, fontWeight: 700, fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace", color: dirColor, marginTop: 2 }}>
+                          {fmtPrice(s.canonicalSymbol, price.bid)}
                         </div>
                       );
                     })()}

@@ -11,14 +11,14 @@ const inputStyle: React.CSSProperties = {
   padding: '6px 10px',
   borderRadius: 4,
   fontSize: 13,
-  fontFamily: 'monospace',
+  fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace",
   outline: 'none',
   width: '100%',
 };
 
 const cellStyle: React.CSSProperties = {
   padding: '6px 10px',
-  fontFamily: 'monospace',
+  fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace",
   fontSize: 13,
   whiteSpace: 'nowrap',
 };

@@ -1,6 +1,7 @@
 import { THEME } from '../theme';
 import type { Position } from '../types';
 import { formatBeirut } from '../utils/time';
+import { useSymbolDigits } from '../hooks/useSymbolDigits';
 
 interface PositionsGridProps {
   positions: Position[];
@@ -8,7 +9,7 @@ interface PositionsGridProps {
 
 const cellStyle: React.CSSProperties = {
   padding: '5px 10px',
-  fontFamily: 'monospace',
+  fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace",
   fontSize: 13,
   textAlign: 'right',
   whiteSpace: 'nowrap',
@@ -29,6 +30,7 @@ const headerStyle: React.CSSProperties = {
 };
 
 export function PositionsGrid({ positions }: PositionsGridProps) {
+  const { fmtPrice } = useSymbolDigits();
   const sorted = [...positions].sort((a, b) => {
     if (a.canonicalSymbol !== b.canonicalSymbol) return a.canonicalSymbol.localeCompare(b.canonicalSymbol);
     return a.source.localeCompare(b.source);
@@ -78,8 +80,8 @@ export function PositionsGrid({ positions }: PositionsGridProps) {
                 {p.direction}
               </td>
               <td style={{ ...cellStyle, color: THEME.t1 }}>{p.volumeLots.toFixed(2)}</td>
-              <td style={{ ...cellStyle, color: THEME.t2 }}>{p.openPrice.toFixed(5)}</td>
-              <td style={{ ...cellStyle, color: THEME.t1 }}>{p.currentPrice.toFixed(5)}</td>
+              <td style={{ ...cellStyle, color: THEME.t2 }}>{fmtPrice(p.canonicalSymbol || p.symbol, p.openPrice)}</td>
+              <td style={{ ...cellStyle, color: THEME.t1 }}>{fmtPrice(p.canonicalSymbol || p.symbol, p.currentPrice)}</td>
               <td style={{ ...cellStyle, color: p.profit >= 0 ? THEME.green : THEME.red, fontWeight: 600 }}>
                 {p.profit >= 0 ? '+' : ''}{p.profit.toFixed(2)}
               </td>

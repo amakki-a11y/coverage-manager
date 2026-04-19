@@ -27,7 +27,7 @@ function Row({ label, value, color }: { label: string; value: string; color: str
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
       <span style={{ fontSize: 10, color: THEME.t3 }}>{label}</span>
-      <span style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 600, color }}>{value}</span>
+      <span style={{ fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace", fontSize: 11, fontWeight: 600, color }}>{value}</span>
     </div>
   );
 }

@@ -28,7 +28,7 @@ const inputStyle: React.CSSProperties = {
   padding: '6px 10px',
   borderRadius: 4,
   fontSize: 12,
-  fontFamily: 'monospace',
+  fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace",
 };
 
 const labelStyle: React.CSSProperties = {
@@ -116,7 +116,7 @@ export function BridgeFilters({
         alignItems: 'flex-end',
         fontSize: 10,
         color: THEME.t3,
-        fontFamily: 'monospace',
+        fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace",
       }}>
         <div>
           <span style={{

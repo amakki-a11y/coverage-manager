@@ -44,7 +44,7 @@ export function PositionsCompare({ prices = [] }: { prices?: PriceQuote[] }) {
         right: 12,
         fontSize: 9,
         color: THEME.t3,
-        fontFamily: 'monospace',
+        fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace",
         display: 'flex',
         alignItems: 'center',
         gap: 4,

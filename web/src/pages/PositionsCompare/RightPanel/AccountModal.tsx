@@ -134,7 +134,7 @@ export function AccountModal({ login, onClose }: AccountModalProps) {
 
   const cell: React.CSSProperties = {
     padding: '3px 8px',
-    fontFamily: 'monospace',
+    fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace",
     fontSize: 11,
     textAlign: 'right',
     borderBottom: `1px solid ${THEME.border}`,
@@ -181,7 +181,7 @@ export function AccountModal({ login, onClose }: AccountModalProps) {
           flexShrink: 0,
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <span style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 700, color: THEME.teal }}>{login}</span>
+            <span style={{ fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace", fontSize: 16, fontWeight: 700, color: THEME.teal }}>{login}</span>
             {account && (
               <span style={{ fontSize: 12, color: THEME.t2, fontWeight: 500 }}>{account.name}</span>
             )}
@@ -236,7 +236,7 @@ export function AccountModal({ login, onClose }: AccountModalProps) {
                 textAlign: 'center',
               }}>
                 <div style={{ fontSize: 8, fontWeight: 600, color: THEME.t3, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>{c.label}</div>
-                <div style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 700, color: c.color }}>{c.value}</div>
+                <div style={{ fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace", fontSize: 12, fontWeight: 700, color: c.color }}>{c.value}</div>
               </div>
             ))}
           </div>

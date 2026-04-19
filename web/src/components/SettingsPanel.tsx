@@ -14,7 +14,7 @@ const inputStyle: React.CSSProperties = {
   padding: '8px 12px',
   borderRadius: 4,
   fontSize: 13,
-  fontFamily: 'monospace',
+  fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace",
   outline: 'none',
   width: '100%',
 };
@@ -354,7 +354,7 @@ export function SettingsPanel() {
               <tbody>
                 {movedAccounts.map(a => (
                   <tr key={a.login} style={{ borderBottom: `1px solid ${THEME.border}` }}>
-                    <td style={{ ...tdStyle, textAlign: 'left', fontFamily: 'monospace' }}>{a.login}</td>
+                    <td style={{ ...tdStyle, textAlign: 'left', fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace" }}>{a.login}</td>
                     <td style={{ ...tdStyle, textAlign: 'left', color: THEME.t1 }}>{a.name}</td>
                     <td style={{ ...tdStyle, textAlign: 'left' }}>{a.reason}</td>
                     <td style={{ ...tdStyle, textAlign: 'left' }}>{formatBeirutDate(a.moved_at)}</td>
@@ -517,7 +517,7 @@ export function SettingsPanel() {
 
             {/* Results Table */}
             <div style={{ ...cardStyle, padding: 0, overflow: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, fontFamily: 'monospace' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace" }}>
                 <thead>
                   <tr style={{ borderBottom: `2px solid ${THEME.border}` }}>
                     <th style={thStyle}>Symbol</th>
@@ -695,10 +695,10 @@ function AccountCard({
             {isManager ? 'Manager API' : 'Terminal'}
           </div>
         </div>
-        <div style={{ fontFamily: 'monospace', fontSize: 13, color: THEME.t2 }}>
+        <div style={{ fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace", fontSize: 13, color: THEME.t2 }}>
           {account.server || '—'}
         </div>
-        <div style={{ fontFamily: 'monospace', fontSize: 13, color: THEME.t2 }}>
+        <div style={{ fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace", fontSize: 13, color: THEME.t2 }}>
           Login: {account.login || '—'}
         </div>
         <div style={{
@@ -870,7 +870,7 @@ function SnapshotSchedulesCard() {
       )}
 
       <div style={{ ...cardStyle, padding: 0, overflow: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, fontFamily: 'monospace' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace" }}>
           <thead>
             <tr style={{ borderBottom: `1px solid ${THEME.border}` }}>
               <th style={{ ...thStyle, textAlign: 'left' }}>Name</th>
@@ -1021,7 +1021,7 @@ function SnapshotHistoryCard() {
       </div>
 
       <div style={{ ...cardStyle, padding: 0, overflow: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, fontFamily: 'monospace' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace" }}>
           <thead>
             <tr style={{ borderBottom: `1px solid ${THEME.border}` }}>
               <th style={{ ...thStyle, textAlign: 'left' }}>Captured At (Beirut)</th>
@@ -1150,7 +1150,7 @@ function ReconciliationCard() {
       )}
 
       <div style={{ ...cardStyle, padding: 0, overflow: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, fontFamily: 'monospace' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace" }}>
           <thead>
             <tr style={{ borderBottom: `1px solid ${THEME.border}` }}>
               <th style={{ ...thStyle, textAlign: 'left' }}>Started (Beirut)</th>

@@ -49,7 +49,7 @@ interface SymbolMappingEntry {
 
 const cellStyle: React.CSSProperties = {
   padding: '8px 12px',
-  fontFamily: 'monospace',
+  fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace",
   fontSize: 13,
   textAlign: 'right',
   whiteSpace: 'nowrap',
@@ -275,7 +275,7 @@ export function PnLPanel() {
           <span style={{
             fontSize: 18,
             fontWeight: 700,
-            fontFamily: 'monospace',
+            fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace",
             color: grandTotal.net >= 0 ? THEME.green : THEME.red,
           }}>
             {fmtPnl(grandTotal.net)}

@@ -52,7 +52,7 @@ function Cell({ label, value, color }: { label: string; value: string; color: st
   return (
     <div style={{ flex: 1, minWidth: 0, textAlign: 'center' }}>
       <div style={lbl}>{label}</div>
-      <div style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 600, color }}>{value}</div>
+      <div style={{ fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace", fontSize: 13, fontWeight: 600, color }}>{value}</div>
     </div>
   );
 }
@@ -103,11 +103,11 @@ export function SymbolRow({ data, isSelected, onClick, price }: SymbolRowProps) 
         {/* Symbol + Price stacked */}
         <div style={{ minWidth: 90 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontFamily: 'monospace', fontWeight: 700, color: THEME.t1, fontSize: 13 }}>
+            <span style={{ fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace", fontWeight: 700, color: THEME.t1, fontSize: 13 }}>
               {data.symbol}
             </span>
             <span style={{
-              fontSize: 9, fontWeight: 700, fontFamily: 'monospace',
+              fontSize: 9, fontWeight: 700, fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace",
               padding: '1px 6px', borderRadius: 8,
               background: `${hc}18`, color: hc,
             }}>
@@ -116,7 +116,7 @@ export function SymbolRow({ data, isSelected, onClick, price }: SymbolRowProps) 
           </div>
           {price != null && price > 0 && (
             <div style={{
-              fontFamily: 'monospace', fontSize: 11, marginTop: 2,
+              fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace", fontSize: 11, marginTop: 2,
               color: priceColor, fontWeight: priceDir !== 'none' ? 700 : 400,
               transition: 'color 0.3s',
             }}>
@@ -132,7 +132,7 @@ export function SymbolRow({ data, isSelected, onClick, price }: SymbolRowProps) 
         <div style={{ textAlign: 'right', minWidth: 60 }}>
           <div style={{ fontSize: 8, color: THEME.t3, textTransform: 'uppercase', fontWeight: 600 }}>Net</div>
           <div style={{
-            fontFamily: 'monospace', fontSize: 13, fontWeight: 700,
+            fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace", fontSize: 13, fontWeight: 700,
             color: nc(netDiff),
           }}>
             {fmtNet(netDiff)}
@@ -143,7 +143,7 @@ export function SymbolRow({ data, isSelected, onClick, price }: SymbolRowProps) 
         <div style={{ textAlign: 'right', minWidth: 60 }}>
           <div style={{ fontSize: 8, color: THEME.t3, textTransform: 'uppercase', fontWeight: 600 }}>P&L</div>
           <div style={{
-            fontFamily: 'monospace', fontSize: 13, fontWeight: 700,
+            fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace", fontSize: 13, fontWeight: 700,
             color: nc(pnlDiff),
           }}>
             {fmtPnl(pnlDiff)}
@@ -160,10 +160,10 @@ export function SymbolRow({ data, isSelected, onClick, price }: SymbolRowProps) 
               Client
             </span>
             <div style={{ flex: 1 }} />
-            <span style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 600, color: THEME.t1, minWidth: 60, textAlign: 'right' }}>
+            <span style={{ fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace", fontSize: 13, fontWeight: 600, color: THEME.t1, minWidth: 60, textAlign: 'right' }}>
               {fmtNet(data.clientNetVolume)}
             </span>
-            <span style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 600, color: THEME.t2, minWidth: 60, textAlign: 'right', marginLeft: 8 }}>
+            <span style={{ fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace", fontSize: 13, fontWeight: 600, color: THEME.t2, minWidth: 60, textAlign: 'right', marginLeft: 8 }}>
               {fmtPnl(data.clientPnl)}
             </span>
           </div>
@@ -173,10 +173,10 @@ export function SymbolRow({ data, isSelected, onClick, price }: SymbolRowProps) 
               Coverage
             </span>
             <div style={{ flex: 1 }} />
-            <span style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 600, color: THEME.t1, minWidth: 60, textAlign: 'right' }}>
+            <span style={{ fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace", fontSize: 13, fontWeight: 600, color: THEME.t1, minWidth: 60, textAlign: 'right' }}>
               {fmtNet(data.coverageNetVolume)}
             </span>
-            <span style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 600, color: THEME.t2, minWidth: 60, textAlign: 'right', marginLeft: 8 }}>
+            <span style={{ fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace", fontSize: 13, fontWeight: 600, color: THEME.t2, minWidth: 60, textAlign: 'right', marginLeft: 8 }}>
               {fmtPnl(data.coveragePnl)}
             </span>
           </div>

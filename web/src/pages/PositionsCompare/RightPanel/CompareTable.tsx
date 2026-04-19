@@ -75,7 +75,7 @@ export function CompareTable({ data, trades }: CompareTableProps) {
 
   const cell: React.CSSProperties = {
     padding: '5px 8px',
-    fontFamily: 'monospace',
+    fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace",
     fontSize: 11,
     textAlign: 'right',
     borderBottom: `1px solid ${THEME.border}`,

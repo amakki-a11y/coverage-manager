@@ -164,7 +164,7 @@ export function MarkupPanel() {
               padding: '6px 10px',
               borderRadius: 4,
               fontSize: 12,
-              fontFamily: 'monospace',
+              fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace",
             }}
           />
         </div>
@@ -183,7 +183,7 @@ export function MarkupPanel() {
               padding: '6px 10px',
               borderRadius: 4,
               fontSize: 12,
-              fontFamily: 'monospace',
+              fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace",
             }}
           />
         </div>
@@ -486,7 +486,7 @@ function SummaryCard({
       <div style={{ fontSize: 10, color: THEME.t3, textTransform: 'uppercase', marginBottom: 4, letterSpacing: 0.5 }}>
         {label}
       </div>
-      <div style={{ fontSize: 20, fontWeight: 700, color, fontFamily: 'monospace' }}>
+      <div style={{ fontSize: 20, fontWeight: 700, color, fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace" }}>
         {value}
       </div>
     </div>
@@ -515,6 +515,6 @@ const thSubStyle: React.CSSProperties = {
 const tdStyle: React.CSSProperties = {
   padding: '8px 10px',
   textAlign: 'center',
-  fontFamily: 'monospace',
+  fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace",
   color: THEME.t2,
 };

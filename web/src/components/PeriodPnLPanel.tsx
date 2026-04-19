@@ -26,7 +26,7 @@ function pnlColor(v: number | undefined | null): string {
 
 const cellStyle: React.CSSProperties = {
   padding: '7px 8px',
-  fontFamily: 'monospace',
+  fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace",
   fontSize: 12,
   textAlign: 'right',
   whiteSpace: 'nowrap',

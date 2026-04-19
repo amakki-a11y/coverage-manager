@@ -38,6 +38,21 @@ function edgeColor(edge: number): string {
   return THEME.t3;
 }
 
+/**
+ * Defensive coercion: the Bridge enum is serialized as a string ('BUY'/'SELL')
+ * via the JsonStringEnumConverter registered in Program.cs. If a serialization
+ * regression ever pushes the raw int (0=BUY, 1=SELL) through, this keeps the
+ * table colored correctly instead of silently rendering every row as t3.
+ */
+function coerceSide(side: unknown): 'BUY' | 'SELL' {
+  if (side === 'BUY' || side === 0 || side === '0') return 'BUY';
+  if (side === 'SELL' || side === 1 || side === '1') return 'SELL';
+  // Unknown inputs default to BUY — loud in logs so regressions surface.
+  // eslint-disable-next-line no-console
+  console.warn('[BridgeTable] unexpected side value:', side);
+  return 'BUY';
+}
+
 function formatPrice(price: number): string {
   // Preserve reasonable precision — bridge emits 5-digit FX and 2-digit metals/indices.
   // Using toFixed(5) across the board keeps column alignment clean per reference screenshot.
@@ -63,7 +78,7 @@ const thStyleLeft: React.CSSProperties = { ...thStyle, textAlign: 'left' };
 
 const tdStyle: React.CSSProperties = {
   padding: '6px 10px',
-  fontFamily: 'monospace',
+  fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace",
   textAlign: 'right',
   color: THEME.t1,
   fontSize: 12,
@@ -97,6 +112,7 @@ export function BridgeTable({ pairs, pipThresholdForAnomaly }: Props) {
         </thead>
         <tbody>
           {pairs.map((p) => {
+            const side = coerceSide(p.side);
             const isAnomaly =
               p.covFills.length === 0 ||
               Math.abs(p.pips) > pipThresholdForAnomaly;
@@ -135,8 +151,8 @@ export function BridgeTable({ pairs, pipThresholdForAnomaly }: Props) {
                   >
                     {p.clientMtDealId ?? p.clientMtTicket ?? p.cenOrdId}
                   </td>
-                  <td style={{ ...tdStyle, color: p.side === 'BUY' ? THEME.green : THEME.red, fontWeight: 600 }}>
-                    {p.side}
+                  <td style={{ ...tdStyle, color: side === 'BUY' ? THEME.green : THEME.red, fontWeight: 600 }}>
+                    {side}
                   </td>
                   <td style={tdStyle}>{p.clientVolume.toFixed(2)}</td>
                   <td style={{ ...tdStyle, fontWeight: 600 }}>{formatPrice(p.clientPrice)}</td>
@@ -192,8 +208,8 @@ export function BridgeTable({ pairs, pipThresholdForAnomaly }: Props) {
                         <td style={{ ...tdStyleLeft, fontSize: 11, color: THEME.t2 }} title={covTitle}>
                           {covDealNo}
                         </td>
-                        <td style={{ ...tdStyle, color: p.side === 'BUY' ? THEME.green : THEME.red, fontWeight: 600 }}>
-                          {p.side}
+                        <td style={{ ...tdStyle, color: side === 'BUY' ? THEME.green : THEME.red, fontWeight: 600 }}>
+                          {side}
                         </td>
                         <td style={tdStyle}>{c.volume.toFixed(2)}</td>
                         <td style={{ ...tdStyle, fontWeight: 600 }}>{formatPrice(c.price)}</td>

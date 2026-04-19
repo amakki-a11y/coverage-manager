@@ -49,7 +49,7 @@ const inputStyle: React.CSSProperties = {
   padding: '8px 10px',
   borderRadius: 4,
   fontSize: 13,
-  fontFamily: 'monospace',
+  fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace",
   outline: 'none',
   width: '100%',
   boxSizing: 'border-box',
@@ -212,7 +212,7 @@ export function BridgeSettingsCard() {
             borderRadius: 999,
             fontSize: 11,
             color: statusColor(state.feedHealth?.state ?? 'Disconnected'),
-            fontFamily: 'monospace',
+            fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace",
           }}>
             {state.feedHealth?.mode ?? 'Stub'} · {state.feedHealth?.state ?? '—'}
           </span>
@@ -347,7 +347,7 @@ export function BridgeSettingsCard() {
         )}
 
         <div style={{ marginTop: 16, display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-          <div style={{ marginRight: 'auto', fontSize: 11, color: THEME.t3, fontFamily: 'monospace' }}>
+          <div style={{ marginRight: 'auto', fontSize: 11, color: THEME.t3, fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace" }}>
             {state.feedHealth?.messagesReceived != null && (
               <>Msgs received: {state.feedHealth.messagesReceived.toLocaleString()} · </>
             )}

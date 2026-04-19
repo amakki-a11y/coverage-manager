@@ -61,7 +61,7 @@ function fmtToCover(v: number): string {
 
 const cellBase: React.CSSProperties = {
   padding: '6px 10px',
-  fontFamily: 'monospace',
+  fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace",
   fontSize: 12,
   textAlign: 'center',
   verticalAlign: 'middle',
@@ -240,14 +240,14 @@ export function ExpandedTable({ symbols, selectedSymbol, onSelect }: ExpandedTab
               type="date"
               value={closedFrom}
               onChange={e => setClosedFrom(e.target.value)}
-              style={{ fontSize: 11, fontFamily: 'monospace', background: THEME.bg3, color: THEME.t1, border: `1px solid ${THEME.border}`, borderRadius: 4, padding: '2px 6px' }}
+              style={{ fontSize: 11, fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace", background: THEME.bg3, color: THEME.t1, border: `1px solid ${THEME.border}`, borderRadius: 4, padding: '2px 6px' }}
             />
             <span style={{ color: THEME.t3, fontSize: 11 }}>to</span>
             <input
               type="date"
               value={closedTo}
               onChange={e => setClosedTo(e.target.value)}
-              style={{ fontSize: 11, fontFamily: 'monospace', background: THEME.bg3, color: THEME.t1, border: `1px solid ${THEME.border}`, borderRadius: 4, padding: '2px 6px' }}
+              style={{ fontSize: 11, fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace", background: THEME.bg3, color: THEME.t1, border: `1px solid ${THEME.border}`, borderRadius: 4, padding: '2px 6px' }}
             />
           </>
         )}
@@ -306,7 +306,7 @@ export function ExpandedTable({ symbols, selectedSymbol, onSelect }: ExpandedTab
                     }}>
                       {s.symbol}
                       {price && (
-                        <div style={{ fontSize: 11, fontWeight: 700, fontFamily: 'monospace', color: dirColor, marginTop: 2 }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace", color: dirColor, marginTop: 2 }}>
                           {price.bid}
                         </div>
                       )}
