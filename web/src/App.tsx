@@ -48,18 +48,31 @@ function AppContent() {
     transition: 'all 0.15s',
   });
 
-  // Fetch positions for the positions tab
+  // Fetch positions for the positions tab.
+  // 5s cadence (was 1s — overkill for a view that doesn't need sub-second refresh),
+  // in-flight guard to prevent overlap, pause when tab hidden via visibilitychange.
   useEffect(() => {
     if (tab !== 'positions') return;
+    let cancelled = false;
+    let inFlight = false;
     const fetchPositions = async () => {
+      if (inFlight || document.hidden) return;
+      inFlight = true;
       try {
         const res = await fetch('http://localhost:5000/api/exposure/positions');
-        if (res.ok) setPositions(await res.json());
+        if (!cancelled && res.ok) setPositions(await res.json());
       } catch { /* ignore */ }
+      inFlight = false;
     };
     fetchPositions();
-    const interval = setInterval(fetchPositions, 1000);
-    return () => clearInterval(interval);
+    const interval = setInterval(fetchPositions, 5000);
+    const onVisible = () => { if (!document.hidden) fetchPositions(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, [tab]);
 
   return (

@@ -24,8 +24,16 @@ dist/
 .idea/
 *.swp
 
-# Environment
+# Environment / secrets
 .env
+# Per-env .NET config — must never carry real credentials to git
+appsettings.Development.json
+appsettings.*.Local.json
+# User Secrets lives in ~/.microsoft/usersecrets but belt-and-suspenders
+secrets.json
+
+# Claude Code scheduled-task runtime lock
+.claude/scheduled_tasks.lock
 
 # Task Master
 .taskmaster/templates/

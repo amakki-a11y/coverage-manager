@@ -70,8 +70,11 @@ export function useExposureSocket() {
         if (message.type === 'exposure_update') {
           dispatch({ type: 'EXPOSURE_UPDATE', payload: message.data });
         }
-      } catch {
-        // ignore malformed messages
+      } catch (err) {
+        // Upstream protocol break: log the first bytes so the backend team sees it
+        // instead of silently dropping exposure updates.
+        const preview = typeof event.data === 'string' ? event.data.slice(0, 200) : '(non-string)';
+        console.warn('[ws/exposure] malformed message:', err, 'payload=', preview);
       }
     };
 

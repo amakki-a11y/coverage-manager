@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { THEME } from '../../../theme';
+import { formatBeirut, formatBeirutTime } from '../../../utils/time';
 
 interface Account {
   login: number;
@@ -56,15 +57,10 @@ function fmtMoney(v: number): string {
   return v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function fmtDate(s: string): string {
-  const d = new Date(s);
-  return d.toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
-}
-
-function fmtTime(s: string): string {
-  const d = new Date(s);
-  return d.toLocaleString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-}
+// Always render timestamps in Asia/Beirut (MT5 server TZ) — matches every other
+// surface in the app and the dealer's MT5 Manager view.
+const fmtDate = (s: string) => formatBeirut(s);
+const fmtTime = (s: string) => formatBeirutTime(s);
 
 function entryLabel(e: number): string {
   switch (e) {

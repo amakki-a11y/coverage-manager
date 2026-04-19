@@ -132,10 +132,30 @@ public class BridgeExecutionWorker : BackgroundService
     private void Normalize(BridgeDeal deal)
     {
         // 1. Canonicalize symbol through the existing B-Book ↔ LP mapping.
+        //    Pairing silently misses when CanonicalSymbol doesn't line up across
+        //    CLIENT / COV_OUT, so we log every fallback to the uppercase-raw path
+        //    to surface missing mappings to the admin instead of hiding them.
         if (string.IsNullOrEmpty(deal.CanonicalSymbol))
         {
             var mapping = _positionManager.FindMapping(deal.Symbol ?? string.Empty, source: "bridge");
-            deal.CanonicalSymbol = mapping != null ? mapping.CanonicalName : (deal.Symbol ?? string.Empty).ToUpperInvariant();
+            if (mapping != null)
+            {
+                deal.CanonicalSymbol = mapping.CanonicalName;
+            }
+            else
+            {
+                deal.CanonicalSymbol = (deal.Symbol ?? string.Empty).ToUpperInvariant();
+                _logger.LogWarning(
+                    "Bridge deal has no symbol mapping — falling back to uppercase-raw. DealId={DealId} Symbol={Symbol} Source={Source}. Add a row to symbol_mappings to enable pairing.",
+                    deal.DealId, deal.Symbol, deal.Source);
+            }
+        }
+        if (string.IsNullOrEmpty(deal.CanonicalSymbol))
+        {
+            // Last-ditch guard — should be unreachable, but if Symbol is also empty
+            // we skip the deal entirely rather than feeding a blank key into the pairing engine.
+            _logger.LogWarning("Bridge deal dropped: no Symbol + no CanonicalSymbol. DealId={DealId}", deal.DealId);
+            throw new InvalidOperationException($"BridgeDeal {deal.DealId} has empty symbol");
         }
 
         // 2. Classify CLIENT/COV_OUT from MtGroup ONLY when the feed left it UNCLASSIFIED.

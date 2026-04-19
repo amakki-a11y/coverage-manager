@@ -3,6 +3,7 @@ Coverage Manager — Python Collector
 Reads coverage (LP) positions from MT5 terminal, POSTs to C# backend.
 Fetches account credentials from the backend API on startup.
 """
+import os
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 import MetaTrader5 as mt5
@@ -11,9 +12,10 @@ import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
 
-# Config
-BACKEND_URL = "http://localhost:5000"
-POLL_INTERVAL = 0.1  # 100ms
+# Config — env-sourced. Keep local dev default so `uvicorn main:app` still works
+# without setup, but production / container deploys should export BACKEND_URL.
+BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:5000")
+POLL_INTERVAL = float(os.getenv("COLLECTOR_POLL_INTERVAL", "0.1"))  # seconds
 
 
 async def fetch_coverage_account():

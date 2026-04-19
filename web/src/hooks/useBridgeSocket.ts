@@ -44,8 +44,9 @@ export function useBridgeSocket(onPair: (pair: ExecutionPair) => void) {
         if (msg.type === 'pair') {
           onPairRef.current(msg.pair);
         }
-      } catch {
-        // ignore malformed frames
+      } catch (err) {
+        const preview = typeof event.data === 'string' ? event.data.slice(0, 200) : '(non-string)';
+        console.warn('[ws/bridge] malformed frame:', err, 'payload=', preview);
       }
     };
 
