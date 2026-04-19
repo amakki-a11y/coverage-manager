@@ -593,7 +593,7 @@
       "description": "SupabaseService has ~100 awaits with no ConfigureAwait(false). Kestrel has no SyncContext today so it's latent, but it becomes a thread-pool landmine the moment anyone hosts in IIS or blocks on async. Sweep the file.",
       "phase": 2.9,
       "priority": "high",
-      "status": "pending",
+      "status": "done",
       "dependencies": [],
       "subtasks": [
         "Add .ConfigureAwait(false) on every await in library services",
@@ -606,7 +606,7 @@
       "description": "DataSyncService.cs:135 TODO. CanonicalSymbol = d.Symbol writes raw MT5 names. Any downstream consumer that doesn't re-normalize fragments on 'US30-' vs 'US30'. Resolve via _positionManager.FindMapping before upsert.",
       "phase": 2.9,
       "priority": "high",
-      "status": "pending",
+      "status": "done",
       "dependencies": [],
       "subtasks": [
         "Call FindMapping('bbook') in DataSyncService before building DealRecord",
@@ -982,7 +982,7 @@
       "description": "Spec's load-bearing P&L identity has no explicit test. Add one in CoverageManager.Tests covering positive/negative/mixed cases.",
       "phase": 2.9,
       "priority": "high",
-      "status": "pending",
+      "status": "done",
       "dependencies": [],
       "subtasks": [
         "Test case: client wins + coverage wins → broker zero",
@@ -1155,7 +1155,7 @@
       "description": "Covers H7. MT5 AccountSettings.Password is returned raw in the JSON response. Visible in DevTools Network. Strip it from reads and expose a passwordSet flag like the Bridge card already does. Frontend shows `• set` chip when present.",
       "phase": 2.5,
       "priority": "high",
-      "status": "pending",
+      "status": "done",
       "dependencies": [],
       "subtasks": [
         "Backend: SettingsController.GetAccounts strips Password → passwordSet bool",
