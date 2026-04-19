@@ -559,7 +559,7 @@
       "description": "Reversal of prior spec: light theme is kept and brought to production quality instead of being removed. Audit every financial cell + surface for WCAG AA contrast, replace remaining hardcoded hex with LIGHT_THEME tokens, re-tune layered backgrounds so panels/cards still have depth, and QA every component in both modes. Dark remains the default on first install.",
       "phase": 2.9,
       "priority": "high",
-      "status": "pending",
+      "status": "done",
       "dependencies": [],
       "subtasks": [
         "Enforce dark as default on first install (no stored preference -> DARK)",
@@ -570,7 +570,8 @@
         "Re-tune PriceChart + VolPnlChart stroke/fill colors for white background",
         "Sweep inline hex across all components - report + fix each site",
         "Keyboard + visual QA every tab in light mode (Exposure, P&L, Net P&L, Compare, Markup, Bridge, Settings)"
-      ]
+      ],
+      "notes": "Light theme kept + polished instead of removed. amber (#E68A00 -> #A65600) + t3 (#8A8A9A -> #6C6C80) now WCAG AA; new per-theme tokens for rowAlt/rowSelected/rowHover, shadow/shadowModal/shadowOverlay, badgeBlue/Red/Green/Amber; 19 hardcoded rgba literals replaced with tokens across 10 files. Dark remains the enforced default (commit cceffc9)."
     },
     {
       "id": 33,
