@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { THEME } from '../theme';
 import type { SymbolMapping } from '../types';
+import { ConfirmDialog } from './ConfirmDialog';
 
 const API_BASE = 'http://localhost:5000/api/mappings';
 
@@ -70,6 +71,28 @@ export function SymbolMappingAdmin() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<EditDraft | null>(null);
 
+  // Delete confirmation prompt state.
+  const [pendingDelete, setPendingDelete] = useState<SymbolMapping | null>(null);
+
+  // Validation error surfaced to the form / inline edit row.
+  const [formError, setFormError] = useState<string | null>(null);
+
+  // Validate a draft before submit — catches the most common dealer-desk
+  // footguns: 0-or-negative contract size, digits outside MT5's 0..8 range,
+  // and an empty canonical key that breaks aggregation silently.
+  function validateDraft(d: { canonical_name: string; bbook_symbol: string; bbook_contract_size: string; coverage_symbol: string; coverage_contract_size: string; digits: string; }): string | null {
+    if (!d.canonical_name.trim()) return 'Canonical name is required.';
+    if (!d.bbook_symbol.trim()) return 'B-Book symbol is required.';
+    if (!d.coverage_symbol.trim()) return 'Coverage symbol is required.';
+    const bb = Number(d.bbook_contract_size);
+    const cov = Number(d.coverage_contract_size);
+    if (!Number.isFinite(bb) || bb <= 0) return 'B-Book contract size must be > 0.';
+    if (!Number.isFinite(cov) || cov <= 0) return 'Coverage contract size must be > 0.';
+    const dig = Number(d.digits);
+    if (!Number.isInteger(dig) || dig < 0 || dig > 8) return 'Digits must be an integer between 0 and 8.';
+    return null;
+  }
+
   const fetchMappings = useCallback(async () => {
     try {
       const res = await fetch(API_BASE);
@@ -80,6 +103,9 @@ export function SymbolMappingAdmin() {
   useEffect(() => { fetchMappings(); }, [fetchMappings]);
 
   const handleSubmit = async () => {
+    const err = validateDraft(form);
+    if (err) { setFormError(err); return; }
+    setFormError(null);
     try {
       await fetch(API_BASE, {
         method: 'POST',
@@ -108,6 +134,13 @@ export function SymbolMappingAdmin() {
     } catch { /* ignore */ }
   };
 
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    const id = pendingDelete.id;
+    setPendingDelete(null);
+    await handleDelete(id);
+  };
+
   const startEdit = (m: SymbolMapping) => {
     setEditingId(m.id);
     setEditDraft({
@@ -125,6 +158,9 @@ export function SymbolMappingAdmin() {
 
   const saveEdit = async (id: string) => {
     if (!editDraft) return;
+    const err = validateDraft(editDraft);
+    if (err) { setFormError(err); return; }
+    setFormError(null);
     try {
       const res = await fetch(`${API_BASE}/${id}`, {
         method: 'PUT',
@@ -210,6 +246,19 @@ export function SymbolMappingAdmin() {
               Save Mapping
             </button>
           </div>
+          {formError && (
+            <div style={{
+              gridColumn: '1 / -1',
+              color: THEME.red,
+              fontSize: 12,
+              padding: '6px 10px',
+              border: `1px solid ${THEME.red}`,
+              borderRadius: 4,
+              background: THEME.badgeRed,
+            }}>
+              {formError}
+            </div>
+          )}
         </div>
       )}
 
@@ -289,7 +338,7 @@ export function SymbolMappingAdmin() {
                 <td style={{ ...cellStyle, color: THEME.t1, fontWeight: 600 }}>{m.canonical_name}</td>
                 <td style={{ ...cellStyle, color: THEME.blue }}>{m.bbook_symbol}</td>
                 <td style={{ ...cellStyle, textAlign: 'right', color: THEME.t2 }}>{m.bbook_contract_size}</td>
-                <td style={{ ...cellStyle, color: '#FF8A80' }}>{m.coverage_symbol}</td>
+                <td style={{ ...cellStyle, color: THEME.teal }}>{m.coverage_symbol}</td>
                 <td style={{ ...cellStyle, textAlign: 'right', color: THEME.t2 }}>{m.coverage_contract_size}</td>
                 <td style={{ ...cellStyle, textAlign: 'right', color: THEME.t2 }}>{m.digits}</td>
                 <td style={{ ...cellStyle, textAlign: 'right', color: THEME.t2 }}>{m.profit_currency}</td>
@@ -302,7 +351,7 @@ export function SymbolMappingAdmin() {
                     Edit
                   </button>
                   <button
-                    onClick={() => handleDelete(m.id)}
+                    onClick={() => setPendingDelete(m)}
                     style={{ ...btnStyle, background: THEME.badgeRed, color: THEME.red }}
                   >
                     Delete
@@ -320,6 +369,18 @@ export function SymbolMappingAdmin() {
           )}
         </tbody>
       </table>
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="Delete symbol mapping?"
+        message={pendingDelete
+          ? `This will remove the mapping for "${pendingDelete.canonical_name}" (B-Book ${pendingDelete.bbook_symbol} \u2194 Coverage ${pendingDelete.coverage_symbol}).\n\nLive positions for this symbol will fall back to the raw MT5 name and may be excluded from aggregation until a new mapping exists.`
+          : ''}
+        confirmLabel="Delete"
+        danger
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDelete(null)}
+      />
     </div>
   );
 }

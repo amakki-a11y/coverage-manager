@@ -1,3 +1,23 @@
+// =========================================================================
+// Color semantics — PLEASE READ BEFORE ADDING A NEW COLOR USAGE
+// =========================================================================
+// This is a dealing-desk UI. Colors carry meaning; swapping them for aesthetic
+// reasons breaks the user's ability to scan fast.
+//
+//   green   \u2192 positive money / healthy state ("+$123", hedge ratio OK)
+//   red     \u2192 negative money / danger        ("\u2212$45", unhedged, delete)
+//   amber   \u2192 warning / needs attention      (stale data, degraded health)
+//   blue    \u2192 informational / identifier     (CLIENT badge, tab indicator)
+//   teal    \u2192 accent / secondary group       (COV OUT badge, conversion hint)
+//   t1 / t2 / t3  \u2192 primary / secondary / tertiary foreground. NEVER use
+//                        one of the semantic colors above in place of t1/t2/t3.
+//
+// Backgrounds:
+//   bg   \u2192 app body          bg2 \u2192 toolbars         bg3 \u2192 inputs + alt rows
+//
+// Badge variants (15\u201318% alpha of the base) are for pill/button *backgrounds*,
+// never foreground text.
+// =========================================================================
 export interface ThemeColors {
   bg: string;
   bg2: string;

@@ -3,6 +3,9 @@ import { THEME } from '../theme';
 import type { ExposureSummary, PriceQuote } from '../types';
 import { useDateRange } from '../hooks/useDateRange';
 import { useSymbolDigits } from '../hooks/useSymbolDigits';
+import { HedgeBar } from './HedgeBar';
+import { DateRangePicker } from './DateRangePicker';
+import { FlashingCell } from './FlashingCell';
 
 type SortField = 'custom' | 'symbol' | 'bbNet' | 'bbPnL' | 'covNet' | 'covPnL' | 'netPnL' | 'hedge' | 'toCover';
 
@@ -68,8 +71,10 @@ export function ExposureTable({ summaries, prices }: ExposureTableProps) {
   const [bbClosedMap, setBbClosedMap] = useState<Record<string, ClosedSymbol>>({});
   const [covClosedMap, setCovClosedMap] = useState<Record<string, ClosedSymbol>>({});
   // Shared date range — persisted to localStorage and synced across tabs so the picker
-  // doesn't reset when switching to P&L / Net P&L and back.
-  const [closedFrom, closedTo, setClosedFrom, setClosedTo] = useDateRange();
+  // doesn't reset when switching to P&L / Net P&L and back. The setters are now
+  // owned by the embedded <DateRangePicker> component; the reads are kept so the
+  // fetch effect can key on (from, to).
+  const [closedFrom, closedTo] = useDateRange();
   // Tracks whether the closed-P&L fetch is in flight so the UI can show a loading badge
   // whenever the date range changes (otherwise stale totals look silently wrong).
   const [closedLoading, setClosedLoading] = useState(false);
@@ -79,6 +84,11 @@ export function ExposureTable({ summaries, prices }: ExposureTableProps) {
   // acts on incomplete numbers. We now list which side failed in an amber pill
   // next to the loading badge.
   const [closedErrors, setClosedErrors] = useState<string[]>([]);
+  // Set of uppercase canonical names known to `symbol_mappings`. A symbol on the
+  // live feed that isn't in this set is "unmapped" — contract-size conversions
+  // and symbol-group aggregation will silently fall back to the raw MT5 name,
+  // which is a dealing-desk footgun, so we surface an amber badge on the row.
+  const [mappedCanonicals, setMappedCanonicals] = useState<Set<string>>(new Set());
   const closedLoadSeq = useRef(0);
   const [showGrid, setShowGrid] = useState(() => {
     return localStorage.getItem('exposureGrid') !== 'false';
@@ -167,6 +177,12 @@ export function ExposureTable({ summaries, prices }: ExposureTableProps) {
         if (covRes?.ok && mapRes?.ok) {
           const cov = await covRes.json();
           const mappings: { canonical_name: string; coverage_symbol: string }[] = await mapRes.json();
+          // Cache the mapped canonical set so rows for unmapped symbols can be flagged.
+          const knownSet = new Set<string>();
+          for (const m of mappings) {
+            if (m.canonical_name) knownSet.add(m.canonical_name.toUpperCase());
+          }
+          setMappedCanonicals(knownSet);
           // Case-insensitive lookup — mapping data can have mixed case like "GCM6.C"
           // while the collector returns "GCM6.c". Uppercase both sides to reconcile.
           const covToCanonical: Record<string, string> = {};
@@ -428,35 +444,7 @@ export function ExposureTable({ summaries, prices }: ExposureTableProps) {
         </button>
         <div style={{ borderLeft: `1px solid ${THEME.border}`, height: 20, margin: '0 4px' }} />
         <span style={{ color: THEME.t3, fontSize: 11, fontWeight: 600 }}>Closed:</span>
-        <input
-          type="date"
-          value={closedFrom}
-          onChange={e => setClosedFrom(e.target.value)}
-          style={{
-            background: THEME.bg3,
-            border: `1px solid ${THEME.border}`,
-            borderRadius: 4,
-            padding: '3px 8px',
-            fontSize: 11,
-            color: THEME.t1,
-            fontFamily: 'inherit',
-          }}
-        />
-        <span style={{ color: THEME.t3, fontSize: 11 }}>to</span>
-        <input
-          type="date"
-          value={closedTo}
-          onChange={e => setClosedTo(e.target.value)}
-          style={{
-            background: THEME.bg3,
-            border: `1px solid ${THEME.border}`,
-            borderRadius: 4,
-            padding: '3px 8px',
-            fontSize: 11,
-            color: THEME.t1,
-            fontFamily: 'inherit',
-          }}
-        />
+        <DateRangePicker />
         {closedLoading && (
           <span
             title="Fetching closed deals for the selected range"
@@ -555,7 +543,33 @@ export function ExposureTable({ summaries, prices }: ExposureTableProps) {
                     ...c, ...gc, color: THEME.t1, fontWeight: 700, fontFamily: 'inherit',
                     borderLeft: 'none', cursor: sortField === 'custom' ? 'grab' : 'default',
                   }}>
-                    {s.canonicalSymbol}
+                    {(() => {
+                      const isUnmapped =
+                        mappedCanonicals.size > 0 &&
+                        !mappedCanonicals.has(s.canonicalSymbol.toUpperCase());
+                      return (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          <span>{s.canonicalSymbol}</span>
+                          {isUnmapped && (
+                            <span
+                              title={`No symbol_mappings row for "${s.canonicalSymbol}". Contract size conversion will fall back to raw MT5 name.`}
+                              style={{
+                                fontSize: 10,
+                                padding: '1px 5px',
+                                borderRadius: 3,
+                                background: THEME.badgeAmber,
+                                color: THEME.amber,
+                                fontWeight: 700,
+                                fontFamily: 'inherit',
+                                letterSpacing: 0.3,
+                              }}
+                            >
+                              UNMAPPED
+                            </span>
+                          )}
+                        </span>
+                      );
+                    })()}
                     {(() => {
                       const price = findPrice(s.canonicalSymbol);
                       if (!price) return null;
@@ -572,14 +586,23 @@ export function ExposureTable({ summaries, prices }: ExposureTableProps) {
                   <td style={{ ...c, ...gc, color: THEME.green, borderLeft: gridSecBorder }}>{fmt(s.bBookBuyVolume)}</td>
                   <td style={{ ...c, ...gc, color: THEME.red }}>{fmt(s.bBookSellVolume)}</td>
                   <td style={{ ...c, ...gc, color: pc(s.bBookNetVolume), fontWeight: 600 }}>{fmt(s.bBookNetVolume)}</td>
-                  <td style={{ ...c, ...gc, color: pc(s.bBookPnL) }}>{fp(s.bBookPnL)}</td>
+                  <FlashingCell value={s.bBookPnL} cellStyle={{ ...c, ...gc, color: pc(s.bBookPnL) }}>
+                    {fp(s.bBookPnL)}
+                  </FlashingCell>
                   <td style={{ ...c, ...gc, color: THEME.green, borderLeft: gridSecBorder }}>{fmt(s.coverageBuyVolume)}</td>
                   <td style={{ ...c, ...gc, color: THEME.red }}>{fmt(s.coverageSellVolume)}</td>
                   <td style={{ ...c, ...gc, color: pc(s.coverageNetVolume), fontWeight: 600 }}>{fmt(s.coverageNetVolume)}</td>
-                  <td style={{ ...c, ...gc, color: pc(s.coveragePnL) }}>{fp(s.coveragePnL)}</td>
+                  <FlashingCell value={s.coveragePnL} cellStyle={{ ...c, ...gc, color: pc(s.coveragePnL) }}>
+                    {fp(s.coveragePnL)}
+                  </FlashingCell>
                   <td style={{ ...c, ...gc, borderLeft: gridSecBorder, color: toCoverColor(toCoverValue(s.bBookNetVolume, s.coverageNetVolume)), fontWeight: 600 }}>{fmtToCover(toCoverValue(s.bBookNetVolume, s.coverageNetVolume))}</td>
-                  <td style={{ ...c, ...gc, color: pc(s.netPnL), fontWeight: 700 }}>{fp(s.netPnL)}</td>
-                  <td style={{ ...c, ...gc, color: hedgeColor(hr), fontWeight: 600 }}>{hr.toFixed(0)}%</td>
+                  <FlashingCell value={s.netPnL} cellStyle={{ ...c, ...gc, color: pc(s.netPnL), fontWeight: 700 }}>
+                    {fp(s.netPnL)}
+                  </FlashingCell>
+                  <td style={{ ...c, ...gc, color: hedgeColor(hr), fontWeight: 600 }}>
+                    <div>{hr.toFixed(0)}%</div>
+                    <HedgeBar hedgeRatio={hr} />
+                  </td>
                 </tr>
                 {/* CLOSED row — always shown for consistent row height */}
                 <tr

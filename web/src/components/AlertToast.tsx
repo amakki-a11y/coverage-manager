@@ -29,25 +29,31 @@ export function AlertToast({
 }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const processedRef = useRef<Set<string>>(new Set());
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  // The alert sound is a Web Audio oscillator beep, not an <audio> element. The
+  // ref stores a nullable "play the beep" function — no `any` shenanigans.
+  const beepRef = useRef<(() => void) | null>(null);
 
-  // Create audio element for alert sound
+  // Synthesize a short 880 Hz chirp on mount. AudioContext must be created lazily
+  // (browsers block it until a user gesture) so we instantiate on first play if
+  // the context isn't running yet.
   useEffect(() => {
-    const ctx = new AudioContext();
-    const createBeep = () => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.frequency.value = 880;
-      osc.type = 'sine';
-      gain.gain.setValueAtTime(0.3, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
-      osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + 0.3);
+    let ctx: AudioContext | null = null;
+    beepRef.current = () => {
+      try {
+        if (!ctx) ctx = new AudioContext();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.frequency.value = 880;
+        osc.type = 'sine';
+        gain.gain.setValueAtTime(0.3, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 0.3);
+      } catch { /* AudioContext may be suspended until a user gesture — swallow */ }
     };
-    audioRef.current = { play: createBeep } as any;
-    return () => { ctx.close(); };
+    return () => { ctx?.close(); beepRef.current = null; };
   }, []);
 
   // Process new alerts
@@ -59,10 +65,7 @@ export function AlertToast({
 
     newAlerts.forEach(a => processedRef.current.add(a.id));
 
-    // Play sound
-    if (soundEnabled && audioRef.current) {
-      try { (audioRef.current as any).play(); } catch { /* ignore */ }
-    }
+    if (soundEnabled) beepRef.current?.();
 
     setToasts(prev => {
       const added = newAlerts.map(a => ({ alert: a, id: a.id, fadeOut: false }));
@@ -143,7 +146,7 @@ export function AlertToast({
                   lineHeight: 1,
                 }}
               >
-                \u00D7
+                {'\u00D7'}
               </button>
             </div>
             <div style={{ fontSize: 12, color: THEME.t1, lineHeight: 1.4 }}>

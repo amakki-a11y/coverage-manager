@@ -15,6 +15,11 @@ import { BridgePanel } from './pages/Bridge';
 import { AlertToast } from './components/AlertToast';
 import { AlertBanner } from './components/AlertBanner';
 import { AlertHistory } from './components/AlertHistory';
+import { ConnectionHealthDots } from './components/ConnectionHealthDots';
+import { RiskBanner } from './components/RiskBanner';
+import { ErrorToastProvider } from './components/ErrorToast';
+import { StaleWrapper } from './components/Skeleton';
+import { KeyboardShortcutsOverlay } from './components/KeyboardShortcutsOverlay';
 import type { Position } from './types';
 
 type Tab = 'exposure' | 'positions' | 'pnl' | 'netpnl' | 'compare' | 'markup' | 'bridge' | 'mappings' | 'settings';
@@ -86,6 +91,7 @@ function AppContent() {
     }}>
       <TotalBar summaries={exposureSummaries} connected={connected} />
       <AlertBanner alertCount={alertCount} onShowHistory={() => setShowAlertHistory(true)} />
+      <RiskBanner summaries={exposureSummaries} />
 
       <div style={{
         display: 'flex',
@@ -103,11 +109,15 @@ function AppContent() {
         <button style={tabStyle(tab === 'mappings')} onClick={() => setTab('mappings')}>Mappings</button>
         <button style={tabStyle(tab === 'settings')} onClick={() => setTab('settings')}>Settings</button>
 
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center' }}>
+          <ConnectionHealthDots />
+        </div>
+
         {/* Alert bell + badge */}
         <button
           onClick={() => setShowAlertHistory(true)}
           style={{
-            marginLeft: 'auto',
+            marginLeft: 6,
             position: 'relative',
             background: 'transparent',
             border: `1px solid ${alertCount > 0 ? theme.amber : theme.border}`,
@@ -182,22 +192,25 @@ function AppContent() {
         </button>
       </div>
 
-      <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
-        {tab === 'exposure' && <ExposureTable summaries={exposureSummaries} prices={prices} />}
-        {tab === 'positions' && <PositionsGrid positions={positions} />}
-        {tab === 'pnl' && <PnLPanel />}
-        {tab === 'netpnl' && <PeriodPnLPanel />}
-        {tab === 'compare' && <PositionsCompare prices={prices} />}
-        {tab === 'markup' && <MarkupPanel />}
-        {tab === 'bridge' && <BridgePanel />}
-        {tab === 'mappings' && <SymbolMappingAdmin />}
-        {tab === 'settings' && <SettingsPanel />}
-      </div>
+      <StaleWrapper isStale={!connected} style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+        <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
+          {tab === 'exposure' && <ExposureTable summaries={exposureSummaries} prices={prices} />}
+          {tab === 'positions' && <PositionsGrid positions={positions} />}
+          {tab === 'pnl' && <PnLPanel />}
+          {tab === 'netpnl' && <PeriodPnLPanel />}
+          {tab === 'compare' && <PositionsCompare prices={prices} />}
+          {tab === 'markup' && <MarkupPanel />}
+          {tab === 'bridge' && <BridgePanel />}
+          {tab === 'mappings' && <SymbolMappingAdmin />}
+          {tab === 'settings' && <SettingsPanel />}
+        </div>
+      </StaleWrapper>
 
       <AlertToast alerts={newAlerts} soundEnabled={soundEnabled} onAcknowledge={acknowledgeAlert} />
       {showAlertHistory && (
         <AlertHistory onClose={() => setShowAlertHistory(false)} onAcknowledge={acknowledgeAlert} />
       )}
+      <KeyboardShortcutsOverlay />
     </div>
   );
 }
@@ -205,7 +218,9 @@ function AppContent() {
 function App() {
   return (
     <ThemeProvider>
-      <AppContent />
+      <ErrorToastProvider>
+        <AppContent />
+      </ErrorToastProvider>
     </ThemeProvider>
   );
 }

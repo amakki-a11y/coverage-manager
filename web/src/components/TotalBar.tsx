@@ -57,7 +57,7 @@ function Metric({ label, value, highlight }: { label: string; value: number; hig
     <div>
       <div style={{ color: THEME.t3, fontSize: 10, textTransform: 'uppercase' }}>{label}</div>
       <div style={{
-        color: highlight ? color : color,
+        color,
         fontSize: 16,
         fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace",
         fontWeight: highlight ? 700 : 600,

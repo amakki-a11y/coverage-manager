@@ -4,6 +4,7 @@ import type { AccountSettings } from '../types';
 import { BridgeSettingsCard } from './BridgeSettingsCard';
 import type { SnapshotSchedule, SnapshotCadence, ExposureSnapshot, ReconciliationRun } from '../types';
 import { formatBeirut, formatBeirutDate } from '../utils/time';
+import { ConfirmDialog } from './ConfirmDialog';
 
 const API_BASE = 'http://localhost:5000/api/settings/accounts';
 
@@ -118,6 +119,8 @@ export function SettingsPanel() {
   const [fixing, setFixing] = useState(false);
   const [fixedCount, setFixedCount] = useState<number | null>(null);
   const [movedAccounts, setMovedAccounts] = useState<Array<{ login: number; name: string; reason: string; moved_at: string }>>([]);
+  const [pendingDelete, setPendingDelete] = useState<AccountSettings | null>(null);
+  const [pendingFix, setPendingFix] = useState(false);
 
   const fetchAccounts = useCallback(async () => {
     try {
@@ -185,6 +188,15 @@ export function SettingsPanel() {
     } catch { /* ignore */ }
   };
 
+  const requestDelete = (account: AccountSettings) => setPendingDelete(account);
+
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    const id = pendingDelete.id;
+    setPendingDelete(null);
+    await handleDelete(id);
+  };
+
   const handleCancel = () => {
     setShowForm(null);
     setEditId(null);
@@ -211,14 +223,10 @@ export function SettingsPanel() {
     }
   };
 
-  const handleFix = async () => {
-    if (!confirm(
-      'WARNING: This will query MT5 Manager for all logins and upsert missing deals to Supabase.\n\n' +
-      'With many logins this puts load on the MT5 server.\n' +
-      'Best to run during low-activity hours.\n\n' +
-      'Continue?'
-    )) return;
+  const requestFix = () => setPendingFix(true);
 
+  const handleFix = async () => {
+    setPendingFix(false);
     setFixing(true);
     setVerifyError(null);
     try {
@@ -272,7 +280,7 @@ export function SettingsPanel() {
 
         {managerAccounts.length > 0 ? (
           managerAccounts.map(a => (
-            <AccountCard key={a.id} account={a} onEdit={handleEdit} onDelete={handleDelete} />
+            <AccountCard key={a.id} account={a} onEdit={handleEdit} onDelete={() => requestDelete(a)} />
           ))
         ) : (
           <div style={{ ...cardStyle, textAlign: 'center', color: THEME.t3, padding: 32 }}>
@@ -285,14 +293,14 @@ export function SettingsPanel() {
       <div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
           <div>
-            <h3 style={{ color: '#FF8A80', margin: 0, fontSize: 14 }}>Coverage Accounts (LP Terminal)</h3>
+            <h3 style={{ color: THEME.teal, margin: 0, fontSize: 14 }}>Coverage Accounts (LP Terminal)</h3>
             <p style={{ color: THEME.t3, margin: '4px 0 0', fontSize: 12 }}>
               MT5 Terminal — Python collector reads positions every 100ms
             </p>
           </div>
           <button
             onClick={() => { setShowForm('coverage'); setEditId(null); setForm(emptyForm); }}
-            style={{ ...btnStyle, background: '#FF8A80', color: '#000' }}
+            style={{ ...btnStyle, background: THEME.teal, color: '#000' }}
           >
             + Add Coverage
           </button>
@@ -311,7 +319,7 @@ export function SettingsPanel() {
 
         {coverageAccounts.length > 0 ? (
           coverageAccounts.map(a => (
-            <AccountCard key={a.id} account={a} onEdit={handleEdit} onDelete={handleDelete} />
+            <AccountCard key={a.id} account={a} onEdit={handleEdit} onDelete={() => requestDelete(a)} />
           ))
         ) : (
           <div style={{ ...cardStyle, textAlign: 'center', color: THEME.t3, padding: 32 }}>
@@ -481,7 +489,7 @@ export function SettingsPanel() {
                   </div>
                 </div>
                 <button
-                  onClick={handleFix}
+                  onClick={requestFix}
                   disabled={fixing}
                   style={{
                     ...btnStyle,
@@ -583,6 +591,28 @@ export function SettingsPanel() {
           </>
         )}
       </div>
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title={pendingDelete?.account_type === 'manager' ? 'Delete manager account?' : 'Delete coverage account?'}
+        message={pendingDelete
+          ? `Login ${pendingDelete.login} on ${pendingDelete.server} will be removed from live connections.\n\nHistorical deals already stored in Supabase are preserved, but the dashboard will no longer receive live updates from this account.`
+          : ''}
+        confirmLabel="Delete account"
+        danger
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDelete(null)}
+      />
+
+      <ConfirmDialog
+        open={pendingFix}
+        title="Backfill missing deals from MT5 Manager?"
+        message={'This will query MT5 Manager for every login in the selected range and upsert missing deals into Supabase.\n\nWith many logins this puts significant load on the MT5 server. Run during low-activity hours whenever possible.'}
+        confirmLabel="Run backfill"
+        danger
+        onConfirm={handleFix}
+        onCancel={() => setPendingFix(false)}
+      />
     </div>
   );
 }
@@ -597,7 +627,7 @@ function AccountForm({
   type: 'manager' | 'coverage';
   isEdit: boolean;
 }) {
-  const accentColor = type === 'manager' ? THEME.blue : '#FF8A80';
+  const accentColor = type === 'manager' ? THEME.blue : THEME.teal;
 
   return (
     <div style={{
@@ -674,10 +704,10 @@ function AccountCard({
 }: {
   account: AccountSettings;
   onEdit: (a: AccountSettings) => void;
-  onDelete: (id: string) => void;
+  onDelete: () => void;
 }) {
   const isManager = account.account_type === 'manager';
-  const accentColor = isManager ? THEME.blue : '#FF8A80';
+  const accentColor = isManager ? THEME.blue : THEME.teal;
 
   return (
     <div style={{ ...cardStyle, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 16 }}>
@@ -719,7 +749,7 @@ function AccountCard({
         <button onClick={() => onEdit(account)} style={{ ...btnStyle, background: THEME.bg3, color: THEME.t2 }}>
           Edit
         </button>
-        <button onClick={() => onDelete(account.id)} style={{ ...btnStyle, background: THEME.badgeRed, color: THEME.red }}>
+        <button onClick={() => onDelete()} style={{ ...btnStyle, background: THEME.badgeRed, color: THEME.red }}>
           Delete
         </button>
       </div>
@@ -748,6 +778,7 @@ function SnapshotSchedulesCard() {
   const [draft, setDraft] = useState<ScheduleDraft>({ name: '', cadence: 'daily', cron_expr: '', tz: 'Asia/Beirut', enabled: true });
   const [editingId, setEditingId] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<SnapshotSchedule | null>(null);
 
   const fetchAll = useCallback(async () => {
     try {
@@ -807,8 +838,12 @@ function SnapshotSchedulesCard() {
     setBusy(null);
   };
 
-  const del = async (id: string) => {
-    if (!confirm('Delete this schedule?')) return;
+  const requestDelete = (s: SnapshotSchedule) => setPendingDelete(s);
+
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    const id = pendingDelete.id;
+    setPendingDelete(null);
     try {
       await fetch(`${SCHEDULES_API}/${id}`, { method: 'DELETE' });
       fetchAll();
@@ -909,7 +944,7 @@ function SnapshotSchedulesCard() {
                     {busy === s.id ? '…' : 'Run Now'}
                   </button>
                   <button onClick={() => startEdit(s)} style={{ ...btnStyle, background: THEME.bg3, color: THEME.t2 }}>Edit</button>
-                  <button onClick={() => del(s.id)} style={{ ...btnStyle, background: THEME.badgeRed, color: THEME.red }}>Delete</button>
+                  <button onClick={() => requestDelete(s)} style={{ ...btnStyle, background: THEME.badgeRed, color: THEME.red }}>Delete</button>
                 </td>
               </tr>
             ))}
@@ -923,6 +958,18 @@ function SnapshotSchedulesCard() {
           </tbody>
         </table>
       </div>
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="Delete snapshot schedule?"
+        message={pendingDelete
+          ? `The "${pendingDelete.name}" schedule (${pendingDelete.cadence}) will stop running.\n\nAlready-captured snapshots remain, but no new automatic captures will occur from this schedule.`
+          : ''}
+        confirmLabel="Delete schedule"
+        danger
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDelete(null)}
+      />
     </div>
   );
 }

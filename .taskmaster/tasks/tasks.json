@@ -842,7 +842,7 @@
       "description": "PositionsGrid.tsx:65-66 hardcodes rgba(91,158,255,0.15) + #FF8A80. Replace with THEME.blue / THEME.red + an opacity helper.",
       "phase": 2.9,
       "priority": "medium",
-      "status": "pending",
+      "status": "done",
       "dependencies": [],
       "subtasks": [
         "Replace hex literals with THEME.*",
@@ -855,7 +855,7 @@
       "description": "CompareTable.tsx ~:112 renders the Net P&L total without a +/- prefix. Inconsistent with every other P&L cell.",
       "phase": 2.9,
       "priority": "medium",
-      "status": "pending",
+      "status": "done",
       "dependencies": [],
       "subtasks": [
         "Add sign prefix consistent with fmtPnl"
@@ -867,7 +867,7 @@
       "description": "PnLPanel.tsx formatDate uses d.getUTCDay() for the weekday — ignores Beirut TZ convention. Rename + route through formatBeirutDate + weekday derivation on a Beirut-normalized date.",
       "phase": 2.9,
       "priority": "medium",
-      "status": "pending",
+      "status": "done",
       "dependencies": [],
       "subtasks": [
         "Use formatBeirutDate + derive weekday from Beirut date",
@@ -893,7 +893,7 @@
       "description": "src/CoverageManager.Tests/UnitTest1.cs is an empty placeholder method TestMethod1. Remove.",
       "phase": 2.9,
       "priority": "low",
-      "status": "pending",
+      "status": "done",
       "dependencies": [],
       "subtasks": [
         "Delete the file + remove from test run"
@@ -944,7 +944,7 @@
       "description": "AlertToast.tsx:49 uses `as any` cast. Define an AudioHandler interface instead.",
       "phase": 2.9,
       "priority": "low",
-      "status": "pending",
+      "status": "done",
       "dependencies": [],
       "subtasks": [
         "Define AudioHandler interface",
@@ -957,7 +957,7 @@
       "description": "TotalBar.tsx:60 `color: highlight ? color : color` is a no-op. Clean up.",
       "phase": 2.9,
       "priority": "low",
-      "status": "pending",
+      "status": "done",
       "dependencies": [],
       "subtasks": [
         "Either add a second color branch or drop the ternary"
@@ -969,7 +969,7 @@
       "description": "Program.cs:48-53 calls AddHttpClient<T>() then overrides with AddSingleton<T>. Works but confusing; drop the typed client and use IHttpClientFactory.CreateClient(name) explicitly.",
       "phase": 2.9,
       "priority": "low",
-      "status": "pending",
+      "status": "done",
       "dependencies": [],
       "subtasks": [
         "Use named HttpClient instead of typed",
@@ -1010,7 +1010,7 @@
       "description": "Ship the typographic foundation a trading terminal requires. Load JetBrains Mono for every number, DM Sans for every UI string. Apply font-variant-numeric: tabular-nums on every numeric cell so columns vertical-align. Replace all ASCII hyphens in signed values with U+2212. Covers review findings C5, C6, M1, M2. Centralize in theme.ts as MONO, SANS, NUM constants and migrate call sites.",
       "phase": 3,
       "priority": "high",
-      "status": "pending",
+      "status": "done",
       "dependencies": [],
       "subtasks": [
         "Add @import for JetBrains Mono + DM Sans in index.html (or @font-face in index.css)",
@@ -1030,7 +1030,7 @@
       "description": "Replace the single LIVE dot in TotalBar with four independent status dots: MT5 Manager, Python collector, Centroid REST+WS, Supabase. Each with a hover tooltip showing last-update timestamp and connected-for duration. Red when down >10s, grey when stale. Covers review finding C1 and part of H11. Sketch in .taskmaster/docs/ui-ux-review-2026-04-17.md.",
       "phase": 3,
       "priority": "high",
-      "status": "pending",
+      "status": "done",
       "dependencies": [],
       "subtasks": [
         "Backend: GET /api/health returns { mt5, collector, centroid, supabase } with state + lastOkUtc",
@@ -1048,7 +1048,7 @@
       "description": "Make 'is my book OK?' readable in <2 seconds with zero clicks. Add a red top banner on the Exposure tab listing symbols whose |netVolume| exceeds risk_thresholds.max_net_exposure. Replace the bare hedge-% number with a horizontal bar (0–100%, colored at 50/80 bands, overhedge >100% shown with fill over 100). Applies to ExposureTable rows AND Compare SymbolRow. Covers review finding C2.",
       "phase": 3,
       "priority": "high",
-      "status": "pending",
+      "status": "done",
       "dependencies": [
         2
       ],
@@ -1068,7 +1068,7 @@
       "description": "Fix C3 — SIDE column renders '0' / '1' in red on old persisted rows because pre-JsonStringEnumConverter records store side as int. Add defensive frontend coercion (number → 'BUY'/'SELL'). Fix C4 — run the maker_orders poller once on startup with 24h window to backfill cov legs on rows whose cov_volume = 0. Hide 'No coverage legs within pairing window' for pairs older than the cutoff timestamp we set when the poller first ran.",
       "phase": 2.5,
       "priority": "high",
-      "status": "pending",
+      "status": "done",
       "dependencies": [],
       "subtasks": [
         "Frontend: normalize side in BridgeTable — if typeof number, map to 'BUY'/'SELL'",
@@ -1085,7 +1085,7 @@
       "description": "Replace magnitude-based fmtPrice (which silently mangles US30 to 1 decimal) with a helper that reads the digits column from symbol_mappings. Apply consistently across Exposure, Compare, Bridge, Markup, P&L. Covers review finding C7 and M12.",
       "phase": 2.5,
       "priority": "high",
-      "status": "pending",
+      "status": "done",
       "dependencies": [],
       "subtasks": [
         "Add useSymbolDigits() hook returning Record<symbol, digits>",
@@ -1102,7 +1102,7 @@
       "description": "Covers H8, H9, M9. A symbol in coverage without a symbol_mappings row silently disappears from Exposure — must become loud (red chip list + banner). Deleting a mapping must require confirmation showing deal count that references it. Contract-size field needs per-symbol-class validation and a normalization preview before save.",
       "phase": 2.5,
       "priority": "high",
-      "status": "pending",
+      "status": "done",
       "dependencies": [],
       "subtasks": [
         "Backend: /api/exposure/summary returns unmappedSymbols[]",
@@ -1120,7 +1120,7 @@
       "description": "Replace native <input type=date> with a custom range picker. Add preset chips (Today / Yesterday / 7d / MTD / YTD). Show explicit TZ pill (Asia/Beirut or UTC). Keyboard shortcuts: [/] to shift by day, Shift+[ / Shift+] by week. Unify useDateRange across Compare / Markup / Bridge so they share Exposure's range. Consolidate four todayStr() duplicates into utils/time.ts. Covers H3, H4, M6.",
       "phase": 2.5,
       "priority": "medium",
-      "status": "pending",
+      "status": "done",
       "dependencies": [],
       "subtasks": [
         "Build <DateRangePicker /> component with presets + calendar dropdown",
@@ -1171,7 +1171,7 @@
       "description": "Covers H10 and H11. Every tab blanks on initial fetch. Build skeleton rows per table using last-known symbol count. On WS drop, apply amber tint to stale data + show reconnecting chip. Global toast on 3 consecutive backend fetch failures.",
       "phase": 3,
       "priority": "medium",
-      "status": "pending",
+      "status": "done",
       "dependencies": [],
       "subtasks": [
         "Reusable <TableSkeleton rows={N} cols={...} /> component",
@@ -1188,7 +1188,7 @@
       "description": "Replace the 1500ms row-level price flash with a 200–300ms cell-level flash. Build useFlashOnChange(value) returning { background, transition } that the consumer applies inline. Apply to P&L, volume, and price cells in Exposure, Compare, Bridge. Covers M3 and part of the real-time audit.",
       "phase": 3,
       "priority": "medium",
-      "status": "pending",
+      "status": "done",
       "dependencies": [
         65
       ],
@@ -1208,7 +1208,7 @@
       "description": "SymbolRow uses blue for positive net — inconsistent with rubric. Compare tab's blue-when-positive is wrong. Fix SymbolRow + TotalBar + any other blue-for-value usage. Inline hex colors ('#FF8A80', '#000', '#fff' in SettingsPanel) must migrate to THEME tokens. Covers rubric failures.",
       "phase": 3,
       "priority": "medium",
-      "status": "pending",
+      "status": "done",
       "dependencies": [],
       "subtasks": [
         "SymbolRow nc(): green for positive, red for negative, t2 for zero",
@@ -1224,7 +1224,7 @@
       "description": "Press `?` to open a modal listing all keyboard shortcuts. `/` focuses symbol filter. `g e` / `g b` / `g c` navigate to Exposure / Bridge / Compare. `[` / `]` shift the date range by one day. Esc closes modals. Add sticky <thead> to Bridge / Markup / Mappings tables (Exposure already has). Replace sort-dropdown with click-to-sort on column headers. Covers M4, M7 and opens dealer-speed ergonomics. ",
       "phase": 3,
       "priority": "medium",
-      "status": "pending",
+      "status": "done",
       "dependencies": [],
       "subtasks": [
         "Global keybinding handler in AppContent",

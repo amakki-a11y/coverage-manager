@@ -110,7 +110,7 @@ export function CompareTable({ data, trades }: CompareTableProps) {
           <tr style={{ background: THEME.rowAlt }}>
             <td style={{ ...cell, textAlign: 'left', fontWeight: 700, fontSize: 10, color: THEME.t1, fontFamily: 'inherit', borderBottom: 'none' }}>Net P&L</td>
             <td colSpan={2} style={{ ...cell, textAlign: 'center', fontWeight: 700, color: pc(data.netPnl), borderBottom: 'none' }}>
-              {data.netPnl >= 0 ? '+' : ''}{data.netPnl.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              {data.netPnl >= 0 ? '+' : '\u2212'}{Math.abs(data.netPnl).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </td>
             <td style={{ ...cell, borderBottom: 'none' }}></td>
           </tr>

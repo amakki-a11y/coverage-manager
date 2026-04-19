@@ -289,6 +289,19 @@ MT5's `DealRequest` interprets the request window as **server-local time**, not 
 - **Positions grid:** Open time column, single volume column (removed redundant normalized column)
 - **Case-insensitive symbol lookup:** Price and closed deal lookups use toUpperCase() fallback (handles MT5 mixed-case like Ut100- vs UT100-)
 - **Hedge ratio uncapped:** HedgeRatio can exceed 100% when coverage exceeds client exposure
+- **Color semantics:** Documented in [`theme.ts`](web/src/theme.ts) at the top. green=positive, red=negative, amber=warning, blue=informational, teal=accent/secondary (used for Coverage group). `t1`/`t2`/`t3` are the ONLY foreground greys — never use a semantic color in place of them. Audit completed; removed legacy `#FF8A80` red-ish coverage accent in favor of `THEME.teal`.
+
+### Dealer-facing shell components
+- **RiskBanner** ([`web/src/components/RiskBanner.tsx`](web/src/components/RiskBanner.tsx)) — top-of-page watchdog. Amber/red banner when total `|netVolume|` crosses dealer-set thresholds (default 50 / 150 lots) OR when any meaningful-volume symbol sits below 80% hedged. Inline "Thresholds" control, values persisted to localStorage.
+- **ConnectionHealthDots** ([`web/src/components/ConnectionHealthDots.tsx`](web/src/components/ConnectionHealthDots.tsx) + [`useConnectionHealth.ts`](web/src/hooks/useConnectionHealth.ts)) — 4 dots (MT5 / Collector / Centroid / Supabase) in the top bar. Polls each upstream every 5s (MT5 via `/api/exposure/status`, Collector via `/health`, Centroid via `/api/bridge/health`, Supabase via `/api/mappings` canary). Green/amber/red/gray tooltips.
+- **DateRangePicker** ([`web/src/components/DateRangePicker.tsx`](web/src/components/DateRangePicker.tsx)) — shared `from`/`to` inputs backed by `useDateRange` + preset buttons (Today / Yesterday / Week / MTD / 7D / 30D) + a teal "BEIRUT" TZ pill. Keyboard shortcuts `T`/`Y`/`W`/`M` fire when focus is outside inputs. Mounted in ExposureTable; other tabs read the same `useDateRange` state so changes propagate.
+- **KeyboardShortcutsOverlay** ([`web/src/components/KeyboardShortcutsOverlay.tsx`](web/src/components/KeyboardShortcutsOverlay.tsx)) — `?` anywhere opens a cheat-sheet of all app-wide shortcuts; Esc closes.
+- **ConfirmDialog** ([`web/src/components/ConfirmDialog.tsx`](web/src/components/ConfirmDialog.tsx)) — standard modal used before destructive actions (delete mapping / account / schedule, deal backfill). Enter/Escape shortcuts; overlays use `THEME.shadowOverlay`.
+- **ErrorToastProvider** ([`web/src/components/ErrorToast.tsx`](web/src/components/ErrorToast.tsx)) — global, throttled, dedupe-within-3s error toast. Components opt in via `const { showError } = useErrorToast()` instead of empty `catch { /* ignore */ }`.
+- **StaleWrapper + Skeleton** ([`web/src/components/Skeleton.tsx`](web/src/components/Skeleton.tsx)) — when the exposure WebSocket drops, the main content dims + gets a diagonal amber hatch so the dealer can see the data is stale. `Skeleton` / `SkeletonRows` render shimmer placeholders for in-flight tables.
+- **FlashingCell + useFlashOnChange** ([`web/src/components/FlashingCell.tsx`](web/src/components/FlashingCell.tsx) + [`web/src/hooks/useFlashOnChange.ts`](web/src/hooks/useFlashOnChange.ts)) — table cells that tint green/red for 800ms when a monitored number ticks up/down. Wired into the OPEN-row B-Book / Coverage / Net P&L cells of the Exposure table.
+- **HedgeBar** ([`web/src/components/HedgeBar.tsx`](web/src/components/HedgeBar.tsx)) — thin horizontal bar under the hedge % cell (green ≥80%, amber ≥50%, red <50%). Width saturates at 100% so over-hedges stay visually full.
+- **UNMAPPED badge** — amber pill rendered next to the symbol name in ExposureTable when the canonical symbol is missing from `symbol_mappings`. Surfaces the silent fallback path that would otherwise hide broken contract-size conversions.
 
 ## API Endpoints
 ### C# Backend (port 5000)

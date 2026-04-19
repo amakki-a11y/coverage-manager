@@ -217,9 +217,21 @@ export function PnLPanel() {
   );
 
   const formatDate = (dateStr: string) => {
+    // The backend stores dates as Asia/Beirut-local YYYY-MM-DD strings in this
+    // context (one row per Beirut trading day). Parsing via `new Date(dateStr)`
+    // yields UTC midnight; calling `.getUTCDay()` then returns the weekday at
+    // that UTC instant, which on Sunday nights is already Monday in Beirut.
+    // Use Intl.DateTimeFormat with the Beirut zone so Mon is Mon regardless of
+    // where the dealer's browser is running.
     const d = new Date(dateStr);
-    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    return `${days[d.getUTCDay()]} ${d.getUTCDate()}`;
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Beirut',
+      weekday: 'short',
+      day: '2-digit',
+    }).formatToParts(d);
+    const wk = parts.find(p => p.type === 'weekday')?.value ?? '';
+    const day = parts.find(p => p.type === 'day')?.value ?? '';
+    return `${wk} ${Number(day)}`;
   };
 
   return (

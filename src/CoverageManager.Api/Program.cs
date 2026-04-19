@@ -44,8 +44,12 @@ try
     builder.Services.AddSingleton(dealStore);
     builder.Services.AddSingleton(alertEngine);
 
+    // Single IHttpClientFactory for every outbound HTTP caller. Each service
+    // uses its class name as the logical client name so Polly/retry policies
+    // can be attached per-service later without changing the services themselves.
+    builder.Services.AddHttpClient();
+
     // Supabase HTTP client
-    builder.Services.AddHttpClient<SupabaseService>();
     builder.Services.AddSingleton<SupabaseService>(sp =>
         new SupabaseService(
             sp.GetRequiredService<IConfiguration>(),
@@ -105,7 +109,6 @@ try
 
     builder.Services.AddSingleton<BridgeBroadcastService>();
 
-    builder.Services.AddHttpClient<BridgeSupabaseWriter>();
     builder.Services.AddSingleton<BridgeSupabaseWriter>(sp =>
         new BridgeSupabaseWriter(
             sp.GetRequiredService<IConfiguration>(),
@@ -114,7 +117,6 @@ try
 
     // Both feed implementations are registered as singletons; BridgeFeedHost picks one at runtime.
     builder.Services.AddSingleton<StubCentroidBridgeService>();
-    builder.Services.AddHttpClient<RestCentroidBridgeService>();
     builder.Services.AddSingleton<RestCentroidBridgeService>();
     builder.Services.AddSingleton<BridgeFeedHost>();
     // Controllers & worker depend on ICentroidBridgeService — route that to the host facade.
@@ -125,6 +127,10 @@ try
     // Coverage-side deal index — polls the Python collector's /deals/raw and maps
     // MT5 order_ticket -> MT5 deal_ticket on the 96900 account. Enables deal-per-deal
     // reconciliation on the COV OUT side (Centroid maker_order_id echoes onto 96900 as order_ticket).
+    // Uses the typed-client pattern because CoverageDealIndex's constructor takes
+    // HttpClient directly (as opposed to IHttpClientFactory). AddHttpClient<T>
+    // registers the typed client; the separate AddSingleton promotes it to a
+    // singleton scope so the background poll loop survives for the process lifetime.
     builder.Services.AddHttpClient<CoverageDealIndex>();
     builder.Services.AddSingleton<CoverageDealIndex>();
     builder.Services.AddHostedService(sp => sp.GetRequiredService<CoverageDealIndex>());
