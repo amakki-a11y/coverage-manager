@@ -24,35 +24,51 @@ public class SettingsController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/settings/accounts — list all account settings
+    /// GET /api/settings/accounts — list all account settings.
+    /// Password is never echoed; frontend sees `passwordSet: true|false` instead.
     /// </summary>
     [HttpGet("accounts")]
     public async Task<IActionResult> GetAccounts()
     {
         var accounts = await _supabase.GetAccountSettingsAsync();
-        return Ok(accounts);
+        return Ok(accounts.Select(RedactAccount));
     }
 
     /// <summary>
-    /// POST /api/settings/accounts — add or update an account
+    /// POST /api/settings/accounts — add or update an account.
+    /// Response is redacted (no password echoed back).
     /// </summary>
     [HttpPost("accounts")]
     public async Task<IActionResult> CreateAccount([FromBody] AccountSettings settings)
     {
         var result = await _supabase.CreateAccountSettingsAsync(settings);
         if (result == null) return StatusCode(500, "Failed to save account settings");
-        return Ok(result);
+        return Ok(RedactAccount(result));
     }
 
     /// <summary>
-    /// PUT /api/settings/accounts/{id} — update an account
+    /// PUT /api/settings/accounts/{id} — update an account.
+    /// Response is redacted (no password echoed back).
     /// </summary>
     [HttpPut("accounts/{id:guid}")]
     public async Task<IActionResult> UpdateAccount(Guid id, [FromBody] AccountSettings settings)
     {
         var result = await _supabase.UpdateAccountSettingsAsync(id, settings);
         if (result == null) return StatusCode(500, "Failed to update account settings");
-        return Ok(result);
+        return Ok(RedactAccount(result));
+    }
+
+    /// <summary>
+    /// Redact the password field from an AccountSettings before returning it over
+    /// the wire. Preserves the original snake_case JSON shape the UI depends on
+    /// (account_type, group_mask, is_active, …) but blanks the password so it
+    /// never leaves the server. Mutates in place — callers already got fresh
+    /// instances from SupabaseService / the POST body.
+    /// </summary>
+    private static AccountSettings RedactAccount(AccountSettings a)
+    {
+        a.Password = string.Empty;
+        return a;
     }
 
     /// <summary>

@@ -33,9 +33,9 @@ public class SupabaseService
     {
         try
         {
-            var response = await _http.GetAsync($"{_url}/rest/v1/symbol_mappings?is_active=eq.true&select=*");
+            var response = await _http.GetAsync($"{_url}/rest/v1/symbol_mappings?is_active=eq.true&select=*").ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
-            var json = await response.Content.ReadAsStringAsync();
+            var json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
             return JsonSerializer.Deserialize<List<SymbolMapping>>(json, JsonOptions) ?? [];
         }
         catch (Exception ex)
@@ -57,9 +57,9 @@ public class SupabaseService
             };
             request.Headers.Add("Prefer", "resolution=merge-duplicates,return=representation");
 
-            var response = await _http.SendAsync(request);
+            var response = await _http.SendAsync(request).ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
-            var result = await response.Content.ReadAsStringAsync();
+            var result = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
             var list = JsonSerializer.Deserialize<List<SymbolMapping>>(result, JsonOptions);
             return list?.FirstOrDefault();
         }
@@ -74,7 +74,7 @@ public class SupabaseService
     {
         try
         {
-            var response = await _http.DeleteAsync($"{_url}/rest/v1/symbol_mappings?id=eq.{id}");
+            var response = await _http.DeleteAsync($"{_url}/rest/v1/symbol_mappings?id=eq.{id}").ConfigureAwait(false);
             return response.IsSuccessStatusCode;
         }
         catch (Exception ex)
@@ -90,9 +90,9 @@ public class SupabaseService
     {
         try
         {
-            var response = await _http.GetAsync($"{_url}/rest/v1/account_settings?select=*&order=account_type,created_at");
+            var response = await _http.GetAsync($"{_url}/rest/v1/account_settings?select=*&order=account_type,created_at").ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
-            var json = await response.Content.ReadAsStringAsync();
+            var json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
             return JsonSerializer.Deserialize<List<AccountSettings>>(json, JsonOptions) ?? [];
         }
         catch (Exception ex)
@@ -114,9 +114,9 @@ public class SupabaseService
             };
             request.Headers.Add("Prefer", "return=representation");
 
-            var response = await _http.SendAsync(request);
+            var response = await _http.SendAsync(request).ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
-            var result = await response.Content.ReadAsStringAsync();
+            var result = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
             var list = JsonSerializer.Deserialize<List<AccountSettings>>(result, JsonOptions);
             return list?.FirstOrDefault();
         }
@@ -140,9 +140,9 @@ public class SupabaseService
             };
             request.Headers.Add("Prefer", "return=representation");
 
-            var response = await _http.SendAsync(request);
+            var response = await _http.SendAsync(request).ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
-            var result = await response.Content.ReadAsStringAsync();
+            var result = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
             var list = JsonSerializer.Deserialize<List<AccountSettings>>(result, JsonOptions);
             return list?.FirstOrDefault();
         }
@@ -157,7 +157,7 @@ public class SupabaseService
     {
         try
         {
-            var response = await _http.DeleteAsync($"{_url}/rest/v1/account_settings?id=eq.{id}");
+            var response = await _http.DeleteAsync($"{_url}/rest/v1/account_settings?id=eq.{id}").ConfigureAwait(false);
             return response.IsSuccessStatusCode;
         }
         catch (Exception ex)
@@ -174,9 +174,9 @@ public class SupabaseService
     {
         try
         {
-            var response = await _http.GetAsync($"{_url}/rest/v1/bridge_settings?select=*&limit=1");
+            var response = await _http.GetAsync($"{_url}/rest/v1/bridge_settings?select=*&limit=1").ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
-            var json = await response.Content.ReadAsStringAsync();
+            var json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
             var list = JsonSerializer.Deserialize<List<BridgeSettings>>(json, JsonOptions) ?? [];
             return list.FirstOrDefault();
         }
@@ -195,7 +195,7 @@ public class SupabaseService
 
             // There's a singleton index enforcing at most one row. Prefer UPDATE over INSERT
             // so we never accidentally try to create a second row.
-            var existing = await GetBridgeSettingsAsync();
+            var existing = await GetBridgeSettingsAsync().ConfigureAwait(false);
             if (existing?.Id is Guid id)
             {
                 settings.Id = id;
@@ -203,9 +203,9 @@ public class SupabaseService
                 var content = new StringContent(json, Encoding.UTF8, "application/json");
                 var req = new HttpRequestMessage(HttpMethod.Patch, $"{_url}/rest/v1/bridge_settings?id=eq.{id}") { Content = content };
                 req.Headers.Add("Prefer", "return=representation");
-                var resp = await _http.SendAsync(req);
+                var resp = await _http.SendAsync(req).ConfigureAwait(false);
                 resp.EnsureSuccessStatusCode();
-                var body = await resp.Content.ReadAsStringAsync();
+                var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
                 var list = JsonSerializer.Deserialize<List<BridgeSettings>>(body, JsonOptions);
                 return list?.FirstOrDefault();
             }
@@ -215,9 +215,9 @@ public class SupabaseService
                 var content = new StringContent(json, Encoding.UTF8, "application/json");
                 var req = new HttpRequestMessage(HttpMethod.Post, $"{_url}/rest/v1/bridge_settings") { Content = content };
                 req.Headers.Add("Prefer", "return=representation");
-                var resp = await _http.SendAsync(req);
+                var resp = await _http.SendAsync(req).ConfigureAwait(false);
                 resp.EnsureSuccessStatusCode();
-                var body = await resp.Content.ReadAsStringAsync();
+                var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
                 var list = JsonSerializer.Deserialize<List<BridgeSettings>>(body, JsonOptions);
                 return list?.FirstOrDefault();
             }
@@ -236,9 +236,9 @@ public class SupabaseService
         try
         {
             var filter = source != null ? $"&source=eq.{source}" : "";
-            var response = await _http.GetAsync($"{_url}/rest/v1/trading_accounts?select=*{filter}&order=login");
+            var response = await _http.GetAsync($"{_url}/rest/v1/trading_accounts?select=*{filter}&order=login").ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
-            var json = await response.Content.ReadAsStringAsync();
+            var json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
             return JsonSerializer.Deserialize<List<TradingAccount>>(json, JsonOptions) ?? [];
         }
         catch (Exception ex)
@@ -267,7 +267,7 @@ public class SupabaseService
                 };
                 request.Headers.Add("Prefer", "resolution=merge-duplicates");
 
-                var response = await _http.SendAsync(request);
+                var response = await _http.SendAsync(request).ConfigureAwait(false);
                 response.EnsureSuccessStatusCode();
                 total += chunk.Length;
             }
@@ -296,9 +296,9 @@ public class SupabaseService
         {
             var request = new HttpRequestMessage(HttpMethod.Get,
                 $"{_url}/rest/v1/moved_accounts?select=login");
-            var response = await _http.SendAsync(request);
+            var response = await _http.SendAsync(request).ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
-            var json = await response.Content.ReadAsStringAsync();
+            var json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
             var rows = JsonSerializer.Deserialize<List<Dictionary<string, JsonElement>>>(json, JsonOptions) ?? [];
             _movedLogins = new HashSet<long>(rows.Select(r => r["login"].GetInt64()));
             _movedLoginsLastRefresh = DateTime.UtcNow;
@@ -317,9 +317,9 @@ public class SupabaseService
         {
             var request = new HttpRequestMessage(HttpMethod.Get,
                 $"{_url}/rest/v1/moved_accounts?select=*&order=moved_at.desc");
-            var response = await _http.SendAsync(request);
+            var response = await _http.SendAsync(request).ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
-            var json = await response.Content.ReadAsStringAsync();
+            var json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
             return JsonSerializer.Deserialize<List<Dictionary<string, object>>>(json, JsonOptions) ?? [];
         }
         catch (Exception ex)
@@ -347,9 +347,9 @@ public class SupabaseService
                     $"{_url}/rest/v1/deals?source=eq.{source}&deal_time=gte.{fromStr}&deal_time=lte.{toStr}&select=*&order=deal_time&limit={pageSize}&offset={offset}");
                 request.Headers.Add("Prefer", "count=exact");
 
-                var response = await _http.SendAsync(request);
+                var response = await _http.SendAsync(request).ConfigureAwait(false);
                 response.EnsureSuccessStatusCode();
-                var json = await response.Content.ReadAsStringAsync();
+                var json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
                 var page = JsonSerializer.Deserialize<List<DealRecord>>(json, JsonOptions) ?? [];
 
                 allDeals.AddRange(page);
@@ -376,9 +376,9 @@ public class SupabaseService
             var request = new HttpRequestMessage(HttpMethod.Get,
                 $"{_url}/rest/v1/deals?source=eq.{source}&select=deal_time&order=deal_time.desc&limit=1");
 
-            var response = await _http.SendAsync(request);
+            var response = await _http.SendAsync(request).ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
-            var json = await response.Content.ReadAsStringAsync();
+            var json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
             var rows = JsonSerializer.Deserialize<List<Dictionary<string, JsonElement>>>(json, JsonOptions) ?? [];
 
             if (rows.Count > 0 && rows[0].TryGetValue("deal_time", out var dt))
@@ -418,10 +418,10 @@ public class SupabaseService
                 var req = new HttpRequestMessage(HttpMethod.Delete, url);
                 // count=exact tells PostgREST to return Content-Range: 0-N-1/N with actual affected rows.
                 req.Headers.Add("Prefer", "return=minimal,count=exact");
-                var res = await _http.SendAsync(req);
+                var res = await _http.SendAsync(req).ConfigureAwait(false);
                 if (!res.IsSuccessStatusCode)
                 {
-                    var err = await res.Content.ReadAsStringAsync();
+                    var err = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
                     _logger.LogWarning("DeleteDealsAsync batch failed {Status}: {Body}", res.StatusCode, err);
                     continue;
                 }
@@ -465,10 +465,10 @@ public class SupabaseService
                 };
                 request.Headers.Add("Prefer", "resolution=merge-duplicates");
 
-                var response = await _http.SendAsync(request);
+                var response = await _http.SendAsync(request).ConfigureAwait(false);
                 if (!response.IsSuccessStatusCode)
                 {
-                    var err = await response.Content.ReadAsStringAsync();
+                    var err = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
                     _logger.LogWarning("Deal upsert batch failed: {Error}", err);
                     continue;
                 }
@@ -506,7 +506,7 @@ public class SupabaseService
                     $"{_url}/rest/v1/deals?source=eq.{source}&deal_id=in.({string.Join(",", chunk)})&select=*");
                 if (response.IsSuccessStatusCode)
                 {
-                    var json = await response.Content.ReadAsStringAsync();
+                    var json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
                     var records = JsonSerializer.Deserialize<List<DealRecord>>(json, JsonOptions) ?? [];
                     foreach (var r in records)
                         existing[r.DealId] = r;
@@ -550,7 +550,7 @@ public class SupabaseService
 
             if (auditEntries.Count > 0)
             {
-                await InsertAuditEntriesAsync(auditEntries);
+                await InsertAuditEntriesAsync(auditEntries).ConfigureAwait(false);
                 _logger.LogWarning("Detected {Count} deal modifications for source={Source}", auditEntries.Count, source);
             }
 
@@ -581,10 +581,10 @@ public class SupabaseService
                     Content = content
                 };
 
-                var response = await _http.SendAsync(request);
+                var response = await _http.SendAsync(request).ConfigureAwait(false);
                 if (!response.IsSuccessStatusCode)
                 {
-                    var err = await response.Content.ReadAsStringAsync();
+                    var err = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
                     _logger.LogWarning("Audit log insert failed: {Error}", err);
                 }
             }
@@ -603,9 +603,9 @@ public class SupabaseService
     {
         try
         {
-            var response = await _http.GetAsync($"{_url}/rest/v1/alert_rules?select=*&order=created_at");
+            var response = await _http.GetAsync($"{_url}/rest/v1/alert_rules?select=*&order=created_at").ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
-            var json = await response.Content.ReadAsStringAsync();
+            var json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
             return JsonSerializer.Deserialize<List<RiskThreshold>>(json, JsonOptions) ?? [];
         }
         catch (Exception ex)
@@ -628,9 +628,9 @@ public class SupabaseService
             };
             request.Headers.Add("Prefer", "resolution=merge-duplicates,return=representation");
 
-            var response = await _http.SendAsync(request);
+            var response = await _http.SendAsync(request).ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
-            var result = await response.Content.ReadAsStringAsync();
+            var result = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
             var list = JsonSerializer.Deserialize<List<RiskThreshold>>(result, JsonOptions);
             return list?.FirstOrDefault();
         }
@@ -645,7 +645,7 @@ public class SupabaseService
     {
         try
         {
-            var response = await _http.DeleteAsync($"{_url}/rest/v1/alert_rules?id=eq.{id}");
+            var response = await _http.DeleteAsync($"{_url}/rest/v1/alert_rules?id=eq.{id}").ConfigureAwait(false);
             return response.IsSuccessStatusCode;
         }
         catch (Exception ex)
@@ -671,10 +671,10 @@ public class SupabaseService
                 Content = content
             };
 
-            var response = await _http.SendAsync(request);
+            var response = await _http.SendAsync(request).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
-                var err = await response.Content.ReadAsStringAsync();
+                var err = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
                 _logger.LogWarning("Alert events insert failed: {Error}", err);
                 return 0;
             }
@@ -695,7 +695,7 @@ public class SupabaseService
             var response = await _http.GetAsync(
                 $"{_url}/rest/v1/alert_events?select=*{filter}&order=triggered_at.desc&limit={limit}");
             response.EnsureSuccessStatusCode();
-            var json = await response.Content.ReadAsStringAsync();
+            var json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
             return JsonSerializer.Deserialize<List<AlertEvent>>(json, JsonOptions) ?? [];
         }
         catch (Exception ex)
@@ -716,7 +716,7 @@ public class SupabaseService
                 Content = content
             };
 
-            var response = await _http.SendAsync(request);
+            var response = await _http.SendAsync(request).ConfigureAwait(false);
             return response.IsSuccessStatusCode;
         }
         catch (Exception ex)
@@ -741,7 +741,7 @@ public class SupabaseService
             var response = await _http.GetAsync(
                 $"{_url}/rest/v1/trade_audit_log?select=*{filter}&order=detected_at.desc&limit=500");
             response.EnsureSuccessStatusCode();
-            var json = await response.Content.ReadAsStringAsync();
+            var json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
             return JsonSerializer.Deserialize<List<TradeAuditEntry>>(json, JsonOptions) ?? [];
         }
         catch (Exception ex)
@@ -768,11 +768,11 @@ public class SupabaseService
                 $"{_url}/rest/v1/exposure_snapshots?on_conflict=canonical_symbol,snapshot_time")
             { Content = content };
             req.Headers.Add("Prefer", "resolution=merge-duplicates,return=minimal");
-            var res = await _http.SendAsync(req);
+            var res = await _http.SendAsync(req).ConfigureAwait(false);
             if (!res.IsSuccessStatusCode)
             {
-                _logger.LogWarning("exposure_snapshots upsert failed: {Status} {Body}",
-                    res.StatusCode, await res.Content.ReadAsStringAsync());
+                var errBody = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
+                _logger.LogWarning("exposure_snapshots upsert failed: {Status} {Body}", res.StatusCode, errBody);
                 return 0;
             }
             return batch.Count;
@@ -800,13 +800,13 @@ public class SupabaseService
             {
                 Content = new StringContent(payload, Encoding.UTF8, "application/json"),
             };
-            var res = await _http.SendAsync(req);
+            var res = await _http.SendAsync(req).ConfigureAwait(false);
             if (!res.IsSuccessStatusCode)
             {
                 _logger.LogWarning("latest_snapshots_before RPC failed {Status}", res.StatusCode);
                 return new();
             }
-            var json = await res.Content.ReadAsStringAsync();
+            var json = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
             var rows = JsonSerializer.Deserialize<List<ExposureSnapshot>>(json, JsonOptions) ?? new();
             var result = new Dictionary<string, ExposureSnapshot>(StringComparer.OrdinalIgnoreCase);
             foreach (var r in rows)
@@ -834,9 +834,9 @@ public class SupabaseService
             if (!string.IsNullOrEmpty(canonicalSymbol))
                 sb.Append($"&canonical_symbol=eq.{Uri.EscapeDataString(canonicalSymbol)}");
             sb.Append("&order=snapshot_time.desc&limit=2000");
-            var res = await _http.GetAsync(sb.ToString());
+            var res = await _http.GetAsync(sb.ToString()).ConfigureAwait(false);
             if (!res.IsSuccessStatusCode) return new();
-            var json = await res.Content.ReadAsStringAsync();
+            var json = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
             return JsonSerializer.Deserialize<List<ExposureSnapshot>>(json, JsonOptions) ?? new();
         }
         catch (Exception ex)
@@ -863,14 +863,14 @@ public class SupabaseService
             };
             var json = JsonSerializer.Serialize(body, JsonOptions);
             var content = new StringContent(json, Encoding.UTF8, "application/json");
-            var res = await _http.PostAsync($"{_url}/rest/v1/rpc/aggregate_bbook_settled_pnl", content);
+            var res = await _http.PostAsync($"{_url}/rest/v1/rpc/aggregate_bbook_settled_pnl", content).ConfigureAwait(false);
             if (!res.IsSuccessStatusCode)
             {
-                var txt = await res.Content.ReadAsStringAsync();
+                var txt = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
                 _logger.LogWarning("aggregate_bbook_settled_pnl RPC failed {Status}: {Body}", res.StatusCode, txt);
                 return new(StringComparer.Ordinal);
             }
-            var text = await res.Content.ReadAsStringAsync();
+            var text = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
             using var doc = JsonDocument.Parse(text);
             var result = new Dictionary<string, decimal>(StringComparer.Ordinal);
             foreach (var row in doc.RootElement.EnumerateArray())
@@ -904,14 +904,14 @@ public class SupabaseService
             };
             var json = JsonSerializer.Serialize(body, JsonOptions);
             var content = new StringContent(json, Encoding.UTF8, "application/json");
-            var res = await _http.PostAsync($"{_url}/rest/v1/rpc/aggregate_bbook_pnl_full", content);
+            var res = await _http.PostAsync($"{_url}/rest/v1/rpc/aggregate_bbook_pnl_full", content).ConfigureAwait(false);
             if (!res.IsSuccessStatusCode)
             {
-                var txt = await res.Content.ReadAsStringAsync();
+                var txt = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
                 _logger.LogWarning("aggregate_bbook_pnl_full RPC failed {Status}: {Body}", res.StatusCode, txt);
                 return new();
             }
-            var text = await res.Content.ReadAsStringAsync();
+            var text = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
             using var doc = JsonDocument.Parse(text);
             var result = new List<SymbolPnL>();
             foreach (var row in doc.RootElement.EnumerateArray())
@@ -951,14 +951,14 @@ public class SupabaseService
             var content = new StringContent(json, Encoding.UTF8, "application/json");
             var req = new HttpRequestMessage(HttpMethod.Post, $"{_url}/rest/v1/reconciliation_runs") { Content = content };
             req.Headers.Add("Prefer", "return=representation");
-            var res = await _http.SendAsync(req);
+            var res = await _http.SendAsync(req).ConfigureAwait(false);
             if (!res.IsSuccessStatusCode)
             {
-                _logger.LogWarning("InsertReconciliationRunAsync failed {Status}: {Body}",
-                    res.StatusCode, await res.Content.ReadAsStringAsync());
+                var errBody = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
+                _logger.LogWarning("InsertReconciliationRunAsync failed {Status}: {Body}", res.StatusCode, errBody);
                 return null;
             }
-            var body = await res.Content.ReadAsStringAsync();
+            var body = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
             var list = JsonSerializer.Deserialize<List<ReconciliationRun>>(body, JsonOptions);
             return list?.FirstOrDefault();
         }
@@ -973,9 +973,9 @@ public class SupabaseService
     {
         try
         {
-            var res = await _http.GetAsync($"{_url}/rest/v1/reconciliation_runs?select=*&order=started_at.desc&limit={Math.Clamp(limit, 1, 500)}");
+            var res = await _http.GetAsync($"{_url}/rest/v1/reconciliation_runs?select=*&order=started_at.desc&limit={Math.Clamp(limit, 1, 500)}").ConfigureAwait(false);
             if (!res.IsSuccessStatusCode) return new();
-            var json = await res.Content.ReadAsStringAsync();
+            var json = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
             return JsonSerializer.Deserialize<List<ReconciliationRun>>(json, JsonOptions) ?? new();
         }
         catch (Exception ex)
@@ -993,9 +993,9 @@ public class SupabaseService
     {
         try
         {
-            var res = await _http.GetAsync($"{_url}/rest/v1/snapshot_schedules?select=*&order=name.asc");
+            var res = await _http.GetAsync($"{_url}/rest/v1/snapshot_schedules?select=*&order=name.asc").ConfigureAwait(false);
             if (!res.IsSuccessStatusCode) return new();
-            var json = await res.Content.ReadAsStringAsync();
+            var json = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
             return JsonSerializer.Deserialize<List<SnapshotSchedule>>(json, JsonOptions) ?? new();
         }
         catch (Exception ex)
@@ -1026,14 +1026,14 @@ public class SupabaseService
                 req = new HttpRequestMessage(HttpMethod.Post, $"{_url}/rest/v1/snapshot_schedules") { Content = content };
             }
             req.Headers.Add("Prefer", "return=representation");
-            var res = await _http.SendAsync(req);
+            var res = await _http.SendAsync(req).ConfigureAwait(false);
             if (!res.IsSuccessStatusCode)
             {
-                _logger.LogWarning("snapshot_schedules upsert failed {Status}: {Body}",
-                    res.StatusCode, await res.Content.ReadAsStringAsync());
+                var errBody = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
+                _logger.LogWarning("snapshot_schedules upsert failed {Status}: {Body}", res.StatusCode, errBody);
                 return null;
             }
-            var json = await res.Content.ReadAsStringAsync();
+            var json = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
             var list = JsonSerializer.Deserialize<List<SnapshotSchedule>>(json, JsonOptions);
             return list?.FirstOrDefault();
         }
@@ -1048,7 +1048,7 @@ public class SupabaseService
     {
         try
         {
-            var res = await _http.DeleteAsync($"{_url}/rest/v1/snapshot_schedules?id=eq.{id}");
+            var res = await _http.DeleteAsync($"{_url}/rest/v1/snapshot_schedules?id=eq.{id}").ConfigureAwait(false);
             return res.IsSuccessStatusCode;
         }
         catch (Exception ex)

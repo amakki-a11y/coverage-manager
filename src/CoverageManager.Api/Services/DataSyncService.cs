@@ -13,6 +13,7 @@ public sealed class DataSyncService : BackgroundService
 {
     private readonly SupabaseService _supabase;
     private readonly DealStore _dealStore;
+    private readonly PositionManager _positionManager;
     private readonly ILogger<DataSyncService> _logger;
 
     private const int SyncIntervalMs = 30_000; // Sync every 30 seconds
@@ -20,11 +21,32 @@ public sealed class DataSyncService : BackgroundService
     public DataSyncService(
         SupabaseService supabase,
         DealStore dealStore,
+        PositionManager positionManager,
         ILogger<DataSyncService> logger)
     {
         _supabase = supabase;
         _dealStore = dealStore;
+        _positionManager = positionManager;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// Resolve an MT5 raw symbol to its canonical name via symbol_mappings, with
+    /// a deterministic fallback so queries still group correctly if the mapping
+    /// is missing: strip trailing <c>-</c> / <c>.c</c> / <c>.m</c> and uppercase.
+    /// Matches what the settled-P&L RPC does server-side so client- and
+    /// server-computed canonical keys stay in lockstep.
+    /// </summary>
+    private string ResolveCanonical(string rawSymbol)
+    {
+        var m = _positionManager.FindMapping(rawSymbol, "bbook");
+        if (m != null) return m.CanonicalName.ToUpperInvariant();
+
+        var s = (rawSymbol ?? string.Empty).Trim();
+        var dot = s.LastIndexOf('.');
+        if (dot >= 0 && s.Length - dot <= 3) s = s.Substring(0, dot);
+        while (s.EndsWith("-")) s = s[..^1];
+        return s.ToUpperInvariant();
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -132,7 +154,7 @@ public sealed class DataSyncService : BackgroundService
             Source = "bbook",
             Login = (long)d.Login,
             Symbol = d.Symbol,
-            CanonicalSymbol = d.Symbol, // TODO: resolve via symbol mappings if needed
+            CanonicalSymbol = ResolveCanonical(d.Symbol),
             Direction = d.Direction,
             Action = d.Direction == "BUY" ? 0 : 1,
             Entry = (int)d.Entry,

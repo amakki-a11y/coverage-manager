@@ -176,4 +176,70 @@ public class ExposureEngineTests
         Assert.AreEqual("XAUUSD", result[0].CanonicalSymbol);
         Assert.AreEqual("EURUSD", result[1].CanonicalSymbol);
     }
+
+    // =========================================================================
+    // Broker P&L identity: NetPnL = −(ClientPnL) + CoveragePnL
+    // Locks in the CLAUDE.md P&L framework. The Exposure engine's derived
+    // ExposureSummary.NetPnL must always hold this formula. A regression here
+    // would push misleading P&L numbers to the dashboard — a real-money risk.
+    // =========================================================================
+
+    private void SeedBroker(decimal clientPnl, decimal covPnl)
+    {
+        _pm.UpdateBBookPosition("bbook:1001:100", new Position
+        {
+            Source = "bbook", Symbol = "XAUUSD", Direction = "BUY",
+            VolumeLots = 10, OpenPrice = 2650, Profit = clientPnl,
+        });
+        _pm.UpdateCoveragePositions(new[]
+        {
+            new CoveragePositionDto
+            {
+                Symbol = "GOLD", Direction = "BUY", Volume = 1000,
+                OpenPrice = 2650, Ticket = 200, Profit = covPnl,
+            },
+        });
+    }
+
+    [TestMethod]
+    public void BrokerIdentity_ClientLossCoverageLoss_NetsToBrokerPerspective()
+    {
+        // Real scenario from 2026-04-18: client book −481,278; coverage −733,813.
+        // Broker net = −(−481,278) + (−733,813) = −252,535. Broker ate the
+        // coverage-leg loss minus the client-side gain.
+        SeedBroker(clientPnl: -481_278m, covPnl: -733_813m);
+        var xau = _engine.CalculateExposure()[0];
+        Assert.AreEqual(-481_278m, xau.BBookPnL);
+        Assert.AreEqual(-733_813m, xau.CoveragePnL);
+        Assert.AreEqual(-252_535m, xau.NetPnL,
+            "Broker net must be −(client) + coverage, not client + coverage");
+    }
+
+    [TestMethod]
+    public void BrokerIdentity_ClientWinCoverageLoss_BrokerDoublyNegative()
+    {
+        // Worst case: clients won AND coverage lost. Broker pays both sides.
+        // client +1000, cov -500  →  −(+1000) + (−500) = −1500.
+        SeedBroker(clientPnl: 1_000m, covPnl: -500m);
+        var xau = _engine.CalculateExposure()[0];
+        Assert.AreEqual(-1_500m, xau.NetPnL);
+    }
+
+    [TestMethod]
+    public void BrokerIdentity_ClientLossCoverageWin_BrokerDoublyPositive()
+    {
+        // Best case: clients lost AND coverage won. Broker books both.
+        // client -1000, cov +500  →  −(−1000) + 500 = +1500.
+        SeedBroker(clientPnl: -1_000m, covPnl: 500m);
+        var xau = _engine.CalculateExposure()[0];
+        Assert.AreEqual(1_500m, xau.NetPnL);
+    }
+
+    [TestMethod]
+    public void BrokerIdentity_ZeroZero_NetIsZero()
+    {
+        SeedBroker(clientPnl: 0m, covPnl: 0m);
+        var xau = _engine.CalculateExposure()[0];
+        Assert.AreEqual(0m, xau.NetPnL);
+    }
 }

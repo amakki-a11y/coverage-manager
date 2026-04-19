@@ -91,6 +91,7 @@ try
         new DataSyncService(
             sp.GetRequiredService<SupabaseService>(),
             dealStore,
+            positionManager,
             sp.GetRequiredService<ILogger<DataSyncService>>()));
 
     // ---- Phase 2.5: Bridge Execution Analysis (Centroid Dropcopy feed) ----
