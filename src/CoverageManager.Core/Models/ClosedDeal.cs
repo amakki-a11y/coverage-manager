@@ -20,4 +20,18 @@ public class ClosedDeal
     public ulong OrderId { get; set; } // MTDeal.Order — ticket of the order that created this deal
     public ulong PositionId { get; set; } // MTDeal.PositionID
     public DateTime Time { get; set; }
+
+    /// <summary>
+    /// Raw MT5 <c>DealAction</c> code. Preserved for downstream classification:
+    ///   0 = BUY, 1 = SELL  (trade deals — filtered into DealStore)
+    ///   2 = BALANCE        (deposits/withdrawals)
+    ///   3 = CREDIT
+    ///   4 = CHARGE
+    ///   5 = CORRECTION
+    ///   6 = BONUS
+    ///   7 = COMMISSION
+    /// EquityPnLEngine uses this to bucket deals into the Comm Reb / Spread
+    /// Reb / Adj / Net Dep / Net Cred columns.
+    /// </summary>
+    public uint Action { get; set; }
 }

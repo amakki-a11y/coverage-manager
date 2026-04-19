@@ -156,7 +156,15 @@ public sealed class DataSyncService : BackgroundService
             Symbol = d.Symbol,
             CanonicalSymbol = ResolveCanonical(d.Symbol),
             Direction = d.Direction,
-            Action = d.Direction == "BUY" ? 0 : 1,
+            // Preserve the real MT5 DealAction code (0=BUY, 1=SELL, 2=BALANCE,
+            // 3=CREDIT, 4=CHARGE, 5=CORRECTION, 6=BONUS, 7=COMMISSION, …).
+            // Earlier this was `d.Direction == "BUY" ? 0 : 1` which was fine
+            // when DealStore held trade deals only — once balance/credit deals
+            // started flowing through (for the Equity P&L tab's Net Dep/W +
+            // Net Cred columns) the old code clobbered every non-trade Action
+            // to 1, silently turning credit/balance deals into phantom SELL
+            // trades every 30s.
+            Action = (int)d.Action,
             Entry = (int)d.Entry,
             Volume = d.VolumeLots,
             Price = d.Price,

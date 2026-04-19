@@ -33,6 +33,9 @@ public class TradingAccount
     [JsonPropertyName("equity")]
     public decimal Equity { get; set; }
 
+    [JsonPropertyName("credit")]
+    public decimal Credit { get; set; }
+
     [JsonPropertyName("margin")]
     public decimal Margin { get; set; }
 

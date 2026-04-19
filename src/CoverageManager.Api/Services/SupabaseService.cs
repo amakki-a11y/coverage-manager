@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using CoverageManager.Core.Models;
 using CoverageManager.Core.Models.Bridge;
+using CoverageManager.Core.Models.EquityPnL;
 
 namespace CoverageManager.Api.Services;
 
@@ -330,6 +331,160 @@ public class SupabaseService
     }
 
     // ── Deals ──
+
+    /// <summary>
+    /// Non-trade deals only (action &gt;= 2 — balance / credit / correction etc.)
+    /// for one source + UTC window. Used by the Equity P&amp;L tab to build
+    /// Net Dep/W, Net Cred, Adj columns without scanning the full 100K+ row
+    /// trade history.
+    /// </summary>
+    public async Task<List<DealRecord>> GetNonTradeDealsAsync(string source, DateTime from, DateTime to)
+    {
+        try
+        {
+            var fromIso = from.ToString("yyyy-MM-ddTHH:mm:ss");
+            var toIso   = to.ToString("yyyy-MM-ddTHH:mm:ss");
+            var url = $"{_url}/rest/v1/deals?select=*" +
+                      $"&source=eq.{source}" +
+                      $"&action=gte.2" +
+                      $"&deal_time=gte.{Uri.EscapeDataString(fromIso)}" +
+                      $"&deal_time=lt.{Uri.EscapeDataString(toIso)}" +
+                      $"&order=deal_time.asc" +
+                      $"&limit=10000";
+            var res = await _http.GetAsync(url).ConfigureAwait(false);
+            if (!res.IsSuccessStatusCode) return new();
+            var json = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
+            return JsonSerializer.Deserialize<List<DealRecord>>(json, JsonOptions) ?? new();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "GetNonTradeDealsAsync failed");
+            return new();
+        }
+    }
+
+    /// <summary>
+    /// Trade deals (action 0/1) for a specific set of logins in one UTC
+    /// window. Returns raw <see cref="DealRecord"/>s so the caller can
+    /// compute per-symbol volume for spread-rebate and per-deal commission
+    /// for comm-rebate. Uses the same 1000-row pagination pattern as the
+    /// full-scan aggregator and filters login server-side via the PostgREST
+    /// `in` operator so the payload stays bounded.
+    /// </summary>
+    public async Task<List<DealRecord>> GetTradeDealsForLoginsAsync(
+        string source, IEnumerable<long> logins, DateTime fromUtc, DateTime toUtc)
+    {
+        var list = logins.Distinct().ToList();
+        if (list.Count == 0) return new();
+        var result = new List<DealRecord>();
+        try
+        {
+            var fromStr = fromUtc.ToString("yyyy-MM-ddTHH:mm:ss");
+            var toStr   = toUtc.ToString("yyyy-MM-ddTHH:mm:ss");
+            var loginsFilter = string.Join(",", list);
+            const int pageSize = 1000;
+            var offset = 0;
+            while (true)
+            {
+                var url = $"{_url}/rest/v1/deals?select=*" +
+                          $"&source=eq.{source}" +
+                          $"&action=lt.2" +
+                          $"&login=in.({loginsFilter})" +
+                          $"&deal_time=gte.{Uri.EscapeDataString(fromStr)}" +
+                          $"&deal_time=lt.{Uri.EscapeDataString(toStr)}" +
+                          $"&order=deal_time.asc" +
+                          $"&limit={pageSize}" +
+                          $"&offset={offset}";
+                var res = await _http.GetAsync(url).ConfigureAwait(false);
+                if (!res.IsSuccessStatusCode) break;
+                var json = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
+                var page = JsonSerializer.Deserialize<List<DealRecord>>(json, JsonOptions) ?? new();
+                result.AddRange(page);
+                if (page.Count == 0) break;
+                offset += page.Count;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "GetTradeDealsForLoginsAsync failed");
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Per-login sum of (profit + commission + swap + fee) for trade deals
+    /// (action 0/1) in one UTC window. Used by the Equity P&amp;L endpoint to
+    /// reconcile implicit deposit flows via balance math — MT5's Manager
+    /// admin-transfer operations change the account balance without emitting
+    /// an action=2 deal row, so we derive Net Dep/W from the observable
+    /// balance change minus the trade-deal balance flow.
+    /// <para>Server-side SUM via PostgREST is not available without a RPC;
+    /// this implementation paginates at 5K rows / page and aggregates in C#.
+    /// Acceptable for a 30s-refresh panel over ≤ 200K trade rows (~40 pages).</para>
+    /// </summary>
+    public async Task<Dictionary<long, decimal>> SumTradeBalanceFlowPerLoginAsync(
+        string source, DateTime fromUtc, DateTime toUtc)
+    {
+        var totals = new Dictionary<long, decimal>();
+        try
+        {
+            var fromStr = fromUtc.ToString("yyyy-MM-ddTHH:mm:ss");
+            var toStr   = toUtc.ToString("yyyy-MM-ddTHH:mm:ss");
+            // Supabase PostgREST caps responses at 1000 rows by default
+            // regardless of the `limit` query param, so we page in 1000-row
+            // chunks and terminate on the first empty page — terminating on
+            // `page.Count < pageSize` drops rows when the server returned a
+            // full 1000-row page but the caller-requested pageSize was larger.
+            const int pageSize = 1000;
+            var offset = 0;
+            while (true)
+            {
+                // "Balance-affecting" deals = everything EXCEPT action 2 (BALANCE /
+                // deposit) and action 3 (CREDIT). Those two buckets get their own
+                // columns via the Net Dep/W and Net Cred reconciliation math; they
+                // would double-count if summed into the trade-flow offset here.
+                // Everything else — trade deals (0,1), charges (4), corrections (5),
+                // bonuses (6), commission entries (7–11), interest/dividends/tax
+                // (12–17), cancellations (13–14), and broker-specific codes like
+                // action=19 seen in this dataset — shifts the account's balance
+                // via the trade-side flow and must be included so the derived
+                // NetDepW matches MT5's Summary Report Deposit column.
+                var url = $"{_url}/rest/v1/deals?select=login,profit,commission,swap,fee" +
+                          $"&source=eq.{source}" +
+                          $"&action=not.in.(2,3)" +
+                          $"&deal_time=gte.{Uri.EscapeDataString(fromStr)}" +
+                          $"&deal_time=lt.{Uri.EscapeDataString(toStr)}" +
+                          $"&order=deal_time.asc" +
+                          $"&limit={pageSize}" +
+                          $"&offset={offset}";
+                var res = await _http.GetAsync(url).ConfigureAwait(false);
+                if (!res.IsSuccessStatusCode) break;
+                var json = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
+                var page = JsonSerializer.Deserialize<List<DealBalanceFlow>>(json, JsonOptions) ?? new();
+                foreach (var d in page)
+                {
+                    totals.TryGetValue(d.Login, out var running);
+                    totals[d.Login] = running + d.Profit + d.Commission + d.Swap + d.Fee;
+                }
+                if (page.Count == 0) break;
+                offset += page.Count;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "SumTradeBalanceFlowPerLoginAsync failed");
+        }
+        return totals;
+    }
+
+    private sealed class DealBalanceFlow
+    {
+        public long Login { get; set; }
+        public decimal Profit { get; set; }
+        public decimal Commission { get; set; }
+        public decimal Swap { get; set; }
+        public decimal Fee { get; set; }
+    }
 
     public async Task<List<DealRecord>> GetDealsAsync(string source, DateTime from, DateTime to)
     {
@@ -1054,6 +1209,456 @@ public class SupabaseService
         catch (Exception ex)
         {
             _logger.LogError(ex, "DeleteSnapshotScheduleAsync failed");
+            return false;
+        }
+    }
+
+    // =========================================================================
+    // Equity P&L — per-login equity snapshots + client config + spread rebates
+    // =========================================================================
+
+    /// <summary>Bulk-upsert per-login equity snapshot rows.</summary>
+    public async Task<int> UpsertAccountEquitySnapshotsAsync(IEnumerable<AccountEquitySnapshot> rows)
+    {
+        var batch = rows.ToList();
+        if (batch.Count == 0) return 0;
+        try
+        {
+            var body = JsonSerializer.Serialize(batch, JsonOptions);
+            var content = new StringContent(body, Encoding.UTF8, "application/json");
+            var req = new HttpRequestMessage(HttpMethod.Post,
+                $"{_url}/rest/v1/account_equity_snapshots?on_conflict=login,source,snapshot_time")
+            { Content = content };
+            req.Headers.Add("Prefer", "resolution=merge-duplicates,return=minimal");
+            var res = await _http.SendAsync(req).ConfigureAwait(false);
+            if (!res.IsSuccessStatusCode)
+            {
+                var errBody = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
+                _logger.LogWarning("account_equity_snapshots upsert failed {Status} {Body}", res.StatusCode, errBody);
+                return 0;
+            }
+            return batch.Count;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "UpsertAccountEquitySnapshotsAsync failed");
+            return 0;
+        }
+    }
+
+    /// <summary>
+    /// For a given UTC anchor, return the latest snapshot per (login, source) with
+    /// <c>snapshot_time &lt;= anchor</c>. Keyed by <c>$"{source}:{login}"</c>.
+    /// </summary>
+    public async Task<Dictionary<string, AccountEquitySnapshot>> GetAccountEquitySnapshotsBeforeAsync(DateTime anchorUtc)
+    {
+        try
+        {
+            // No RPC yet — page through the snapshot table ordered DESC by time
+            // and keep the first row for each (login, source) we encounter. Dataset
+            // is small (≤ N active logins × snapshot history) so this is fine.
+            // PostgREST returns 1,000 rows by default which is fine for the
+            // snapshot set we work with (≤ a few hundred). We explicitly lift the
+            // ceiling via the `limit` query parameter rather than the HTTP Range
+            // header — HttpClient's Range parser rejects PostgREST's bare
+            // "0-N" syntax (wants "bytes=0-N"), which previously silently
+            // broke this accessor and made Begin Equity stick at 0.
+            var url = $"{_url}/rest/v1/account_equity_snapshots" +
+                      $"?select=login,source,snapshot_time,balance,equity,credit,margin,trigger_type" +
+                      $"&snapshot_time=lte.{Uri.EscapeDataString(anchorUtc.ToString("o"))}" +
+                      $"&order=snapshot_time.desc" +
+                      $"&limit=10000";
+            var res = await _http.GetAsync(url).ConfigureAwait(false);
+            if (!res.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("GetAccountEquitySnapshotsBeforeAsync failed {Status}", res.StatusCode);
+                return new();
+            }
+            var json = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
+            var rows = JsonSerializer.Deserialize<List<AccountEquitySnapshot>>(json, JsonOptions) ?? new();
+            var result = new Dictionary<string, AccountEquitySnapshot>(StringComparer.OrdinalIgnoreCase);
+            foreach (var r in rows)
+            {
+                var key = $"{r.Source}:{r.Login}";
+                if (!result.ContainsKey(key)) result[key] = r;
+            }
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "GetAccountEquitySnapshotsBeforeAsync failed");
+            return new();
+        }
+    }
+
+    /// <summary>Fetch all snapshots for one (login, source) between two UTC times, DESC.</summary>
+    public async Task<List<AccountEquitySnapshot>> GetAccountEquitySnapshotsInRangeAsync(
+        long login, string source, DateTime fromUtc, DateTime toUtc)
+    {
+        try
+        {
+            var url = $"{_url}/rest/v1/account_equity_snapshots?select=*" +
+                      $"&login=eq.{login}&source=eq.{source}" +
+                      $"&snapshot_time=gte.{Uri.EscapeDataString(fromUtc.ToString("o"))}" +
+                      $"&snapshot_time=lte.{Uri.EscapeDataString(toUtc.ToString("o"))}" +
+                      $"&order=snapshot_time.asc";
+            var res = await _http.GetAsync(url).ConfigureAwait(false);
+            if (!res.IsSuccessStatusCode) return new();
+            var json = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
+            return JsonSerializer.Deserialize<List<AccountEquitySnapshot>>(json, JsonOptions) ?? new();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "GetAccountEquitySnapshotsInRangeAsync failed");
+            return new();
+        }
+    }
+
+    /// <summary>Load every row of <c>equity_pnl_client_config</c>, optionally filtered by source.</summary>
+    public async Task<List<EquityPnLClientConfig>> GetEquityPnLClientConfigsAsync(string? source = null)
+    {
+        try
+        {
+            var filter = source != null ? $"&source=eq.{source}" : "";
+            var url = $"{_url}/rest/v1/equity_pnl_client_config?select=*{filter}&order=login";
+            var res = await _http.GetAsync(url).ConfigureAwait(false);
+            if (!res.IsSuccessStatusCode) return new();
+            var json = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
+            return JsonSerializer.Deserialize<List<EquityPnLClientConfig>>(json, JsonOptions) ?? new();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "GetEquityPnLClientConfigsAsync failed");
+            return new();
+        }
+    }
+
+    /// <summary>Upsert a single client config row (PK = login, source).</summary>
+    public async Task<bool> UpsertEquityPnLClientConfigAsync(EquityPnLClientConfig cfg)
+    {
+        try
+        {
+            var body = JsonSerializer.Serialize(new[] { cfg }, JsonOptions);
+            var content = new StringContent(body, Encoding.UTF8, "application/json");
+            var req = new HttpRequestMessage(HttpMethod.Post,
+                $"{_url}/rest/v1/equity_pnl_client_config?on_conflict=login,source")
+            { Content = content };
+            req.Headers.Add("Prefer", "resolution=merge-duplicates,return=minimal");
+            var res = await _http.SendAsync(req).ConfigureAwait(false);
+            if (!res.IsSuccessStatusCode)
+            {
+                var errBody = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
+                _logger.LogWarning("equity_pnl_client_config upsert failed {Status} {Body}", res.StatusCode, errBody);
+                return false;
+            }
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "UpsertEquityPnLClientConfigAsync failed");
+            return false;
+        }
+    }
+
+    /// <summary>Bulk-upsert client configs (used by the engine to flush HWM state).</summary>
+    public async Task<int> UpsertEquityPnLClientConfigsAsync(IEnumerable<EquityPnLClientConfig> cfgs)
+    {
+        var batch = cfgs.ToList();
+        if (batch.Count == 0) return 0;
+        try
+        {
+            var body = JsonSerializer.Serialize(batch, JsonOptions);
+            var content = new StringContent(body, Encoding.UTF8, "application/json");
+            var req = new HttpRequestMessage(HttpMethod.Post,
+                $"{_url}/rest/v1/equity_pnl_client_config?on_conflict=login,source")
+            { Content = content };
+            req.Headers.Add("Prefer", "resolution=merge-duplicates,return=minimal");
+            var res = await _http.SendAsync(req).ConfigureAwait(false);
+            if (!res.IsSuccessStatusCode)
+            {
+                var errBody = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
+                _logger.LogWarning("equity_pnl_client_config bulk upsert failed {Status} {Body}", res.StatusCode, errBody);
+                return 0;
+            }
+            return batch.Count;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "UpsertEquityPnLClientConfigsAsync failed");
+            return 0;
+        }
+    }
+
+    /// <summary>Load every row of <c>equity_pnl_spread_rebates</c>.</summary>
+    public async Task<List<SpreadRebateRate>> GetSpreadRebateRatesAsync(long? login = null)
+    {
+        try
+        {
+            var filter = login.HasValue ? $"&login=eq.{login.Value}" : "";
+            var url = $"{_url}/rest/v1/equity_pnl_spread_rebates?select=*{filter}&order=login,canonical_symbol";
+            var res = await _http.GetAsync(url).ConfigureAwait(false);
+            if (!res.IsSuccessStatusCode) return new();
+            var json = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
+            return JsonSerializer.Deserialize<List<SpreadRebateRate>>(json, JsonOptions) ?? new();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "GetSpreadRebateRatesAsync failed");
+            return new();
+        }
+    }
+
+    /// <summary>Bulk-upsert rebate rate rows. Caller may pass a single row.</summary>
+    public async Task<int> UpsertSpreadRebateRatesAsync(IEnumerable<SpreadRebateRate> rates)
+    {
+        var batch = rates.ToList();
+        if (batch.Count == 0) return 0;
+        try
+        {
+            var body = JsonSerializer.Serialize(batch, JsonOptions);
+            var content = new StringContent(body, Encoding.UTF8, "application/json");
+            var req = new HttpRequestMessage(HttpMethod.Post,
+                $"{_url}/rest/v1/equity_pnl_spread_rebates?on_conflict=login,source,canonical_symbol")
+            { Content = content };
+            req.Headers.Add("Prefer", "resolution=merge-duplicates,return=minimal");
+            var res = await _http.SendAsync(req).ConfigureAwait(false);
+            if (!res.IsSuccessStatusCode)
+            {
+                var errBody = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
+                _logger.LogWarning("equity_pnl_spread_rebates upsert failed {Status} {Body}", res.StatusCode, errBody);
+                return 0;
+            }
+            return batch.Count;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "UpsertSpreadRebateRatesAsync failed");
+            return 0;
+        }
+    }
+
+    /// <summary>Delete a single spread rebate rate row.</summary>
+    public async Task<bool> DeleteSpreadRebateRateAsync(long login, string source, string canonicalSymbol)
+    {
+        try
+        {
+            var url = $"{_url}/rest/v1/equity_pnl_spread_rebates" +
+                      $"?login=eq.{login}&source=eq.{source}" +
+                      $"&canonical_symbol=eq.{Uri.EscapeDataString(canonicalSymbol)}";
+            var res = await _http.DeleteAsync(url).ConfigureAwait(false);
+            return res.IsSuccessStatusCode;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "DeleteSpreadRebateRateAsync failed");
+            return false;
+        }
+    }
+
+    // =========================================================================
+    // Phase 2 — Login groups for per-group rebate/PS config
+    // =========================================================================
+
+    public async Task<List<LoginGroup>> GetLoginGroupsAsync()
+    {
+        try
+        {
+            var res = await _http.GetAsync($"{_url}/rest/v1/login_groups?select=*&order=name").ConfigureAwait(false);
+            if (!res.IsSuccessStatusCode) return new();
+            var json = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
+            return JsonSerializer.Deserialize<List<LoginGroup>>(json, JsonOptions) ?? new();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "GetLoginGroupsAsync failed");
+            return new();
+        }
+    }
+
+    public async Task<LoginGroup?> UpsertLoginGroupAsync(LoginGroup g)
+    {
+        try
+        {
+            // POST creates when Id is null; PATCH updates when present.
+            HttpRequestMessage req;
+            if (g.Id.HasValue)
+            {
+                req = new HttpRequestMessage(HttpMethod.Patch, $"{_url}/rest/v1/login_groups?id=eq.{g.Id}")
+                { Content = new StringContent(JsonSerializer.Serialize(new { name = g.Name, description = g.Description }, JsonOptions),
+                    Encoding.UTF8, "application/json") };
+            }
+            else
+            {
+                req = new HttpRequestMessage(HttpMethod.Post, $"{_url}/rest/v1/login_groups")
+                { Content = new StringContent(JsonSerializer.Serialize(g, JsonOptions),
+                    Encoding.UTF8, "application/json") };
+            }
+            req.Headers.Add("Prefer", "return=representation");
+            var res = await _http.SendAsync(req).ConfigureAwait(false);
+            if (!res.IsSuccessStatusCode) return null;
+            var json = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
+            var list = JsonSerializer.Deserialize<List<LoginGroup>>(json, JsonOptions);
+            return list?.FirstOrDefault();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "UpsertLoginGroupAsync failed");
+            return null;
+        }
+    }
+
+    public async Task<bool> DeleteLoginGroupAsync(Guid id)
+    {
+        try
+        {
+            var res = await _http.DeleteAsync($"{_url}/rest/v1/login_groups?id=eq.{id}").ConfigureAwait(false);
+            return res.IsSuccessStatusCode;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "DeleteLoginGroupAsync failed");
+            return false;
+        }
+    }
+
+    public async Task<List<LoginGroupMember>> GetLoginGroupMembersAsync(Guid? groupId = null)
+    {
+        try
+        {
+            var filter = groupId.HasValue ? $"&group_id=eq.{groupId}" : "";
+            var url = $"{_url}/rest/v1/login_group_members?select=*{filter}&order=group_id,priority.desc,login";
+            var res = await _http.GetAsync(url).ConfigureAwait(false);
+            if (!res.IsSuccessStatusCode) return new();
+            var json = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
+            return JsonSerializer.Deserialize<List<LoginGroupMember>>(json, JsonOptions) ?? new();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "GetLoginGroupMembersAsync failed");
+            return new();
+        }
+    }
+
+    public async Task<bool> AddLoginGroupMemberAsync(LoginGroupMember m)
+    {
+        try
+        {
+            var body = JsonSerializer.Serialize(new[] { m }, JsonOptions);
+            var req = new HttpRequestMessage(HttpMethod.Post,
+                $"{_url}/rest/v1/login_group_members?on_conflict=group_id,login,source")
+            { Content = new StringContent(body, Encoding.UTF8, "application/json") };
+            req.Headers.Add("Prefer", "resolution=merge-duplicates,return=minimal");
+            var res = await _http.SendAsync(req).ConfigureAwait(false);
+            return res.IsSuccessStatusCode;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "AddLoginGroupMemberAsync failed");
+            return false;
+        }
+    }
+
+    public async Task<bool> RemoveLoginGroupMemberAsync(Guid groupId, long login, string source)
+    {
+        try
+        {
+            var url = $"{_url}/rest/v1/login_group_members?group_id=eq.{groupId}&login=eq.{login}&source=eq.{source}";
+            var res = await _http.DeleteAsync(url).ConfigureAwait(false);
+            return res.IsSuccessStatusCode;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "RemoveLoginGroupMemberAsync failed");
+            return false;
+        }
+    }
+
+    public async Task<List<EquityPnLGroupConfig>> GetGroupConfigsAsync()
+    {
+        try
+        {
+            var res = await _http.GetAsync($"{_url}/rest/v1/equity_pnl_group_config?select=*").ConfigureAwait(false);
+            if (!res.IsSuccessStatusCode) return new();
+            var json = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
+            return JsonSerializer.Deserialize<List<EquityPnLGroupConfig>>(json, JsonOptions) ?? new();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "GetGroupConfigsAsync failed");
+            return new();
+        }
+    }
+
+    public async Task<bool> UpsertGroupConfigAsync(EquityPnLGroupConfig cfg)
+    {
+        try
+        {
+            var body = JsonSerializer.Serialize(new[] { cfg }, JsonOptions);
+            var req = new HttpRequestMessage(HttpMethod.Post,
+                $"{_url}/rest/v1/equity_pnl_group_config?on_conflict=group_id")
+            { Content = new StringContent(body, Encoding.UTF8, "application/json") };
+            req.Headers.Add("Prefer", "resolution=merge-duplicates,return=minimal");
+            var res = await _http.SendAsync(req).ConfigureAwait(false);
+            return res.IsSuccessStatusCode;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "UpsertGroupConfigAsync failed");
+            return false;
+        }
+    }
+
+    public async Task<List<GroupSpreadRebateRate>> GetGroupSpreadRebateRatesAsync(Guid? groupId = null)
+    {
+        try
+        {
+            var filter = groupId.HasValue ? $"&group_id=eq.{groupId}" : "";
+            var url = $"{_url}/rest/v1/equity_pnl_group_spread_rebates?select=*{filter}&order=group_id,canonical_symbol";
+            var res = await _http.GetAsync(url).ConfigureAwait(false);
+            if (!res.IsSuccessStatusCode) return new();
+            var json = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
+            return JsonSerializer.Deserialize<List<GroupSpreadRebateRate>>(json, JsonOptions) ?? new();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "GetGroupSpreadRebateRatesAsync failed");
+            return new();
+        }
+    }
+
+    public async Task<bool> UpsertGroupSpreadRebateRatesAsync(IEnumerable<GroupSpreadRebateRate> rates)
+    {
+        var batch = rates.ToList();
+        if (batch.Count == 0) return true;
+        try
+        {
+            var body = JsonSerializer.Serialize(batch, JsonOptions);
+            var req = new HttpRequestMessage(HttpMethod.Post,
+                $"{_url}/rest/v1/equity_pnl_group_spread_rebates?on_conflict=group_id,canonical_symbol")
+            { Content = new StringContent(body, Encoding.UTF8, "application/json") };
+            req.Headers.Add("Prefer", "resolution=merge-duplicates,return=minimal");
+            var res = await _http.SendAsync(req).ConfigureAwait(false);
+            return res.IsSuccessStatusCode;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "UpsertGroupSpreadRebateRatesAsync failed");
+            return false;
+        }
+    }
+
+    public async Task<bool> DeleteGroupSpreadRebateRateAsync(Guid groupId, string canonicalSymbol)
+    {
+        try
+        {
+            var url = $"{_url}/rest/v1/equity_pnl_group_spread_rebates" +
+                      $"?group_id=eq.{groupId}&canonical_symbol=eq.{Uri.EscapeDataString(canonicalSymbol)}";
+            var res = await _http.DeleteAsync(url).ConfigureAwait(false);
+            return res.IsSuccessStatusCode;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "DeleteGroupSpreadRebateRateAsync failed");
             return false;
         }
     }

@@ -304,6 +304,11 @@ public sealed class MT5ApiReal : IMT5Api
                 Leverage = user.Leverage(),
                 Balance = (decimal)user.Balance(),
                 Equity = (decimal)equity,
+                // Credit bucket is separate from Balance in MT5. Admin-level
+                // credit-to-balance transfers move value between these two
+                // without emitting a deal record — tracking Credit is how the
+                // Equity P&L tab reconciles Net Credit from Current − Begin.
+                Credit = (decimal)user.Credit(),
                 Margin = (decimal)margin,
                 FreeMargin = (decimal)freeMargin,
                 Currency = currency,

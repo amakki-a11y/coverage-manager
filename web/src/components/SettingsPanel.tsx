@@ -5,6 +5,9 @@ import { BridgeSettingsCard } from './BridgeSettingsCard';
 import type { SnapshotSchedule, SnapshotCadence, ExposureSnapshot, ReconciliationRun } from '../types';
 import { formatBeirut, formatBeirutDate } from '../utils/time';
 import { ConfirmDialog } from './ConfirmDialog';
+import { EquityPnLClientConfigCard } from './EquityPnLClientConfigCard';
+import { SpreadRebatesCard } from './SpreadRebatesCard';
+import { LoginGroupsCard } from './LoginGroupsCard';
 
 const API_BASE = 'http://localhost:5000/api/settings/accounts';
 
@@ -121,6 +124,19 @@ export function SettingsPanel() {
   const [movedAccounts, setMovedAccounts] = useState<Array<{ login: number; name: string; reason: string; moved_at: string }>>([]);
   const [pendingDelete, setPendingDelete] = useState<AccountSettings | null>(null);
   const [pendingFix, setPendingFix] = useState(false);
+
+  // Settings is 10+ sections deep; a single long scroll overwhelms. Grouping
+  // into five functional sub-tabs keeps one concern visible at a time.
+  // localStorage-persisted so switching main tabs keeps the sub-tab.
+  type SubTab = 'connections' | 'equity' | 'snapshots' | 'integrity' | 'reference';
+  const [subTab, setSubTab] = useState<SubTab>(() => {
+    const saved = localStorage.getItem('settings.subTab');
+    return (saved as SubTab) || 'connections';
+  });
+  const switchTab = (t: SubTab) => {
+    setSubTab(t);
+    localStorage.setItem('settings.subTab', t);
+  };
 
   const fetchAccounts = useCallback(async () => {
     try {
@@ -246,10 +262,50 @@ export function SettingsPanel() {
     }
   };
 
+  const subTabs: Array<{ id: SubTab; label: string; desc: string }> = [
+    { id: 'connections', label: 'Connections',    desc: 'MT5 Manager, Coverage, Bridge' },
+    { id: 'equity',      label: 'Equity P&L',     desc: 'Rebate + profit-share config' },
+    { id: 'snapshots',   label: 'Snapshots',      desc: 'Schedules + capture history' },
+    { id: 'integrity',   label: 'Data Integrity', desc: 'Reconciliation + verification' },
+    { id: 'reference',   label: 'Reference',      desc: 'Moved accounts + read-only' },
+  ];
+  const subTabBtn = (t: typeof subTabs[number]): React.CSSProperties => ({
+    padding: '10px 16px',
+    border: 'none',
+    background: subTab === t.id ? THEME.card : 'transparent',
+    color: subTab === t.id ? THEME.t1 : THEME.t3,
+    borderBottom: subTab === t.id ? `2px solid ${THEME.blue}` : '2px solid transparent',
+    cursor: 'pointer',
+    fontSize: 13,
+    fontWeight: 600,
+    textAlign: 'left',
+    whiteSpace: 'nowrap',
+  });
+
   return (
     <div style={{ padding: 24, maxWidth: 900, margin: '0 auto' }}>
-      <h2 style={{ color: THEME.t1, margin: '0 0 24px', fontSize: 18 }}>Account Settings</h2>
+      <h2 style={{ color: THEME.t1, margin: '0 0 8px', fontSize: 18 }}>Settings</h2>
+      <p style={{ color: THEME.t3, fontSize: 12, margin: '0 0 16px' }}>
+        {subTabs.find(t => t.id === subTab)?.desc}
+      </p>
 
+      {/* Sub-tab nav */}
+      <div style={{
+        display: 'flex',
+        gap: 4,
+        borderBottom: `1px solid ${THEME.border}`,
+        marginBottom: 24,
+        overflowX: 'auto',
+      }}>
+        {subTabs.map(t => (
+          <button key={t.id} onClick={() => switchTab(t.id)} style={subTabBtn(t)}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Connections ──────────────────────────────── */}
+      {subTab === 'connections' && <>
       {/* Manager Accounts */}
       <div style={{ marginBottom: 32 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
@@ -330,18 +386,26 @@ export function SettingsPanel() {
 
       {/* Bridge (Centroid Dropcopy FIX) */}
       <BridgeSettingsCard />
+      </>}
 
-      {/* Snapshot schedules — drives Period P&L "Begin" anchor */}
-      <SnapshotSchedulesCard />
+      {/* ── Equity P&L ──────────────────────────────── */}
+      {subTab === 'equity' && <>
+        <LoginGroupsCard />
+        <EquityPnLClientConfigCard />
+        <SpreadRebatesCard />
+      </>}
 
-      {/* Snapshot history — recent captures from manual + scheduled runs */}
-      <SnapshotHistoryCard />
+      {/* ── Snapshots ──────────────────────────────── */}
+      {subTab === 'snapshots' && <>
+        <SnapshotSchedulesCard />
+        <SnapshotHistoryCard />
+      </>}
 
-      {/* Reconciliation — ghost-deal deletion + modification sweep */}
-      <ReconciliationCard />
+      {/* ── Data Integrity: Reconciliation (above) + Deal Verification (below) ── */}
+      {subTab === 'integrity' && <ReconciliationCard />}
 
-      {/* Moved Accounts */}
-      {movedAccounts.length > 0 && (
+      {/* ── Reference: Moved Accounts ──────────────── */}
+      {subTab === 'reference' && movedAccounts.length > 0 && (
         <div style={{ marginTop: 32 }}>
           <div style={{ marginBottom: 12 }}>
             <h3 style={{ color: THEME.t3, margin: 0, fontSize: 14 }}>Moved Accounts (Excluded from Exposure)</h3>
@@ -374,7 +438,8 @@ export function SettingsPanel() {
         </div>
       )}
 
-      {/* Deal Verification */}
+      {/* Deal Verification (part of Data Integrity sub-tab) */}
+      {subTab === 'integrity' && (
       <div style={{ marginTop: 32 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
           <div>
@@ -591,6 +656,14 @@ export function SettingsPanel() {
           </>
         )}
       </div>
+      )}
+
+      {/* Empty-state helpers when a sub-tab has nothing to show */}
+      {subTab === 'reference' && movedAccounts.length === 0 && (
+        <div style={{ ...cardStyle, textAlign: 'center', color: THEME.t3, padding: 40 }}>
+          No moved accounts. When you remove a login from MT5 Manager, it shows up here for reference.
+        </div>
+      )}
 
       <ConfirmDialog
         open={pendingDelete !== null}

@@ -28,6 +28,20 @@ Format: [Conventional Changelog](https://conventionalcommits.org)
   - `FlashingCell` + `useFlashOnChange` — 800 ms green/red tint on numeric cells when they tick up/down. Wired into the OPEN-row B-Book / Coverage / Net P&L cells in Exposure.
   - `HedgeBar` — thin progress bar under the per-symbol hedge % cell (green ≥ 80%, amber ≥ 50%, red < 50%).
   - `UNMAPPED` amber badge in Exposure for any canonical symbol missing from `symbol_mappings`.
+- **Equity P&L tab — Phase 1** (per-login balance-reconciled view)
+  - Columns: `Login, Begin Eq, Net Dep/W, Net Cred, Comm Reb, Spread Reb, Adj, PS, Supposed Eq, Current Eq, PL, Net PL`.
+  - `Net Dep/W = (CurrentBalance − BeginBalance) − Σ(trade-flow)` — captures MT5 admin balance transfers that `RequestDeals` doesn't surface. Reconciles to the cent vs. MT5 Summary Report's Deposit column.
+  - `Net Cred = Current Credit − Begin Credit` — `credit` field added to `trading_accounts` + `RawAccount` + wired through `IMTUser.Credit()` so the Manager sync picks it up every 5 min.
+  - `PsHighWaterMarkEngine` — reverse HWM (loss-share) engine with idempotent month-walk; pays % of new drawdown below the running low-water mark.
+  - New tables `account_equity_snapshots`, `equity_pnl_client_config`, `equity_pnl_spread_rebates`; scheduler tick writes per-login equity on every capture.
+  - `POST /api/equity-pnl/backfill-cash-movements` — one-shot historical backfill of balance/credit/correction deals with 300 ms-per-login pacing.
+  - `GET /api/equity-pnl/account-live?login=N` — diagnostic bypass for the 5-min sync.
+- **Equity P&L Phase 2 — login groups with priority-based resolution**
+  - New tables `login_groups`, `login_group_members(priority)`, `equity_pnl_group_config`, `equity_pnl_group_spread_rebates`.
+  - Endpoint resolves effective rate per login as `login-specific → group (highest priority) → 0 (default)`. Login-level spread rate overrides group rate for the same symbol.
+  - Trade-deal fetch scoped to **rebate-eligible logins only** so the endpoint stays sub-second instead of paging 120 k trade rows.
+  - `LoginGroupsCard` Settings UI — left: groups list with inline add/delete; right: detail with `CONFIG / MEMBERS / SPREAD REBATES` sub-tabs.
+- **Settings sub-tabs** — the Settings page is organized into 5 sub-tabs (`Connections / Equity P&L / Snapshots / Data Integrity / Reference`) instead of one long scroll. Sub-tab selection persisted in localStorage.
 
 ### Changed
 - `web/src/theme.ts` — documented color semantics at the top of the file (green/red/amber/blue/teal meanings). Audit pass: replaced legacy `#FF8A80` red-ish coverage accent with `THEME.teal` across `SettingsPanel` and `SymbolMappingAdmin`.
@@ -41,6 +55,13 @@ Format: [Conventional Changelog](https://conventionalcommits.org)
 - `src/CoverageManager.Tests/UnitTest1.cs` — MSTest template leftover.
 
 ### Fixed
+- **Critical — 5 writers derived `DealRecord.Action` from `Direction` instead of using MT5's real action code.** Harmless while only trade deals (action 0/1) flowed, but when Equity P&L ingestion started pulling balance/credit/correction deals, every `action=3` CREDIT deal got re-classified to `action=1` SELL on the next sync → phantom trade P&L drift. Fixed in `DataSyncService.cs:167`, `ReconciliationService.cs:174`, `ReconciliationService.cs:205`, `ExposureController.cs:303`, `ExposureController.cs:484`. All now use `Action = (int)d.Action`.
+- **`SumTradeBalanceFlowPerLoginAsync`** — Supabase PostgREST caps `limit` at 1000 rows server-side regardless of the value requested. The pagination was terminating early after the first page (1000 rows < 5000 pageSize), silently dropping ~80 % of the trade-flow data. Switched to `pageSize=1000` + `if (page.Count == 0) break;`.
+- **`SumTradeBalanceFlowPerLoginAsync` filter** — was `action < 2` (which excluded MT5's broker-specific action codes like `19` — observed in this dataset, 7 deals totalling up to $29k) so they leaked into the implicit NetDepW. Now uses `action not in (2,3)` so every non-BALANCE non-CREDIT deal contributes to trade flow.
+- **`GetAccountEquitySnapshotsBeforeAsync`** — HTTP `Range: 0-9999` header was invalid format (`.NET HttpClient` rejects PostgREST's bare `"0-N"` syntax), silently throwing `FormatException` and making every Begin Equity come back as 0. Swapped to PostgREST's `limit=10000` query parameter.
+- **Python collector reconnect** — `_reconnect_mt5` tried `mt5.initialize()` with no args first (reuse existing session) which silently fails when the user closes and reopens the MT5 terminal (Python library's internal pointer goes stale). Now goes straight to credential-based `mt5.initialize(login=, server=, password=)` so a fresh terminal launch is picked up on the first retry tick. Backoff cap lowered from 60 s → 10 s so the coverage panel recovers within 10 s of MT5 being reopened.
+- **`EquityPnLClientConfigCard`** — was crashing on mount because it treated `/api/accounts` as an array when the endpoint returns `{accounts: [...], count: N}`. Caused the Settings page to flash/flicker (React unmounts then remounts after a render-time throw). Now unwraps `body.accounts`.
+- **Equity P&L panel sticky header** — `position: sticky; top: 0` on `<th>` wasn't holding under a `border-collapse: collapse` table when body rows scrolled past. Added `z-index: 2` + `box-shadow: inset 0 -1px 0` for the bottom-edge separator, and `minHeight: 0` on the flex column root so the inner scroll container actually constrains instead of growing to fit content.
 
 ## [0.2.7] — 2026-04-03
 ### Added

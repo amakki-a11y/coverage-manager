@@ -171,7 +171,12 @@ public class ReconciliationService : BackgroundService
                     Symbol = d.Symbol,
                     CanonicalSymbol = d.Symbol,
                     Direction = d.Direction,
-                    Action = d.Direction == "BUY" ? 0 : 1,
+                    // Preserve the real MT5 DealAction code. Earlier this was
+                    // `d.Direction == "BUY" ? 0 : 1`, which worked for trade deals
+                    // but clobbered every non-trade action (BALANCE, CREDIT,
+                    // CORRECTION, …) to 1 on every reconciliation sweep — turning
+                    // credit deals into phantom SELL trades.
+                    Action = (int)d.Action,
                     Entry = (int)d.Entry,
                     Volume = d.VolumeLots,
                     Price = d.Price,
@@ -198,7 +203,12 @@ public class ReconciliationService : BackgroundService
                     Symbol = d.Symbol,
                     CanonicalSymbol = d.Symbol,
                     Direction = d.Direction,
-                    Action = d.Direction == "BUY" ? 0 : 1,
+                    // Preserve the real MT5 DealAction code. Earlier this was
+                    // `d.Direction == "BUY" ? 0 : 1`, which worked for trade deals
+                    // but clobbered every non-trade action (BALANCE, CREDIT,
+                    // CORRECTION, …) to 1 on every reconciliation sweep — turning
+                    // credit deals into phantom SELL trades.
+                    Action = (int)d.Action,
                     Entry = (int)d.Entry,
                     Volume = d.VolumeLots,
                     Price = d.Price,

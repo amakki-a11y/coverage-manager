@@ -90,6 +90,12 @@ public class DealStore
     public IReadOnlyList<SymbolPnL> GetPnLBySymbol(DateTime? from = null, DateTime? to = null)
     {
         var allDeals = _deals.Values
+            // Trade deals only — balance (2), credit (3), correction (5) etc
+            // are now persisted in DealStore so the Equity P&L feature can see
+            // them via Supabase, but they must not pollute symbol-level
+            // aggregations. Action 0 = BUY, 1 = SELL; anything else is a
+            // bookkeeping entry with no meaningful symbol/price.
+            .Where(d => d.Action < 2)
             .Where(d => !string.IsNullOrEmpty(d.Symbol))
             .Where(d => from == null || d.Time >= from.Value)
             .Where(d => to == null || d.Time < to.Value.AddDays(1))
@@ -126,6 +132,8 @@ public class DealStore
     public IReadOnlyList<DailyPnL> GetPnLByDay()
     {
         return _deals.Values
+            // Trade deals only — see `GetPnLBySymbol` for rationale.
+            .Where(d => d.Action < 2)
             .Where(d => !string.IsNullOrEmpty(d.Symbol))
             .GroupBy(d => d.Time.Date)
             .OrderByDescending(g => g.Key)

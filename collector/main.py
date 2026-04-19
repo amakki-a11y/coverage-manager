@@ -57,21 +57,43 @@ _cached_login: int = 0
 
 
 async def _reconnect_mt5() -> bool:
-    """Attempt to re-init MT5 after a drop. Returns True on success."""
+    """Attempt to re-init MT5 after a drop. Returns True on success.
+
+    When the user closes the MT5 terminal and reopens it, the Python library's
+    internal terminal pointer goes stale. `mt5.initialize()` with no args used
+    to be tried first (reuse the already-running terminal) but it silently
+    fails in that scenario — the fallback credential path then had to catch
+    it every time. We now go straight to credential-based re-init so a fresh
+    terminal launch is picked up on the first retry tick.
+    """
     try:
         mt5.shutdown()
     except Exception:
         pass
     try:
-        # Prefer the already-running terminal when possible.
-        if mt5.initialize():
-            return mt5.account_info() is not None
-        # Otherwise fall back to backend-supplied creds.
         account = await fetch_coverage_account()
         if account is None:
+            # Backend is down / creds not configured — fall back to reusing
+            # whatever terminal session Python still remembers. Last-ditch.
+            if mt5.initialize():
+                return mt5.account_info() is not None
             return False
-        init_mt5(account)
-        return mt5.account_info() is not None
+
+        login = int(account["login"])
+        server = account["server"]
+        password = account["password"]
+
+        if not mt5.initialize(login=login, server=server, password=password):
+            err = mt5.last_error()
+            print(f"[collector] mt5.initialize failed: {err}")
+            return False
+
+        acc = mt5.account_info()
+        if acc is None:
+            print("[collector] initialize ok but account_info is None")
+            return False
+        print(f"[collector] MT5 re-connected: {acc.login} @ {acc.server} bal={acc.balance}")
+        return True
     except Exception as e:
         print(f"[collector] MT5 reconnect failed: {e}")
         return False
@@ -87,7 +109,10 @@ async def position_loop():
     global _last_position_update_utc, _cached_login
     url = f"{BACKEND_URL}/api/coverage/positions"
     mt5_backoff_s = 1.0
-    MT5_BACKOFF_MAX = 60.0
+    # Backoff caps at 10s — the dealer will often close/reopen MT5 Terminal
+    # during the day and expects the coverage panel to come back quickly.
+    # A 60s ceiling added an unnecessary dead zone after a restart.
+    MT5_BACKOFF_MAX = 10.0
 
     async with httpx.AsyncClient(timeout=2.0) as client:
         while True:

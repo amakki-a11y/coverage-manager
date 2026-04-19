@@ -1,6 +1,7 @@
 using Cronos;
 using CoverageManager.Core.Engines;
 using CoverageManager.Core.Models;
+using CoverageManager.Core.Models.EquityPnL;
 
 namespace CoverageManager.Api.Services;
 
@@ -130,11 +131,37 @@ public class ExposureSnapshotService : BackgroundService
         if (snapshots.Count == 0)
         {
             _logger.LogInformation("CaptureOnceAsync ({Trigger}): no live exposure summaries to snapshot", triggerType);
-            return 0;
         }
 
-        var written = await supabase.UpsertExposureSnapshotsAsync(snapshots);
-        _logger.LogInformation("Snapshot captured ({Trigger}): {Count} symbol rows", triggerType, written);
+        var written = snapshots.Count > 0
+            ? await supabase.UpsertExposureSnapshotsAsync(snapshots)
+            : 0;
+
+        // Also capture per-login equity snapshots on the same tick — this is the
+        // "Begin Equity" source for the Equity P&L tab. trading_accounts is synced
+        // from MT5 every 5 min by MT5ManagerConnection, so these values reflect the
+        // dealer's live book at capture time.
+        var accounts = await supabase.GetTradingAccountsAsync();
+        var equityRows = accounts
+            .Where(a => a.Status == "active")
+            .Select(a => new AccountEquitySnapshot
+            {
+                Login = a.Login,
+                Source = a.Source,
+                SnapshotTime = nowUtc,
+                Balance = a.Balance,
+                Equity = a.Equity,
+                Credit = 0m,   // credit column in trading_accounts not mirrored yet; fill when available
+                Margin = a.Margin,
+                TriggerType = triggerType,
+                Label = label,
+            })
+            .ToList();
+        var equityWritten = await supabase.UpsertAccountEquitySnapshotsAsync(equityRows);
+
+        _logger.LogInformation(
+            "Snapshot captured ({Trigger}): {Symbols} symbol rows + {Accounts} account equity rows",
+            triggerType, written, equityWritten);
         return written;
     }
 

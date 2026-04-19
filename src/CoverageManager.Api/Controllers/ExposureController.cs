@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using CoverageManager.Core.Engines;
 using CoverageManager.Core.Models;
+using CoverageManager.Core.Models.EquityPnL;
 using CoverageManager.Connector;
 using CoverageManager.Api.Services;
 
@@ -17,6 +18,7 @@ public class ExposureController : ControllerBase
     private readonly SupabaseService _supabase;
     private readonly ExposureSnapshotService _snapshotService;
     private readonly IHttpClientFactory _httpFactory;
+    private readonly ILogger<ExposureController> _logger;
 
     public ExposureController(
         ExposureEngine exposureEngine,
@@ -25,7 +27,8 @@ public class ExposureController : ControllerBase
         DealStore dealStore,
         SupabaseService supabase,
         ExposureSnapshotService snapshotService,
-        IHttpClientFactory httpFactory)
+        IHttpClientFactory httpFactory,
+        ILogger<ExposureController> logger)
     {
         _exposureEngine = exposureEngine;
         _positionManager = positionManager;
@@ -34,6 +37,7 @@ public class ExposureController : ControllerBase
         _supabase = supabase;
         _snapshotService = snapshotService;
         _httpFactory = httpFactory;
+        _logger = logger;
     }
 
     /// <summary>
@@ -296,7 +300,10 @@ public class ExposureController : ControllerBase
                     Symbol = d.Symbol,
                     CanonicalSymbol = d.Symbol,
                     Direction = d.Direction,
-                    Action = d.Direction == "BUY" ? 0 : 1,
+                    // Preserve MT5's real DealAction code — see DataSyncService
+                    // for rationale (balance/credit/correction deals must not
+                    // be re-classified to a trade action on upsert).
+                    Action = (int)d.Action,
                     Entry = (int)d.Entry,
                     Volume = d.VolumeLots,
                     Price = d.Price,
@@ -477,7 +484,10 @@ public class ExposureController : ControllerBase
                     Symbol = d.Symbol,
                     CanonicalSymbol = d.Symbol,
                     Direction = d.Direction,
-                    Action = d.Direction == "BUY" ? 0 : 1,
+                    // Preserve MT5's real DealAction code — see DataSyncService
+                    // for rationale (balance/credit/correction deals must not
+                    // be re-classified to a trade action on upsert).
+                    Action = (int)d.Action,
                     Entry = (int)d.Entry,
                     Volume = d.VolumeLots,
                     Price = d.Price,
@@ -857,5 +867,522 @@ public class ExposureController : ControllerBase
     {
         [System.Text.Json.Serialization.JsonPropertyName("symbol")] public string? Symbol { get; set; }
         [System.Text.Json.Serialization.JsonPropertyName("netPnL")] public decimal NetPnL { get; set; }
+    }
+
+    // =========================================================================
+    // GET /api/equity-pnl?from=&to=
+    // Phase 1: per-login equity decomposition across the requested Beirut window.
+    // On-demand MT5 deal queries → classification → PS HWM advance → totals.
+    // =========================================================================
+    [HttpGet("/api/equity-pnl")]
+    public async Task<IActionResult> GetEquityPnL(
+        [FromQuery] DateTime? from = null,
+        [FromQuery] DateTime? to = null,
+        CancellationToken ct = default)
+    {
+        var fromDate = (from ?? DateTime.UtcNow.Date).Date;
+        var toDate   = (to   ?? DateTime.UtcNow.Date).Date;
+
+        TimeZoneInfo beirut;
+        try { beirut = TimeZoneInfo.FindSystemTimeZoneById("Asia/Beirut"); }
+        catch { beirut = TimeZoneInfo.Utc; }
+
+        static DateTime LocalMidnightToUtc(DateTime localDate, TimeZoneInfo tz)
+        {
+            var local = DateTime.SpecifyKind(localDate.Date, DateTimeKind.Unspecified);
+            try { return TimeZoneInfo.ConvertTimeToUtc(local, tz); }
+            catch (ArgumentException) { return TimeZoneInfo.ConvertTimeToUtc(local.AddHours(1), tz); }
+        }
+
+        var fromUtc = LocalMidnightToUtc(fromDate,            beirut);
+        var toUtc   = LocalMidnightToUtc(toDate.AddDays(1),   beirut);
+
+        // ── Fetch the pieces ──────────────────────────────────────────────
+        var accountsTask     = _supabase.GetTradingAccountsAsync();
+        var configsTask      = _supabase.GetEquityPnLClientConfigsAsync();
+        var ratesTask        = _supabase.GetSpreadRebateRatesAsync();
+        var movedLoginsTask  = _supabase.GetMovedLoginsAsync();
+        var beginSnapsTask   = _supabase.GetAccountEquitySnapshotsBeforeAsync(fromUtc);
+
+        // Phase 2 — per-group overrides. Groups + memberships + group-level
+        // rebate/PS config + group spread-rebate rates fetched in parallel.
+        var groupConfigsTask     = _supabase.GetGroupConfigsAsync();
+        var groupMembersTask     = _supabase.GetLoginGroupMembersAsync(null);
+        var groupSpreadRatesTask = _supabase.GetGroupSpreadRebateRatesAsync(null);
+        // Non-trade deals (balance / credit / correction) for every bbook
+        // login in the window. Small, fast query. Gives us Net Cred + Adj
+        // columns — but Net Dep/W is derived separately via balance
+        // reconciliation below, because MT5 Manager's admin balance-transfer
+        // operations don't surface in RequestDeals (they silently change the
+        // account's balance without emitting an action=2 deal row).
+        var allDealsTask     = _supabase.GetNonTradeDealsAsync("bbook", fromUtc, toUtc);
+
+        // Per-login trade-deal balance flow (profit + commission + swap + fee)
+        // needed for the balance reconciliation that backs out an implicit
+        // Net Dep/W. Server-side aggregation RPC is preferable; this
+        // pagination-based query is fine for the window sizes we expect
+        // (≤ a month, ≤ 200K rows).
+        var tradeFlowTask    = _supabase.SumTradeBalanceFlowPerLoginAsync("bbook", fromUtc, toUtc);
+
+        await Task.WhenAll(accountsTask, configsTask, ratesTask, movedLoginsTask, beginSnapsTask, allDealsTask, tradeFlowTask,
+                           groupConfigsTask, groupMembersTask, groupSpreadRatesTask);
+
+        var accounts     = accountsTask.Result;
+        var configs      = configsTask.Result.ToDictionary(c => $"{c.Source}:{c.Login}", StringComparer.OrdinalIgnoreCase);
+        var ratesByLogin = ratesTask.Result
+            .GroupBy(r => $"{r.Source}:{r.Login}", StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                g => g.Key,
+                g => g.ToDictionary(r => r.CanonicalSymbol.ToUpperInvariant(), r => r.RatePerLot,
+                    StringComparer.OrdinalIgnoreCase),
+                StringComparer.OrdinalIgnoreCase);
+        var moved       = movedLoginsTask.Result;
+        var beginSnaps  = beginSnapsTask.Result;
+        var tradeFlow   = tradeFlowTask.Result; // login -> (profit+commission+swap+fee) sum
+
+        // Phase 2 resolution maps. For each (login, source), pre-compute the
+        // highest-priority group's config + spread rates so the per-login loop
+        // is a constant-time dictionary lookup.
+        var groupConfigsById = groupConfigsTask.Result
+            .ToDictionary(c => c.GroupId);
+        var groupSpreadById = groupSpreadRatesTask.Result
+            .GroupBy(r => r.GroupId)
+            .ToDictionary(g => g.Key,
+                g => g.ToDictionary(r => r.CanonicalSymbol.ToUpperInvariant(), r => r.RatePerLot,
+                    StringComparer.OrdinalIgnoreCase));
+        // Map each member login -> the group it inherits from. If a login is in
+        // multiple groups, the highest `priority` wins; ties broken by group_id
+        // (stable). SQL already orders by priority desc, so `First` wins.
+        var groupForLogin = groupMembersTask.Result
+            .GroupBy(m => $"{m.Source}:{m.Login}", StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key,
+                g => g.OrderByDescending(m => m.Priority).First().GroupId);
+
+        // Trade deals for rebate-eligible logins only. A login is eligible if
+        // it has a direct config row, a direct spread-rate row, OR inherits
+        // from a group that has config / spread rates. Fetching trade deals
+        // only for these logins keeps the payload bounded (avoids the 120k-row
+        // full-scan we saw in Phase 1).
+        var eligibleLogins = new HashSet<long>();
+        foreach (var cfg in configsTask.Result) eligibleLogins.Add(cfg.Login);
+        foreach (var r   in ratesTask.Result)   eligibleLogins.Add(r.Login);
+        foreach (var m in groupMembersTask.Result)
+        {
+            var gid = m.GroupId;
+            if (groupConfigsById.ContainsKey(gid) || groupSpreadById.ContainsKey(gid))
+                eligibleLogins.Add(m.Login);
+        }
+        var tradeDeals = eligibleLogins.Count > 0
+            ? await _supabase.GetTradeDealsForLoginsAsync("bbook", eligibleLogins, fromUtc, toUtc)
+            : new List<DealRecord>();
+        var tradeDealsByLogin = tradeDeals
+            .GroupBy(d => d.Login)
+            .ToDictionary(
+                g => g.Key,
+                g => g.Select(d => new ClosedDeal
+                {
+                    DealId = (ulong)d.DealId,
+                    Login  = (ulong)d.Login,
+                    Symbol = d.Symbol ?? string.Empty,
+                    Direction = d.Direction ?? string.Empty,
+                    VolumeLots = d.Volume,
+                    Price = d.Price,
+                    Profit = d.Profit,
+                    Commission = d.Commission,
+                    Swap = d.Swap,
+                    Fee = d.Fee,
+                    Entry = (uint)d.Entry,
+                    Action = (uint)d.Action,
+                    Time = d.DealTime,
+                }).ToList());
+
+        // Deals grouped by login and projected to the ClosedDeal shape the
+        // engine expects (DealRecord.Action maps 1:1 to ClosedDeal.Action).
+        var supaDealsByLogin = allDealsTask.Result
+            .GroupBy(d => d.Login)
+            .ToDictionary(
+                g => g.Key,
+                g => g.Select(d => new ClosedDeal
+                {
+                    DealId = (ulong)d.DealId,
+                    Login = (ulong)d.Login,
+                    Symbol = d.Symbol ?? string.Empty,
+                    Direction = d.Direction ?? string.Empty,
+                    VolumeLots = d.Volume,
+                    Price = d.Price,
+                    Profit = d.Profit,
+                    Commission = d.Commission,
+                    Swap = d.Swap,
+                    Fee = d.Fee,
+                    Entry = (uint)d.Entry,
+                    Action = (uint)d.Action,
+                    OrderId = (ulong)(d.OrderId ?? 0),
+                    PositionId = (ulong)(d.PositionId ?? 0),
+                    Time = d.DealTime,
+                }).ToList());
+
+        // ── Normalize a raw symbol to canonical (matches engine's needs) ──
+        static string NormalizeKey(string? raw)
+        {
+            if (string.IsNullOrEmpty(raw)) return string.Empty;
+            var s = raw.Trim();
+            var dot = s.LastIndexOf('.');
+            if (dot >= 0 && s.Length - dot <= 3) s = s.Substring(0, dot);
+            while (s.EndsWith("-")) s = s[..^1];
+            return s.ToUpperInvariant();
+        }
+
+        var clientRows   = new List<EquityPnLRow>();
+        var coverageRows = new List<EquityPnLRow>();
+        var staleConfigs = new List<EquityPnLClientConfig>(); // updated HWM state to flush
+
+        // ── Build rows one account at a time ───────────────────────────────
+        foreach (var acct in accounts)
+        {
+            if (acct.Status != "active") continue;
+            if (moved.Contains(acct.Login))  continue;
+
+            var key = $"{acct.Source}:{acct.Login}";
+
+            var beginSnap = beginSnaps.TryGetValue(key, out var bs) ? bs : null;
+            decimal? beginEquity = beginSnap?.Equity;
+
+            // Current Equity = live from trading_accounts. Snapshots are the
+            // Begin source only — treating the nearest-past snapshot as
+            // "Current for a historical range" collapses the PL column to zero
+            // whenever a dealer picks a range older than today with no
+            // granular daily snapshots yet. Live is more useful until we have
+            // dense snapshot coverage.
+            var currentEquity = acct.Equity;
+            var currentIsLive = true;
+
+            EquityPnLClientConfig? cfg = configs.TryGetValue(key, out var c) ? c : null;
+
+            // Phase 2 inheritance. Resolve the effective login config:
+            //   1. If a login-specific row exists, use it verbatim.
+            //   2. Else if the login belongs to a group with a config row,
+            //      synthesize a config from the group (rebate/PS rates),
+            //      keeping zero HWM state so the PS engine doesn't misfire
+            //      on first contact with this login.
+            //   3. Else cfg stays null (zero rates, column is 0).
+            Guid? inheritedGroupId = null;
+            if (cfg == null && groupForLogin.TryGetValue(key, out var gid)
+                && groupConfigsById.TryGetValue(gid, out var gcfg))
+            {
+                inheritedGroupId = gid;
+                cfg = new EquityPnLClientConfig
+                {
+                    Login = acct.Login,
+                    Source = acct.Source,
+                    CommRebatePct = gcfg.CommRebatePct,
+                    PsPct = gcfg.PsPct,
+                    PsContractStart = null,        // PS at group level doesn't auto-start without login opt-in
+                    PsCumPl = 0m,
+                    PsLowWaterMark = 0m,
+                    PsLastProcessedMonth = null,
+                };
+            }
+
+            // Effective spread-rebate map = login-level rates OR the group's
+            // rates (when login belongs to a group). Login-level rates override
+            // group rates for the same symbol.
+            var rateMap = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+            if (groupForLogin.TryGetValue(key, out var grSpreadId)
+                && groupSpreadById.TryGetValue(grSpreadId, out var grRates))
+            {
+                foreach (var kv in grRates) rateMap[kv.Key] = kv.Value;
+            }
+            if (ratesByLogin.TryGetValue(key, out var rm))
+            {
+                foreach (var kv in rm) rateMap[kv.Key] = kv.Value; // login-level wins
+            }
+
+            // Populate deal classification columns (Net Dep/W, Net Cred, Adj,
+            // plus comm/spread rebates when a config or group membership
+            // exists). Non-trade deals come from `supaDealsByLogin` (action >= 2,
+            // fetched once for all bbook logins). Trade deals come from
+            // `tradeDealsByLogin` (action < 2, fetched only for rebate-eligible
+            // logins — avoids a 120k-row full-scan every request).
+            List<ClosedDeal> deals = new();
+            if (acct.Source == "bbook")
+            {
+                if (supaDealsByLogin.TryGetValue(acct.Login, out var nonTrade))
+                    deals.AddRange(nonTrade);
+                if (tradeDealsByLogin.TryGetValue(acct.Login, out var trade))
+                    deals.AddRange(trade);
+            }
+
+            // Monthly P&L series for PS HWM: built from month-end snapshots only
+            // when a PS contract exists. Cheap no-op when disabled.
+            List<(DateTime MonthEndUtc, decimal MonthlyPl)>? monthlyPl = null;
+            if (cfg?.PsContractStart != null && cfg.PsPct > 0m)
+            {
+                monthlyPl = BuildMonthlyPl(acct, cfg, beirut);
+            }
+
+            var row = EquityPnLEngine.BuildRow(
+                acct,
+                beginEquity,
+                currentEquity,
+                currentIsLive,
+                deals,
+                cfg,
+                rateMap,
+                NormalizeKey,
+                monthlyPl,
+                fromUtc,
+                toUtc,
+                out var updatedCfg);
+
+            // Balance-and-credit reconciliation override for Net Dep/W and
+            // Net Credit. MT5 Manager's `RequestDeals` doesn't surface
+            // admin balance/credit transfers — they silently shift value
+            // between the Balance and Credit buckets with no deal record.
+            // The authoritative figures match the Summary Report:
+            //   NetDepW = (CurrBalance - BeginBalance) - TradeBalanceFlow
+            //   NetCred = CurrCredit  - BeginCredit
+            // Only applied when we have a begin snapshot; otherwise we fall
+            // back to the deal-sum the engine already computed.
+            if (acct.Source == "bbook" && beginSnap != null)
+            {
+                var tradeBalanceFlow = tradeFlow.TryGetValue(acct.Login, out var tf) ? tf : 0m;
+                row.NetDepositWithdraw = (acct.Balance - beginSnap.Balance) - tradeBalanceFlow;
+                row.NetCredit          = acct.Credit  - beginSnap.Credit;
+
+                // Recompute downstream columns since we changed two inputs.
+                row.SupposedEquity = row.BeginEquity + row.NetDepositWithdraw + row.NetCredit;
+                row.Pl             = row.CurrentEquity - row.SupposedEquity;
+                var nonTrading     = row.CommRebate + row.SpreadRebate + row.Adjustment + row.ProfitShare;
+                row.NetPl          = row.Pl - nonTrading; // client-side convention
+            }
+
+            (acct.Source == "coverage" ? coverageRows : clientRows).Add(row);
+            // Only persist HWM state back to Supabase when the login has its
+            // OWN config row. Inherited-from-group configs are synthetic —
+            // writing them back would create phantom per-login rows that
+            // detach from the group on the next render.
+            if (updatedCfg != null && inheritedGroupId == null) staleConfigs.Add(updatedCfg);
+        }
+
+        // Flush any PS state that advanced this run.
+        if (staleConfigs.Count > 0)
+        {
+            await _supabase.UpsertEquityPnLClientConfigsAsync(staleConfigs);
+        }
+
+        var clientsTotal  = EquityPnLEngine.Total(clientRows,   "bbook");
+        var coverageTotal = EquityPnLEngine.Total(coverageRows, "coverage");
+
+        var brokerEdge = -clientsTotal.NetPl + coverageTotal.NetPl;
+
+        var response = new EquityPnLResponse
+        {
+            From = fromDate.ToString("yyyy-MM-dd"),
+            To   = toDate.ToString("yyyy-MM-dd"),
+            BeginAnchorUtc = fromUtc,
+            EndAnchorUtc   = toUtc,
+            ClientRows   = clientRows.OrderBy(r => r.Login).ToList(),
+            CoverageRows = coverageRows.OrderBy(r => r.Login).ToList(),
+            ClientsTotal  = clientsTotal,
+            CoverageTotal = coverageTotal,
+            BrokerEdge    = brokerEdge,
+        };
+        return Ok(response);
+    }
+
+    // =========================================================================
+    // GET /api/equity-pnl/account-live?login=NNN
+    //
+    // Diagnostic: return MT5 Manager's live snapshot of one account
+    // (balance / credit / equity / margin) bypassing the 5-min sync cycle.
+    // Handy for verifying HR sub-accounts that GetUserLogins('*') doesn't
+    // return — their row in trading_accounts can go stale since the sync
+    // only touches logins the pool surfaces.
+    // =========================================================================
+    [HttpGet("/api/equity-pnl/account-live")]
+    public IActionResult GetAccountLive([FromQuery] ulong login)
+    {
+        if (login == 0) return BadRequest(new { error = "login required" });
+        var raw = _mt5Connection.QueryUserAccount(login);
+        if (raw == null) return NotFound(new { error = "MT5 not connected, or login not found" });
+        return Ok(new
+        {
+            login    = raw.Login,
+            name     = raw.Name,
+            group    = raw.Group,
+            balance  = raw.Balance,
+            credit   = raw.Credit,
+            equity   = raw.Equity,
+            margin   = raw.Margin,
+            freeMargin = raw.FreeMargin,
+            currency = raw.Currency,
+        });
+    }
+
+    // =========================================================================
+    // POST /api/equity-pnl/backfill-cash-movements?from=&to=
+    //
+    // One-shot historical backfill of balance (action=2), credit (action=3),
+    // charge (4), correction (5), bonus (6), and commission-balance (7) deals
+    // into Supabase `deals`. Live deal ingestion now persists every action
+    // code automatically; this endpoint is for the window that pre-dates that
+    // change (or to re-sync if the dealer notices gaps).
+    //
+    // Paced at ~1 login / 300 ms to keep MT5 Manager's native side stable —
+    // simultaneous bulk queries crashed the process in earlier attempts.
+    // =========================================================================
+    [HttpPost("/api/equity-pnl/backfill-cash-movements")]
+    public async Task<IActionResult> BackfillCashMovements(
+        [FromQuery] DateTime? from = null,
+        [FromQuery] DateTime? to = null,
+        CancellationToken ct = default)
+    {
+        var fromDate = (from ?? DateTime.UtcNow.Date.AddDays(-30)).Date;
+        var toDate   = (to   ?? DateTime.UtcNow.Date).Date;
+        var fromUtc  = DateTime.SpecifyKind(fromDate, DateTimeKind.Utc);
+        var toUtc    = DateTime.SpecifyKind(toDate.AddDays(1), DateTimeKind.Utc);
+
+        var accounts = await _supabase.GetTradingAccountsAsync("bbook");
+        var moved    = await _supabase.GetMovedLoginsAsync();
+        accounts     = accounts
+            .Where(a => a.Status == "active" && !moved.Contains(a.Login))
+            .ToList();
+
+        var totalFetched = 0;
+        var totalPersisted = 0;
+        var logins = accounts.Count;
+        var errors = 0;
+
+        foreach (var acct in accounts)
+        {
+            if (ct.IsCancellationRequested) break;
+
+            List<ClosedDeal> deals;
+            try
+            {
+                deals = _mt5Connection.QueryAllDealsForLogin((ulong)acct.Login,
+                    new DateTimeOffset(fromUtc), new DateTimeOffset(toUtc));
+            }
+            catch (Exception ex)
+            {
+                errors++;
+                _logger.LogWarning(ex, "backfill-cash-movements query failed for {Login}", acct.Login);
+                await Task.Delay(300, ct).ConfigureAwait(false);
+                continue;
+            }
+
+            // Only non-trade deals — trade deals are already persisted by the
+            // existing DataSyncService path.
+            var nonTrade = deals.Where(d => d.Action >= 2).ToList();
+            totalFetched += nonTrade.Count;
+
+            if (nonTrade.Count > 0)
+            {
+                var records = nonTrade.Select(d => new DealRecord
+                {
+                    Source = "bbook",
+                    DealId = (long)d.DealId,
+                    Login = (long)d.Login,
+                    Symbol = d.Symbol ?? string.Empty,
+                    CanonicalSymbol = d.Symbol ?? string.Empty,
+                    Direction = d.Direction ?? string.Empty,
+                    Action = (int)d.Action,
+                    Entry = (int)d.Entry,
+                    Volume = d.VolumeLots,
+                    Price = d.Price,
+                    Profit = d.Profit,
+                    Commission = d.Commission,
+                    Swap = d.Swap,
+                    Fee = d.Fee,
+                    OrderId = d.OrderId == 0 ? null : (long)d.OrderId,
+                    PositionId = d.PositionId == 0 ? null : (long)d.PositionId,
+                    DealTime = d.Time,
+                }).ToList();
+                totalPersisted += await _supabase.UpsertDealsAsync(records);
+            }
+
+            // Pacing — native side is unhappy under sustained burst load.
+            await Task.Delay(300, ct).ConfigureAwait(false);
+        }
+
+        _logger.LogInformation(
+            "backfill-cash-movements: range {From:yyyy-MM-dd}..{To:yyyy-MM-dd}, {Logins} logins, {Fetched} non-trade deals fetched, {Persisted} persisted, {Errors} login errors",
+            fromDate, toDate, logins, totalFetched, totalPersisted, errors);
+
+        return Ok(new
+        {
+            from = fromDate.ToString("yyyy-MM-dd"),
+            to = toDate.ToString("yyyy-MM-dd"),
+            logins,
+            fetched = totalFetched,
+            persisted = totalPersisted,
+            errors,
+        });
+    }
+
+    /// <summary>
+    /// Build an ordered list of (month-end UTC, monthly-trading-P&amp;L) pairs for
+    /// the PS HWM engine. Covers every month from the contract start through
+    /// the current window, allowing the engine to catch up on any missed months.
+    /// Monthly P&amp;L = (equity at month-end) - (equity at prev month-end) - (cash in/out that month).
+    /// </summary>
+    /// <remarks>
+    /// For Phase 1, this uses month-end equity snapshots only (no cash-movement subtraction).
+    /// That means the HWM engine treats deposits/withdrawals as if they're trading P&amp;L.
+    /// Refinement in Phase 2: subtract within-month balance-deal sums. For the demo,
+    /// dealer is responsible for pausing PS contracts during significant cash events.
+    /// </remarks>
+    private List<(DateTime MonthEndUtc, decimal MonthlyPl)> BuildMonthlyPl(
+        TradingAccount acct,
+        EquityPnLClientConfig cfg,
+        TimeZoneInfo beirut)
+    {
+        var list = new List<(DateTime, decimal)>();
+        if (cfg.PsContractStart == null) return list;
+
+        var start = cfg.PsContractStart.Value.Date;
+        var today = DateTime.UtcNow.Date;
+
+        // We don't have snapshots before the feature existed, so this walk can't
+        // produce values for months that pre-date our snapshot history. That's
+        // acceptable — the engine skips months with no paired snapshots.
+        var fromUtc = DateTime.SpecifyKind(start, DateTimeKind.Utc);
+        var toUtc   = DateTime.SpecifyKind(today.AddDays(1), DateTimeKind.Utc);
+        var snaps   = _supabase
+            .GetAccountEquitySnapshotsInRangeAsync(acct.Login, acct.Source, fromUtc, toUtc)
+            .GetAwaiter().GetResult();
+        if (snaps.Count == 0) return list;
+
+        // Pick the latest snapshot on or before each month-end (Beirut).
+        // Month end = last day of each month at 00:00 Asia/Beirut → UTC.
+        var monthAnchors = new List<DateTime>();
+        var cursor = new DateTime(start.Year, start.Month, 1);
+        while (cursor <= today)
+        {
+            var nextMonth = cursor.AddMonths(1);
+            var monthEndLocal = DateTime.SpecifyKind(nextMonth, DateTimeKind.Unspecified);
+            DateTime monthEndUtc;
+            try { monthEndUtc = TimeZoneInfo.ConvertTimeToUtc(monthEndLocal, beirut); }
+            catch (ArgumentException) { monthEndUtc = TimeZoneInfo.ConvertTimeToUtc(monthEndLocal.AddHours(1), beirut); }
+            monthAnchors.Add(monthEndUtc);
+            cursor = nextMonth;
+        }
+
+        decimal? prevEquity = null;
+        foreach (var anchor in monthAnchors)
+        {
+            var snap = snaps.Where(s => s.SnapshotTime <= anchor).OrderByDescending(s => s.SnapshotTime).FirstOrDefault();
+            if (snap == null) continue;
+            if (prevEquity == null)
+            {
+                prevEquity = snap.Equity;
+                continue;
+            }
+            var monthlyPl = snap.Equity - prevEquity.Value;
+            list.Add((anchor, monthlyPl));
+            prevEquity = snap.Equity;
+        }
+
+        return list;
     }
 }

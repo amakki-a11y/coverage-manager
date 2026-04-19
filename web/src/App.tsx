@@ -9,6 +9,7 @@ import { SymbolMappingAdmin } from './components/SymbolMappingAdmin';
 import { SettingsPanel } from './components/SettingsPanel';
 import { PnLPanel } from './components/PnLPanel';
 import { PeriodPnLPanel } from './components/PeriodPnLPanel';
+import { EquityPnLPanel } from './components/EquityPnLPanel';
 import { PositionsCompare } from './pages/PositionsCompare';
 import { MarkupPanel } from './pages/Markup';
 import { BridgePanel } from './pages/Bridge';
@@ -22,7 +23,7 @@ import { StaleWrapper } from './components/Skeleton';
 import { KeyboardShortcutsOverlay } from './components/KeyboardShortcutsOverlay';
 import type { Position } from './types';
 
-type Tab = 'exposure' | 'positions' | 'pnl' | 'netpnl' | 'compare' | 'markup' | 'bridge' | 'mappings' | 'settings';
+type Tab = 'exposure' | 'positions' | 'pnl' | 'netpnl' | 'equitypnl' | 'compare' | 'markup' | 'bridge' | 'mappings' | 'settings';
 
 function AppContent() {
   const { theme, mode, toggleTheme } = useTheme();
@@ -103,6 +104,7 @@ function AppContent() {
         <button style={tabStyle(tab === 'positions')} onClick={() => setTab('positions')}>Positions</button>
         <button style={tabStyle(tab === 'pnl')} onClick={() => setTab('pnl')}>P&L</button>
         <button style={tabStyle(tab === 'netpnl')} onClick={() => setTab('netpnl')}>Net P&L</button>
+        <button style={tabStyle(tab === 'equitypnl')} onClick={() => setTab('equitypnl')}>Equity P&L</button>
         <button style={tabStyle(tab === 'compare')} onClick={() => setTab('compare')}>Compare</button>
         <button style={tabStyle(tab === 'markup')} onClick={() => setTab('markup')}>Markup</button>
         <button style={tabStyle(tab === 'bridge')} onClick={() => setTab('bridge')}>Bridge</button>
@@ -198,6 +200,7 @@ function AppContent() {
           {tab === 'positions' && <PositionsGrid positions={positions} />}
           {tab === 'pnl' && <PnLPanel />}
           {tab === 'netpnl' && <PeriodPnLPanel />}
+          {tab === 'equitypnl' && <EquityPnLPanel />}
           {tab === 'compare' && <PositionsCompare prices={prices} />}
           {tab === 'markup' && <MarkupPanel />}
           {tab === 'bridge' && <BridgePanel />}

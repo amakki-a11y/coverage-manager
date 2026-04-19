@@ -105,6 +105,13 @@ coverage-manager/
 16. `bridge_settings` — Centroid Bridge credentials + mode (Stub/Live/Replay) + enabled flag.
 17. `bridge_executions` — Paired CLIENT ↔ COV_OUT rows from the Centroid Dropcopy feed; includes `client_mt_login/ticket/deal_id`.
 18. `reconciliation_runs` — Audit log for the nightly deal-reconciliation sweep. Columns: `trigger_type` (scheduled/manual), `window_from/to`, `mt5_deal_count`, `supabase_deal_count`, `backfilled`, `ghost_deleted`, `modified`, `error`, `notes`.
+19. `account_equity_snapshots` — Per-login point-in-time equity snapshot (balance, equity, credit, margin). Seeded from the Segregated HTML on 2026-03-28 and re-captured by `ExposureSnapshotService` on every scheduled tick. Backs the Equity P&L tab's **Begin Equity** column.
+20. `equity_pnl_client_config` — Per-login rebate / PS configuration (`comm_rebate_pct`, `ps_pct`, `ps_contract_start`) plus engine-managed PS HWM state (`ps_cum_pl`, `ps_low_water_mark`, `ps_last_processed_month`).
+21. `equity_pnl_spread_rebates` — Per-(login, canonical_symbol) spread rebate rate in USD per lot.
+22. `login_groups` — Named groups for Phase-2 per-group rebate/PS config (e.g. `VIP-TierA`, `IB-Lebanon`).
+23. `login_group_members` — Many-to-many (login ↔ group) with a `priority` field; highest priority wins when a login belongs to multiple groups.
+24. `equity_pnl_group_config` — Per-group rebate / PS configuration. Login-specific rows in `equity_pnl_client_config` override this when both exist.
+25. `equity_pnl_group_spread_rebates` — Per-group per-symbol spread rebate rate. Login-level rate (from `equity_pnl_spread_rebates`) overrides group rate for same symbol.
 
 ### Supabase functions
 - `aggregate_bbook_settled_pnl(from_ts, to_ts, excluded_logins)` — server-side SQL aggregation used by the Net P&L tab. Normalizes canonical keys (strips `.c` / `.m` / trailing `-`, uppercases) and sums `profit + swap` on OUT deals + `commission + fee` on all trade deals. Replaces a 46s client-side "pull 200K rows and GROUP BY" roundtrip with a sub-second RPC.
@@ -252,6 +259,67 @@ Edge Net  = Coverage.Net − Clients.Net   (positive = broker profited)
 ### NuGet
 - `Cronos 0.10.0` — cron + DST-aware timezone handling for schedule dispatch.
 
+## Equity P&L Tab
+Per-login decomposition of the account's equity move across a date range.
+Separate from Net P&L — this is the "accountant's" view (balance-reconciled)
+rather than the "dealer's" view (exposure-driven).
+
+### Columns
+`Login, Begin Eq, Net Dep/W, Net Cred, Comm Reb, Spread Reb, Adj, PS, Supposed Eq, Current Eq, PL, Net PL`
+
+### Math
+```
+Supposed Eq      = Begin + NetDep + NetCred
+NetDepW          = (CurrentBalance − BeginBalance) − Σ(trade-flow)   // balance reconciliation
+NetCred          = CurrentCredit − BeginCredit                        // credit reconciliation
+PL               = CurrentEq − Supposed Eq
+NetPL (client)   = PL − CommReb − SpreadReb − Adj − PS
+NetPL (coverage) = PL
+Broker Edge      = −Σ(Clients.NetPL) + Σ(Coverage.NetPL)
+```
+
+### Critical data-path rules (MT5 quirks we had to work around)
+- **MT5 `RequestDeals` does NOT surface admin balance/credit transfers** — the dealer can move value between Balance and Credit buckets via MT5 Manager's admin tools and no deal row is emitted. Our Net Dep/W and Net Credit columns are therefore computed from **balance reconciliation** (current − begin − trade flow), not from summing balance/credit deal profits.
+- **Trade-flow filter** in `SumTradeBalanceFlowPerLoginAsync` uses `action not in (2,3)` — everything except BALANCE and CREDIT deals contributes to trade flow, including broker-specific action codes (we observed action=19 in this dataset). If we filtered `action<2` we'd leak small deal types into the implicit deposit calculation.
+- **Every writer that builds `DealRecord` MUST use `Action = (int)d.Action`** (preserve MT5's real action code) rather than deriving from `Direction`. The latter was the default before Equity P&L existed — when balance/credit deals started flowing, it clobbered `action=3` to `action=1` (SELL) on every sync. All 5 sites fixed: [DataSyncService.cs:167](src/CoverageManager.Api/Services/DataSyncService.cs:167), [ReconciliationService.cs:174](src/CoverageManager.Api/Services/ReconciliationService.cs:174), [ReconciliationService.cs:205](src/CoverageManager.Api/Services/ReconciliationService.cs:205), [ExposureController.cs:303](src/CoverageManager.Api/Controllers/ExposureController.cs:303), [ExposureController.cs:484](src/CoverageManager.Api/Controllers/ExposureController.cs:484).
+- **MT5 Manager's `GetUserLogins('*')` scope is permission-limited** — HR sub-accounts (e.g. `5222, 5231, 5237, …`) in a different group are invisible to the Manager login we use. They don't appear in `trading_accounts`, and `UserGet(5237)` returns `MT_RET_ERR_NOT_FOUND`. The Segregated report also respects this scope. The Equity P&L tab therefore shows only the 40 logins the Manager can see. Fix would require a second Manager connection with broader permissions.
+- **No coverage section today.** Python collector has no `/account` endpoint; `trading_accounts` never gets coverage rows populated. To add coverage P&L we'd need a collector endpoint that returns the LP account's balance/credit/equity and a sync path in `MT5ManagerConnection` or `DataSyncService` that calls it.
+
+### Phase 2 — per-group rebate/PS config
+Instead of setting rates per-login for every account, dealer creates named groups (e.g. `VIP-TierA`, `IB-Lebanon`) and assigns logins to them. The endpoint resolves effective rate as:
+```
+login-specific override → group config (highest priority) → 0 (default)
+```
+
+**Tables:** `login_groups` · `login_group_members(priority breaks ties)` · `equity_pnl_group_config` · `equity_pnl_group_spread_rebates`.
+
+**Perf note:** trade deals are only fetched for **rebate-eligible logins** — a login is eligible if it has a direct config, a direct spread-rate row, or belongs to a group that has config / spread rates. Keeps the endpoint sub-second even on full-period queries.
+
+### File inventory
+- `supabase/migrations/20260419_equity_pnl.sql` + `20260419_equity_pnl_phase2_groups` (applied inline) — tables and triggers.
+- `src/CoverageManager.Core/Models/EquityPnL/*.cs` — DTOs: `EquityPnLRow`, `AccountEquitySnapshot`, `EquityPnLClientConfig`, `SpreadRebateRate`, `LoginGroup`, `LoginGroupMember`, `EquityPnLGroupConfig`, `GroupSpreadRebateRate`.
+- `src/CoverageManager.Core/Engines/EquityPnLEngine.cs` — deal classification + client/coverage Net PL convention.
+- `src/CoverageManager.Core/Engines/PsHighWaterMarkEngine.cs` — reverse HWM (loss-share) PS engine with idempotent month-walk.
+- `src/CoverageManager.Api/Services/SupabaseService.cs` — adds ~15 accessors for snapshots, config, rebates, groups, group members, group config, group rates, plus `SumTradeBalanceFlowPerLoginAsync`, `GetTradeDealsForLoginsAsync`, `GetNonTradeDealsAsync`.
+- `src/CoverageManager.Api/Services/ExposureSnapshotService.cs` — extended to also write `account_equity_snapshots` on every scheduled tick.
+- `src/CoverageManager.Api/Controllers/ExposureController.cs` — `GET /api/equity-pnl`, `POST /api/equity-pnl/backfill-cash-movements`, `GET /api/equity-pnl/account-live`.
+- `src/CoverageManager.Api/Controllers/EquityPnLConfigController.cs` — per-login CRUD.
+- `src/CoverageManager.Api/Controllers/LoginGroupsController.cs` — Phase 2 groups CRUD.
+- `src/CoverageManager.Connector/{MT5ApiReal,MT5ManagerConnection}.cs` — adds `Credit` to `RawAccount`/`TradingAccount` syncs so Net Credit reconciliation can compute `Current − Begin`.
+- `web/src/components/EquityPnLPanel.tsx` — the 12-column tab with sticky header, date-range picker, loading badge, UNMAPPED badges.
+- `web/src/components/EquityPnLClientConfigCard.tsx` + `SpreadRebatesCard.tsx` + `LoginGroupsCard.tsx` — Settings UI under the Equity P&L sub-tab.
+
+### API endpoints
+- `GET  /api/equity-pnl?from=&to=` — returns `{clientRows, coverageRows, clientsTotal, coverageTotal, brokerEdge}`
+- `POST /api/equity-pnl/backfill-cash-movements?from=&to=` — one-shot MT5 scan to persist balance/credit/correction deals that ingestion may have missed (300ms/login pacing)
+- `GET  /api/equity-pnl/account-live?login=N` — diagnostic: read an account's live MT5 balance/credit/equity
+- `GET|PUT /api/equity-pnl-config` — per-login rebate/PS config
+- `GET|PUT|DELETE /api/equity-pnl-config/spread-rebates` — per-login per-symbol spread rebate
+- `GET|POST|DELETE /api/login-groups[/{id}]` — group CRUD
+- `GET|POST|DELETE /api/login-groups/{id}/members` — group membership
+- `GET|PUT /api/login-groups/config` — per-group rebate/PS config
+- `GET|PUT|DELETE /api/login-groups/{id}/spread-rebates` — per-group spread-rebate rates
+
 ## Date + Timezone Model (important)
 All dealer-facing dates and times are interpreted and displayed in **Asia/Beirut** (MT5 server TZ). Stored data stays UTC (Postgres standard) — conversion happens at query + render time.
 
@@ -302,6 +370,7 @@ MT5's `DealRequest` interprets the request window as **server-local time**, not 
 - **FlashingCell + useFlashOnChange** ([`web/src/components/FlashingCell.tsx`](web/src/components/FlashingCell.tsx) + [`web/src/hooks/useFlashOnChange.ts`](web/src/hooks/useFlashOnChange.ts)) — table cells that tint green/red for 800ms when a monitored number ticks up/down. Wired into the OPEN-row B-Book / Coverage / Net P&L cells of the Exposure table.
 - **HedgeBar** ([`web/src/components/HedgeBar.tsx`](web/src/components/HedgeBar.tsx)) — thin horizontal bar under the hedge % cell (green ≥80%, amber ≥50%, red <50%). Width saturates at 100% so over-hedges stay visually full.
 - **UNMAPPED badge** — amber pill rendered next to the symbol name in ExposureTable when the canonical symbol is missing from `symbol_mappings`. Surfaces the silent fallback path that would otherwise hide broken contract-size conversions.
+- **Settings sub-tabs** — the Settings page is organized into 5 sub-tabs (**Connections · Equity P&L · Snapshots · Data Integrity · Reference**) instead of one long scroll. Sub-tab selection persisted in `localStorage`.
 
 ## API Endpoints
 ### C# Backend (port 5000)
@@ -389,5 +458,7 @@ CLIENT fills paired with COV OUT coverage legs from the Centroid CS 360 Dropcopy
 - [x] Phase 2.5: Bridge Execution Analysis (Live REST/WS mode wired to Centroid CS 360; resolves real MT5 deal # on both CLIENT and COV via DealStore + CoverageDealIndex)
 - [x] Phase 2.8: Net P&L Tab — `FloatingΔ + Settled` period P&L with snapshot scheduler, Lebanon-time date picker, sentinel portfolio-anchor rows
 - [x] Phase 2.9: Deal Reconciliation Sweep (DATA-101) — nightly backfill + modifications + ghost-delete with ±24h MT5 TZ buffer, `ReconciliationCard` UI, shared date range across tabs, Beirut-TZ alignment across every surface, compare-tab PnLRings widget, P&L/Exposure perf RPC (81s → 0.5s)
+- [x] Phase 2.10: Equity P&L tab (Phase 1) — per-login balance reconciliation, PS high-water-mark engine, commission + spread rebate config, cent-perfect vs MT5 Summary report
+- [x] Phase 2.11: Equity P&L Phase 2 — login groups with priority-based resolution (login → group → default), per-group config + spread rebate, scoped trade-deal fetch for perf
 - [ ] Phase 3: Risk Alerts (news events, threshold warnings)
 - [ ] Phase 4: Hedge Execution (one-click hedging via LP terminal — mt5.order_send() ready)

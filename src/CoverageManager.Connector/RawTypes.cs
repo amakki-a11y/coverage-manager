@@ -71,6 +71,7 @@ public sealed record RawAccount
     public required uint Leverage { get; init; }
     public required decimal Balance { get; init; }
     public required decimal Equity { get; init; }
+    public required decimal Credit { get; init; }
     public required decimal Margin { get; init; }
     public required decimal FreeMargin { get; init; }
     public required string Currency { get; init; }

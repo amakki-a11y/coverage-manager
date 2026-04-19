@@ -168,3 +168,92 @@ export interface ReconciliationRun {
   error?: string | null;
   notes: string;
 }
+
+// =========================================================================
+// Equity P&L tab
+// =========================================================================
+
+export interface EquityPnLRow {
+  login: number;
+  source: 'bbook' | 'coverage';
+  name: string;
+  group: string;
+  beginEquity: number;
+  netDepositWithdraw: number;
+  netCredit: number;
+  commRebate: number;
+  spreadRebate: number;
+  adjustment: number;
+  profitShare: number;
+  supposedEquity: number;
+  currentEquity: number;
+  pl: number;
+  netPl: number;
+  beginFromSnapshot: boolean;
+  currentIsLive: boolean;
+}
+
+export interface EquityPnLResponse {
+  from: string;              // YYYY-MM-DD (Beirut)
+  to: string;
+  beginAnchorUtc: string;
+  endAnchorUtc: string;
+  clientRows: EquityPnLRow[];
+  coverageRows: EquityPnLRow[];
+  clientsTotal: EquityPnLRow | null;
+  coverageTotal: EquityPnLRow | null;
+  brokerEdge: number;
+}
+
+export interface EquityPnLClientConfig {
+  login: number;
+  source: 'bbook' | 'coverage';
+  comm_rebate_pct: number;     // 0..100
+  ps_pct: number;              // 0..100
+  ps_contract_start?: string | null;     // ISO date
+  ps_cum_pl: number;
+  ps_low_water_mark: number;
+  ps_last_processed_month?: string | null;
+  notes?: string | null;
+  updated_at?: string | null;
+}
+
+export interface SpreadRebateRate {
+  login: number;
+  source: 'bbook' | 'coverage';
+  canonical_symbol: string;
+  rate_per_lot: number;
+  updated_at?: string | null;
+}
+
+// Phase 2 — login groups for per-group rebate/PS config at scale.
+export interface LoginGroup {
+  id?: string;
+  name: string;
+  description?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface LoginGroupMember {
+  group_id: string;
+  login: number;
+  source: 'bbook' | 'coverage';
+  priority: number;
+  added_at?: string | null;
+}
+
+export interface EquityPnLGroupConfig {
+  group_id: string;
+  comm_rebate_pct: number;
+  ps_pct: number;
+  notes?: string | null;
+  updated_at?: string | null;
+}
+
+export interface GroupSpreadRebateRate {
+  group_id: string;
+  canonical_symbol: string;
+  rate_per_lot: number;
+  updated_at?: string | null;
+}

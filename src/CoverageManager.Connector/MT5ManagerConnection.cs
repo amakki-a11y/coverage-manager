@@ -268,6 +268,7 @@ public sealed class MT5ManagerConnection : BackgroundService
                     Leverage = (int)raw.Leverage,
                     Balance = raw.Balance,
                     Equity = raw.Equity,
+                    Credit = raw.Credit,
                     Margin = raw.Margin,
                     FreeMargin = raw.FreeMargin,
                     Currency = raw.Currency,
@@ -356,14 +357,16 @@ public sealed class MT5ManagerConnection : BackgroundService
 
     private void OnDealReceived(RawDeal raw)
     {
-        // Skip balance/credit deals (Action=2) — not real trades
-        if (raw.Action >= 2) return;
-
+        // All action codes land in DealStore; downstream aggregators
+        // (DealStore.GetPnLBySymbol, GetPnLByDay) filter to action < 2 so
+        // balance/credit/correction deals don't pollute trade P&L. We need
+        // them persisted so the Equity P&L tab can source Net Dep/W + Net
+        // Cred + Adj columns from Supabase without hitting MT5 per-request.
         var deal = ConvertDeal(raw);
         _dealStore.AddDeal(deal);
         _onUpdate(); // Trigger WebSocket push so closed row updates in real-time
-        _logger.LogDebug("Deal received: #{DealId} {Symbol} {Entry} P&L={Profit}",
-            raw.DealId, raw.Symbol, raw.Entry, raw.Profit);
+        _logger.LogDebug("Deal received: #{DealId} Action={Action} {Symbol} {Entry} P&L={Profit}",
+            raw.DealId, raw.Action, raw.Symbol, raw.Entry, raw.Profit);
     }
 
     /// <summary>
@@ -456,9 +459,10 @@ public sealed class MT5ManagerConnection : BackgroundService
                 var deals = _api.RequestDeals(login, from, to);
                 foreach (var raw in deals)
                 {
-                    // Skip balance/credit deals (Action=2) — not real trades
-                    if (raw.Action >= 2) continue;
-
+                    // No filter: balance/credit/correction deals (Action>=2) are
+                    // kept so they flow into Supabase via DataSyncService and
+                    // power the Equity P&L tab's Net Dep/W + Net Cred + Adj
+                    // columns. Trade-only consumers filter via DealStore.GetPnL*.
                     _dealStore.AddDeal(ConvertDeal(raw));
                     totalDeals++;
                 }
@@ -505,7 +509,51 @@ public sealed class MT5ManagerConnection : BackgroundService
             Entry = raw.Entry,
             OrderId = raw.OrderId,
             PositionId = raw.PositionId,
-            Time = DateTimeOffset.FromUnixTimeMilliseconds(raw.TimeMsc).UtcDateTime
+            Time = DateTimeOffset.FromUnixTimeMilliseconds(raw.TimeMsc).UtcDateTime,
+            Action = raw.Action,
         };
+    }
+
+    /// <summary>
+    /// Read a single account's live state directly from MT5 Manager, bypassing
+    /// the usual 5-min sync cycle. Used for diagnostics / one-shot updates on
+    /// accounts that aren't in the `GetUserLogins('*')` pool (e.g. HR
+    /// sub-accounts). Returns null when MT5 isn't connected or the login
+    /// doesn't exist.
+    /// </summary>
+    public RawAccount? QueryUserAccount(ulong login)
+    {
+        if (_api == null || !_api.IsConnected) return null;
+        try
+        {
+            return _api.GetUserAccount(login);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "QueryUserAccount failed for {Login}", login);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Query ALL deals (trade + balance + credit + correction + commission etc.)
+    /// for a single login in a date range. Read-only — does NOT touch DealStore.
+    /// Used by EquityPnLEngine to classify non-trade deals (actions &gt;= 2) into
+    /// the Net Dep/W, Net Cred, and Adjustment columns.
+    /// </summary>
+    public List<ClosedDeal> QueryAllDealsForLogin(ulong login, DateTimeOffset from, DateTimeOffset to)
+    {
+        if (_api == null || !_api.IsConnected) return [];
+        try
+        {
+            return _api.RequestDeals(login, from, to)
+                .Select(raw => ConvertDeal(raw))
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "QueryAllDealsForLogin failed for {Login}", login);
+            return [];
+        }
     }
 }
