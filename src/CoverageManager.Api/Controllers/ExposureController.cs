@@ -949,8 +949,17 @@ public class ExposureController : ControllerBase
         // (≤ a month, ≤ 200K rows).
         var tradeFlowTask    = _supabase.SumTradeBalanceFlowPerLoginAsync("bbook", fromUtc, toUtc);
 
+        // Coverage (LP) trade flow: the Python collector is the ONLY source of
+        // truth for LP deals — they're never synced into Supabase. Without
+        // this, the balance-reconciliation below attributes the LP's entire
+        // trading loss to Net Dep/W instead of Pl. See CLAUDE.md "No coverage
+        // section today" — this path works around that gap per-request.
+        var coverageTradeFlowTask = FetchCoverageTradeFlowAsync(fromDate, toDate, ct);
+
         await Task.WhenAll(accountsTask, configsTask, ratesTask, movedLoginsTask, beginSnapsTask, allDealsTask, tradeFlowTask,
-                           groupConfigsTask, groupMembersTask, groupSpreadRatesTask);
+                           groupConfigsTask, groupMembersTask, groupSpreadRatesTask, coverageTradeFlowTask);
+
+        var (coverageTradeFlowLogin, coverageTradeFlowValue) = coverageTradeFlowTask.Result;
 
         var accounts     = accountsTask.Result;
         var configs      = configsTask.Result.ToDictionary(c => $"{c.Source}:{c.Login}", StringComparer.OrdinalIgnoreCase);
@@ -1167,11 +1176,17 @@ public class ExposureController : ControllerBase
             //   NetDepW = (CurrBalance - BeginBalance) - TradeBalanceFlow
             //   NetCred = CurrCredit  - BeginCredit
             // Applied for both bbook AND coverage as soon as we have a begin
-            // snapshot. Coverage has no trade deals in Supabase today, so the
-            // trade-flow term is just 0 there — balance change = net cash move.
+            // snapshot. Coverage trade flow comes from the Python collector
+            // (LP deals aren't synced to Supabase), bbook from the Supabase
+            // aggregation above.
             if (beginSnap != null)
             {
-                var tradeBalanceFlow = tradeFlow.TryGetValue(acct.Login, out var tf) ? tf : 0m;
+                decimal tradeBalanceFlow;
+                if (acct.Source == "coverage" && coverageTradeFlowLogin.HasValue && acct.Login == coverageTradeFlowLogin.Value)
+                    tradeBalanceFlow = coverageTradeFlowValue;
+                else
+                    tradeBalanceFlow = tradeFlow.TryGetValue(acct.Login, out var tf) ? tf : 0m;
+
                 row.NetDepositWithdraw = (acct.Balance - beginSnap.Balance) - tradeBalanceFlow;
                 row.NetCredit          = acct.Credit  - beginSnap.Credit;
 
@@ -1415,5 +1430,64 @@ public class ExposureController : ControllerBase
         }
 
         return list;
+    }
+
+    /// <summary>
+    /// Query the Python collector for LP trade flow (profit + commission + swap + fee
+    /// across all OUT deals) over the Equity P&amp;L window. Used by the balance-reconciliation
+    /// path on coverage rows because LP deals never reach Supabase.
+    ///
+    /// <para>Returns <c>(login, flow)</c> — login identifies which <c>trading_accounts.login</c>
+    /// this flow applies to. Null login when the collector is unreachable or hasn't surfaced
+    /// an account yet; callers fall back to 0 in that case (same behavior as before this fix).</para>
+    /// </summary>
+    private async Task<(long? Login, decimal Flow)> FetchCoverageTradeFlowAsync(
+        DateTime fromDate,
+        DateTime toDate,
+        CancellationToken ct)
+    {
+        try
+        {
+            var http = _httpFactory.CreateClient();
+            http.Timeout = TimeSpan.FromSeconds(10);
+
+            // /deals treats `to` inclusively (adds 1 day internally); the request-
+            // date range on this controller already shifts `toUtc` forward a day
+            // for Beirut alignment, so we hand the collector the picker's raw
+            // last day.
+            var from = fromDate.ToString("yyyy-MM-dd");
+            var to = toDate.ToString("yyyy-MM-dd");
+
+            var dealsTask = http.GetStringAsync($"http://127.0.0.1:8100/deals?from={from}&to={to}", ct);
+            var acctTask = http.GetStringAsync("http://127.0.0.1:8100/account", ct);
+            await Task.WhenAll(dealsTask, acctTask);
+
+            decimal flow = 0m;
+            using (var doc = System.Text.Json.JsonDocument.Parse(dealsTask.Result))
+            {
+                if (doc.RootElement.TryGetProperty("debug", out var debug)
+                    && debug.TryGetProperty("closedNet", out var net))
+                {
+                    flow = net.GetDecimal();
+                }
+            }
+
+            long? login = null;
+            using (var acctDoc = System.Text.Json.JsonDocument.Parse(acctTask.Result))
+            {
+                if (acctDoc.RootElement.TryGetProperty("login", out var loginEl)
+                    && loginEl.ValueKind == System.Text.Json.JsonValueKind.Number)
+                {
+                    login = loginEl.GetInt64();
+                }
+            }
+
+            return (login, flow);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Coverage trade-flow fetch from collector failed — coverage NetDepW will fall back to 0 trade flow");
+            return (null, 0m);
+        }
     }
 }
