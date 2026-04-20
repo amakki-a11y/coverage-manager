@@ -6,6 +6,7 @@ import { useSymbolDigits } from '../hooks/useSymbolDigits';
 import { HedgeBar } from './HedgeBar';
 import { DateRangePicker } from './DateRangePicker';
 import { FlashingCell } from './FlashingCell';
+import { SymbolBadge } from './SymbolBadge';
 import { API_BASE } from '../config';
 
 /**
@@ -568,7 +569,8 @@ export function ExposureTable({ summaries, prices }: ExposureTableProps) {
                         mappedCanonicals.size > 0 &&
                         !mappedCanonicals.has(s.canonicalSymbol.toUpperCase());
                       return (
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                          <SymbolBadge symbol={s.canonicalSymbol} />
                           <span>{s.canonicalSymbol}</span>
                           {isUnmapped && (
                             <span

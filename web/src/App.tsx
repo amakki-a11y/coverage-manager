@@ -7,7 +7,7 @@ import { SymbolMappingAdmin } from './components/SymbolMappingAdmin';
 import { SettingsPanel } from './components/SettingsPanel';
 import { PnLPanel } from './components/PnLPanel';
 import { PeriodPnLPanel } from './components/PeriodPnLPanel';
-import { EquityPnLPanel } from './components/EquityPnLPanel';
+import { EquityPnLPage } from './components/EquityPnLPage';
 import { PositionsCompare } from './pages/PositionsCompare';
 import { MarkupPanel } from './pages/Markup';
 import { BridgePanel } from './pages/Bridge';
@@ -163,7 +163,7 @@ function AppContent() {
             {tab === 'positions'  && <PositionsGrid positions={positions} />}
             {tab === 'pnl'        && <PnLPanel />}
             {tab === 'netpnl'     && <PeriodPnLPanel />}
-            {tab === 'equitypnl'  && <EquityPnLPanel />}
+            {tab === 'equitypnl'  && <EquityPnLPage />}
             {tab === 'compare'    && <PositionsCompare prices={prices} />}
             {tab === 'markup'     && <MarkupPanel />}
             {tab === 'bridge'     && <BridgePanel />}
