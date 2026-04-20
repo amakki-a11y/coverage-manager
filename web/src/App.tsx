@@ -1,8 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ThemeProvider, useTheme } from './ThemeContext';
-import { THEME } from './theme';
 import { useExposureSocket } from './hooks/useExposureSocket';
-import { TotalBar } from './components/TotalBar';
 import { ExposureTable } from './components/ExposureTable';
 import { PositionsGrid } from './components/PositionsGrid';
 import { SymbolMappingAdmin } from './components/SymbolMappingAdmin';
@@ -16,33 +14,31 @@ import { BridgePanel } from './pages/Bridge';
 import { AlertToast } from './components/AlertToast';
 import { AlertBanner } from './components/AlertBanner';
 import { AlertHistory } from './components/AlertHistory';
-import { ConnectionHealthDots } from './components/ConnectionHealthDots';
 import { RiskBanner } from './components/RiskBanner';
 import { ErrorToastProvider } from './components/ErrorToast';
 import { StaleWrapper } from './components/Skeleton';
 import { KeyboardShortcutsOverlay } from './components/KeyboardShortcutsOverlay';
 import { UserGuideOverlay } from './components/UserGuideOverlay';
+import { Sidebar, type SidebarTab } from './shell/Sidebar';
+import { Topbar } from './shell/Topbar';
 import { API_BASE } from './config';
 import type { Position } from './types';
 
 /**
- * Root shell. Owns the top bar (TotalBar + RiskBanner + connection dots +
- * alert bell + theme toggle), the tab strip, and the currently-active panel.
+ * Root shell. Hosts the redesigned left sidebar, topbar, and the currently-
+ * active tab panel. The sidebar + topbar are in `./shell/` and use global
+ * CSS classes declared in `./styles/styles.css` + `./styles/styles-extra.css`.
+ * Existing tab content components still render inline-styled via the
+ * `THEME` object — they work unchanged inside the new shell.
  *
- * Tab registration lives here: add a new entry to the `Tab` union, import the
- * panel component, add a `<button>` in the tab strip, and render it inside the
- * `<StaleWrapper>`. Every tab is lazy only in the sense that it receives an
- * empty / default state until it mounts — the WebSocket feed is always on
- * regardless of which tab is visible so returning to a tab is instant.
- *
- * Providers: `ThemeProvider` (dark/light + localStorage) wraps
- * `ErrorToastProvider` (global throttled error toast).
+ * Keyboard shortcuts: digits 1-8 select the sidebar tabs in order (when
+ * focus is outside an input). See `KeyboardShortcutsOverlay` for the
+ * full list shown with `?`.
  */
-type Tab = 'exposure' | 'positions' | 'pnl' | 'netpnl' | 'equitypnl' | 'compare' | 'markup' | 'bridge' | 'mappings' | 'settings';
-
 function AppContent() {
-  const { theme, mode, toggleTheme } = useTheme();
-  const [tab, setTab] = useState<Tab>('exposure');
+  const { mode, toggleTheme } = useTheme();
+  const [tab, setTab] = useState<SidebarTab>('exposure');
+  const [collapsed, setCollapsed] = useState<boolean>(() => localStorage.getItem('sidebar.collapsed') === 'true');
   const { exposureSummaries, prices, connected, newAlerts, alertCount } = useExposureSocket();
   const [positions, setPositions] = useState<Position[]>([]);
   const [showAlertHistory, setShowAlertHistory] = useState(false);
@@ -52,27 +48,40 @@ function AppContent() {
     return saved !== 'false';
   });
 
+  // Persist sidebar collapsed state so a reload keeps the dealer's chosen width.
+  useEffect(() => {
+    localStorage.setItem('sidebar.collapsed', String(collapsed));
+  }, [collapsed]);
+
   const acknowledgeAlert = useCallback(async (id: string) => {
     try {
       await fetch(`${API_BASE}/api/alerts/${id}/acknowledge`, { method: 'POST' });
     } catch { /* ignore */ }
   }, []);
 
-  const tabStyle = (active: boolean): React.CSSProperties => ({
-    padding: '8px 20px',
-    background: active ? theme.bg3 : 'transparent',
-    color: active ? theme.t1 : theme.t3,
-    border: 'none',
-    borderBottom: active ? `2px solid ${theme.blue}` : '2px solid transparent',
-    cursor: 'pointer',
-    fontSize: 13,
-    fontWeight: 600,
-    transition: 'all 0.15s',
-  });
+  // Keyboard shortcuts 1..8 → tabs in sidebar order. Skip when focus is in an
+  // editable element so typing numbers into inputs doesn't jump tabs.
+  useEffect(() => {
+    const TAB_KEYS: Record<string, SidebarTab> = {
+      '1': 'exposure', '2': 'positions', '3': 'compare', '4': 'bridge',
+      '5': 'pnl',      '6': 'netpnl',    '7': 'equitypnl','8': 'markup',
+    };
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const t = TAB_KEYS[e.key];
+      if (t) {
+        e.preventDefault();
+        setTab(t);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   // Fetch positions for the positions tab.
-  // 5s cadence (was 1s — overkill for a view that doesn't need sub-second refresh),
-  // in-flight guard to prevent overlap, pause when tab hidden via visibilitychange.
+  // 5s cadence, in-flight guard, pause when tab hidden via visibilitychange.
   useEffect(() => {
     if (tab !== 'positions') return;
     let cancelled = false;
@@ -98,149 +107,46 @@ function AppContent() {
   }, [tab]);
 
   return (
-    <div style={{
-      display: 'flex',
-      flexDirection: 'column',
-      height: '100vh',
-      background: theme.bg,
-      color: theme.t1,
-      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-    }}>
-      <TotalBar summaries={exposureSummaries} connected={connected} />
-      <AlertBanner alertCount={alertCount} onShowHistory={() => setShowAlertHistory(true)} />
-      <RiskBanner summaries={exposureSummaries} />
+    <div className={`app ${collapsed ? 'collapsed' : ''}`}>
+      <Sidebar
+        tab={tab}
+        setTab={setTab}
+        collapsed={collapsed}
+        setCollapsed={setCollapsed}
+        alertCount={alertCount}
+      />
 
-      <div style={{
-        display: 'flex',
-        borderBottom: `1px solid ${theme.border}`,
-        background: theme.bg2,
-        alignItems: 'center',
-      }}>
-        <button style={tabStyle(tab === 'exposure')} onClick={() => setTab('exposure')}>Exposure</button>
-        <button style={tabStyle(tab === 'positions')} onClick={() => setTab('positions')}>Positions</button>
-        <button style={tabStyle(tab === 'pnl')} onClick={() => setTab('pnl')}>P&L</button>
-        <button style={tabStyle(tab === 'netpnl')} onClick={() => setTab('netpnl')}>Net P&L</button>
-        <button style={tabStyle(tab === 'equitypnl')} onClick={() => setTab('equitypnl')}>Equity P&L</button>
-        <button style={tabStyle(tab === 'compare')} onClick={() => setTab('compare')}>Compare</button>
-        <button style={tabStyle(tab === 'markup')} onClick={() => setTab('markup')}>Markup</button>
-        <button style={tabStyle(tab === 'bridge')} onClick={() => setTab('bridge')}>Bridge</button>
-        <button style={tabStyle(tab === 'mappings')} onClick={() => setTab('mappings')}>Mappings</button>
-        <button style={tabStyle(tab === 'settings')} onClick={() => setTab('settings')}>Settings</button>
+      <Topbar
+        summaries={exposureSummaries}
+        mode={mode}
+        alertCount={alertCount}
+        onToggleTheme={toggleTheme}
+        onOpenPalette={() => {/* TODO: Phase 5 — Command Palette */}}
+        onOpenAlerts={() => setShowAlertHistory(true)}
+        onOpenGuide={() => setShowUserGuide(true)}
+        onOpenTweaks={() => {/* TODO: Phase 5 — Tweaks panel */}}
+      />
 
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center' }}>
-          <ConnectionHealthDots />
-        </div>
+      <div className="main">
+        <AlertBanner alertCount={alertCount} onShowHistory={() => setShowAlertHistory(true)} />
+        <RiskBanner summaries={exposureSummaries} />
 
-        {/* Alert bell + badge */}
-        <button
-          onClick={() => setShowAlertHistory(true)}
-          style={{
-            marginLeft: 6,
-            position: 'relative',
-            background: 'transparent',
-            border: `1px solid ${alertCount > 0 ? theme.amber : theme.border}`,
-            borderRadius: 6,
-            padding: '4px 10px',
-            cursor: 'pointer',
-            fontSize: 14,
-            color: alertCount > 0 ? theme.amber : theme.t2,
-          }}
-          title={`${alertCount} unacknowledged alerts`}
-        >
-          {'\uD83D\uDD14'}
-          {alertCount > 0 && (
-            <span style={{
-              position: 'absolute',
-              top: -6,
-              right: -6,
-              background: theme.red,
-              color: '#fff',
-              fontSize: 9,
-              fontWeight: 700,
-              borderRadius: '50%',
-              width: 16,
-              height: 16,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}>
-              {alertCount > 9 ? '9+' : alertCount}
-            </span>
-          )}
-        </button>
-
-        {/* Sound toggle */}
-        <button
-          onClick={() => {
-            const next = !soundEnabled;
-            setSoundEnabled(next);
-            localStorage.setItem('alertSound', String(next));
-          }}
-          style={{
-            background: 'transparent',
-            border: `1px solid ${theme.border}`,
-            borderRadius: 6,
-            padding: '4px 10px',
-            cursor: 'pointer',
-            fontSize: 14,
-            color: soundEnabled ? theme.t2 : theme.t3,
-            marginLeft: 6,
-          }}
-          title={soundEnabled ? 'Mute alert sounds' : 'Enable alert sounds'}
-        >
-          {soundEnabled ? '\uD83D\uDD0A' : '\uD83D\uDD07'}
-        </button>
-
-        <button
-          onClick={() => setShowUserGuide(true)}
-          style={{
-            marginLeft: 6,
-            background: 'transparent',
-            border: `1px solid ${theme.border}`,
-            borderRadius: 6,
-            padding: '4px 10px',
-            cursor: 'pointer',
-            fontSize: 14,
-            color: theme.t2,
-          }}
-          title="Open user guide"
-        >
-          {'\uD83D\uDCD6'}
-        </button>
-
-        <button
-          onClick={toggleTheme}
-          style={{
-            marginLeft: 6,
-            marginRight: 12,
-            background: 'transparent',
-            border: `1px solid ${theme.border}`,
-            borderRadius: 6,
-            padding: '4px 10px',
-            cursor: 'pointer',
-            fontSize: 14,
-            color: theme.t2,
-          }}
-          title={`Switch to ${mode === 'dark' ? 'light' : 'dark'} mode`}
-        >
-          {mode === 'dark' ? '\u2600' : '\u263E'}
-        </button>
+        <StaleWrapper isStale={!connected} style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+          <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
+            {tab === 'exposure'   && <ExposureTable summaries={exposureSummaries} prices={prices} />}
+            {tab === 'positions'  && <PositionsGrid positions={positions} />}
+            {tab === 'pnl'        && <PnLPanel />}
+            {tab === 'netpnl'     && <PeriodPnLPanel />}
+            {tab === 'equitypnl'  && <EquityPnLPanel />}
+            {tab === 'compare'    && <PositionsCompare prices={prices} />}
+            {tab === 'markup'     && <MarkupPanel />}
+            {tab === 'bridge'     && <BridgePanel />}
+            {tab === 'mappings'   && <SymbolMappingAdmin />}
+            {tab === 'alerts'     && <AlertHistoryTabStub onOpen={() => setShowAlertHistory(true)} />}
+            {tab === 'settings'   && <SettingsPanel />}
+          </div>
+        </StaleWrapper>
       </div>
-
-      <StaleWrapper isStale={!connected} style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-        <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
-          {tab === 'exposure' && <ExposureTable summaries={exposureSummaries} prices={prices} />}
-          {tab === 'positions' && <PositionsGrid positions={positions} />}
-          {tab === 'pnl' && <PnLPanel />}
-          {tab === 'netpnl' && <PeriodPnLPanel />}
-          {tab === 'equitypnl' && <EquityPnLPanel />}
-          {tab === 'compare' && <PositionsCompare prices={prices} />}
-          {tab === 'markup' && <MarkupPanel />}
-          {tab === 'bridge' && <BridgePanel />}
-          {tab === 'mappings' && <SymbolMappingAdmin />}
-          {tab === 'settings' && <SettingsPanel />}
-        </div>
-      </StaleWrapper>
 
       <AlertToast alerts={newAlerts} soundEnabled={soundEnabled} onAcknowledge={acknowledgeAlert} />
       {showAlertHistory && (
@@ -248,6 +154,20 @@ function AppContent() {
       )}
       <KeyboardShortcutsOverlay />
       <UserGuideOverlay open={showUserGuide} onClose={() => setShowUserGuide(false)} />
+      {/* Silence unused-var warning; soundEnabled toggle will land on the Tweaks panel in Phase 5. */}
+      <input type="hidden" value={String(soundEnabled)} readOnly />
+    </div>
+  );
+}
+
+/** Until Phase 4 rebuilds the full Alerts tab, clicking the sidebar's Alerts
+ *  entry just opens the existing `AlertHistory` modal. Keeps the nav item
+ *  honest without a half-built screen. */
+function AlertHistoryTabStub({ onOpen }: { onOpen: () => void }) {
+  useEffect(() => { onOpen(); }, [onOpen]);
+  return (
+    <div style={{ padding: 24, color: 'var(--t3)' }}>
+      Alert history opened in an overlay.
     </div>
   );
 }
