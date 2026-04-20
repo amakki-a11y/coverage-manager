@@ -1141,9 +1141,10 @@ public class ExposureController : ControllerBase
             // The authoritative figures match the Summary Report:
             //   NetDepW = (CurrBalance - BeginBalance) - TradeBalanceFlow
             //   NetCred = CurrCredit  - BeginCredit
-            // Only applied when we have a begin snapshot; otherwise we fall
-            // back to the deal-sum the engine already computed.
-            if (acct.Source == "bbook" && beginSnap != null)
+            // Applied for both bbook AND coverage as soon as we have a begin
+            // snapshot. Coverage has no trade deals in Supabase today, so the
+            // trade-flow term is just 0 there — balance change = net cash move.
+            if (beginSnap != null)
             {
                 var tradeBalanceFlow = tradeFlow.TryGetValue(acct.Login, out var tf) ? tf : 0m;
                 row.NetDepositWithdraw = (acct.Balance - beginSnap.Balance) - tradeBalanceFlow;
@@ -1153,7 +1154,12 @@ public class ExposureController : ControllerBase
                 row.SupposedEquity = row.BeginEquity + row.NetDepositWithdraw + row.NetCredit;
                 row.Pl             = row.CurrentEquity - row.SupposedEquity;
                 var nonTrading     = row.CommRebate + row.SpreadRebate + row.Adjustment + row.ProfitShare;
-                row.NetPl          = row.Pl - nonTrading; // client-side convention
+                // Sign convention locked in Phase 1: clients strip rebates/PS
+                // out of NetPL (they're broker outlays); coverage keeps them
+                // in NetPL (they're broker income when received from LP).
+                row.NetPl = acct.Source == "coverage"
+                    ? row.Pl + nonTrading
+                    : row.Pl - nonTrading;
             }
 
             (acct.Source == "coverage" ? coverageRows : clientRows).Add(row);

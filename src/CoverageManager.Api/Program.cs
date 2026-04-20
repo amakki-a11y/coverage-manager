@@ -139,6 +139,11 @@ try
     builder.Services.AddSingleton<ExposureSnapshotService>();
     builder.Services.AddHostedService(sp => sp.GetRequiredService<ExposureSnapshotService>());
 
+    // Coverage LP account sync — polls the Python collector's /account endpoint
+    // every 5 min and upserts the LP's balance/credit/equity to trading_accounts.
+    // Needed because MT5 Manager API (used for B-Book) can't see LP accounts.
+    builder.Services.AddHostedService<CoverageAccountSyncService>();
+
     // Nightly deal reconciliation — finds ghosts (Supa has, MT5 doesn't) and patches
     // modifications so our historical P&L stays aligned with MT5 Manager over time.
     builder.Services.AddSingleton<ReconciliationService>();

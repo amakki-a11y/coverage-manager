@@ -255,18 +255,34 @@ export function EquityPnLPanel() {
               <DataRow row={data.clientsTotal} bold />
             )}
 
-            {data && data.coverageRows.length > 0 && (
-              <SectionHeader label="Coverage (LP)" color={THEME.teal} />
-            )}
+            {/* Coverage section — always render the header so the dealer
+                knows where the LP numbers would appear, even when no coverage
+                accounts are currently synced to trading_accounts. The empty
+                state below explains why. */}
+            {data && <SectionHeader label="Coverage (LP)" color={THEME.teal} />}
             {data?.coverageRows.map(r => <DataRow key={`cov-${r.login}`} row={r} />)}
-            {/* Skip the coverage TOTAL row entirely when there are no coverage
-                rows — the backend still returns a zeroed `coverageTotal` as a
-                shape-stability guarantee, but rendering it produces a ghost
-                "TOTAL 0.00 0.00 …" line under the clients section which is
-                visually confusing. Only show totals when there's actual data
-                to total. */}
             {data && data.coverageRows.length > 0 && data.coverageTotal && (
               <DataRow row={data.coverageTotal} bold />
+            )}
+            {data && data.coverageRows.length === 0 && (
+              <tr>
+                <td colSpan={13} style={{
+                  padding: '14px 16px',
+                  color: THEME.t3,
+                  fontSize: 12,
+                  fontFamily: 'inherit',
+                  background: THEME.rowAlt,
+                  borderBottom: `1px solid ${THEME.border}`,
+                  lineHeight: 1.5,
+                }}>
+                  <span style={{ color: THEME.amber, marginRight: 6 }}>{'\u26A0'}</span>
+                  <strong>No coverage accounts synced.</strong>{' '}
+                  Coverage equity isn't populated via the MT5 Manager API (it lives on the LP server). To see LP
+                  rows here, the Python collector needs an <code style={{ color: THEME.t2 }}>/account</code>{' '}
+                  endpoint that returns balance/credit/equity for <code style={{ color: THEME.t2 }}>96900</code>{' '}
+                  and a sync path that writes them into <code style={{ color: THEME.t2 }}>trading_accounts</code>.
+                </td>
+              </tr>
             )}
 
             {data && (

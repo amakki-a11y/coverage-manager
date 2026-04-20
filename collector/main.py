@@ -220,6 +220,32 @@ def health():
     }
 
 
+@app.get("/account")
+def get_account():
+    """Return the currently-connected LP account's balance / credit / equity.
+
+    Used by the C# API's coverage-sync loop to populate `trading_accounts` for
+    the LP login (normally 96900). Without this endpoint the Equity P&L tab
+    has no way to show the Coverage row — MT5 Manager API (our B-Book side)
+    can't see LP accounts since they live on a different MT5 server.
+    """
+    acc = mt5.account_info()
+    if acc is None:
+        return {"error": "MT5 not connected"}, 503
+    return {
+        "login": acc.login,
+        "name": acc.name,
+        "server": acc.server,
+        "balance": float(acc.balance),
+        "credit": float(acc.credit),
+        "equity": float(acc.equity),
+        "margin": float(acc.margin),
+        "free_margin": float(acc.margin_free),
+        "leverage": int(acc.leverage),
+        "currency": acc.currency,
+    }
+
+
 @app.get("/positions")
 def get_positions():
     """Alternative: C# can pull instead of Python pushing."""
