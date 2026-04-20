@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
+import { API_BASE } from '../config';
 
 /**
  * Polls the four upstream services every 5 s and surfaces their health so the
  * header can render a per-source status dot.
  *
  * - MT5        → /api/exposure/status           (mt5Connected)
- * - Collector  → http://localhost:8100/health   (status ∈ 'ok' | 'stale' | 'disconnected')
+ * - Collector  → /api/coverage/health           (status ∈ 'ok' | 'stale' | 'disconnected')
  * - Centroid   → /api/bridge/health             (state ∈ 'LoggedIn' | 'Connecting' | 'Error' | 'Stubbed' | 'Disconnected')
  * - Supabase   → derived: MT5 status responded 200 AND /api/mappings responded
  *                (if the API itself is up but Supa is down those endpoints throw 500s;
@@ -20,8 +21,7 @@ export interface ConnectionHealth {
 
 export type Status = 'green' | 'amber' | 'red' | 'gray';
 
-const API = 'http://localhost:5000';
-const COLLECTOR = 'http://localhost:8100';
+const API = API_BASE;
 
 const INITIAL: ConnectionHealth = {
   mt5: 'gray', collector: 'gray', centroid: 'gray', supabase: 'gray',
@@ -57,7 +57,7 @@ export function useConnectionHealth(): ConnectionHealth {
 
         // Collector
         try {
-          const r = await fetch(`${COLLECTOR}/health`);
+          const r = await fetch(`${API}/api/coverage/health`);
           if (r.ok) {
             const j = await r.json();
             next.collector =

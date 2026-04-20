@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { THEME } from '../theme';
 import type { AlertEvent } from '../types';
 import { formatBeirut } from '../utils/time';
+import { API_BASE } from '../config';
 
 const severityColor = (s: string) =>
   s === 'critical' ? THEME.red : s === 'warning' ? THEME.amber : THEME.blue;
@@ -20,7 +21,7 @@ export function AlertHistory({
   const fetchAlerts = async () => {
     try {
       const only = filter === 'unacknowledged' ? '?unacknowledgedOnly=true' : '';
-      const res = await fetch(`http://localhost:5000/api/alerts/history${only}&limit=200`);
+      const res = await fetch(`${API_BASE}/api/alerts/history${only}&limit=200`);
       if (res.ok) {
         const data = await res.json();
         setAlerts(data.events ?? []);

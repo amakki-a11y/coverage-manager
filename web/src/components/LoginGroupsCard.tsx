@@ -8,6 +8,7 @@ import type {
   GroupSpreadRebateRate,
   SymbolMapping,
 } from '../types';
+import { API_BASE } from '../config';
 
 /**
  * Phase 2 — per-group rebate/PS configuration editor.
@@ -21,9 +22,9 @@ import type {
  * Layout: a list of groups on the left; selecting one opens its detail panel
  * on the right with Config / Members / Spread Rebates sub-tabs.
  */
-const API = 'http://localhost:5000/api/login-groups';
-const ACCOUNTS_API = 'http://localhost:5000/api/accounts';
-const MAPPINGS_API = 'http://localhost:5000/api/mappings';
+const API = `${API_BASE}/api/login-groups`;
+const ACCOUNTS_API = `${API_BASE}/api/accounts`;
+const MAPPINGS_API = `${API_BASE}/api/mappings`;
 
 const inputStyle: React.CSSProperties = {
   background: THEME.bg,

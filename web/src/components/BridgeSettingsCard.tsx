@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { THEME } from '../theme';
+import { API_BASE } from '../config';
 
 interface BridgeSettingsState {
   enabled: boolean;
@@ -31,7 +32,7 @@ const DEFAULT: BridgeSettingsState = {
   feedHealth: null,
 };
 
-const API = 'http://localhost:5000/api/settings/bridge';
+const API = `${API_BASE}/api/settings/bridge`;
 
 const labelStyle: React.CSSProperties = {
   color: THEME.t3,

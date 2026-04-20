@@ -3,6 +3,7 @@ import { THEME } from '../theme';
 import { useDateRange } from '../hooks/useDateRange';
 import { DateRangePicker } from './DateRangePicker';
 import type { EquityPnLResponse, EquityPnLRow } from '../types';
+import { API_BASE } from '../config';
 
 /**
  * Equity P&L tab — per-login decomposition of the equity move across a range.
@@ -16,7 +17,7 @@ import type { EquityPnLResponse, EquityPnLRow } from '../types';
  * </pre>
  */
 
-const API = 'http://localhost:5000/api/equity-pnl';
+const API = `${API_BASE}/api/equity-pnl`;
 
 function fmt(n: number): string {
   if (!Number.isFinite(n)) return '\u2014';

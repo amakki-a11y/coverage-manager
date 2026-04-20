@@ -1,5 +1,6 @@
 import { useEffect, useReducer, useCallback, useRef } from 'react';
 import type { ExposureSummary, PriceQuote, AlertEvent, ExposureMessage } from '../types';
+import { WS_BASE } from '../config';
 
 /**
  * Live-exposure WebSocket hook. Subscribes to the C# backend's `/ws` feed and
@@ -60,7 +61,7 @@ const initialState: State = {
   alertCount: 0,
 };
 
-const WS_URL = 'ws://localhost:5000/ws/exposure';
+const WS_URL = `${WS_BASE}/ws/exposure`;
 const MIN_RECONNECT_DELAY = 1000;
 const MAX_RECONNECT_DELAY = 10000;
 

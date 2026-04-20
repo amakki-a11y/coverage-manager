@@ -3,6 +3,7 @@ import { THEME } from '../../../theme';
 import type { SymbolExposure } from '../../../types/compare';
 import type { PriceQuote, ExposureSummary } from '../../../types';
 import { useDateRange } from '../../../hooks/useDateRange';
+import { API_BASE, WS_BASE } from '../../../config';
 
 interface ClosedSymbol {
   symbol: string;
@@ -82,7 +83,7 @@ export function ExpandedTable({ symbols, selectedSymbol, onSelect }: ExpandedTab
 
   // Fetch live prices
   useEffect(() => {
-    const ws = new WebSocket('ws://localhost:5000/ws/exposure');
+    const ws = new WebSocket(`${WS_BASE}/ws/exposure`);
     ws.onmessage = (e) => {
       try {
         const msg = JSON.parse(e.data);
@@ -117,9 +118,9 @@ export function ExpandedTable({ symbols, selectedSymbol, onSelect }: ExpandedTab
     const fetchClosed = async () => {
       try {
         const [bbRes, covRes, mapRes] = await Promise.all([
-          fetch(`http://localhost:5000/api/exposure/pnl?from=${closedFrom}&to=${closedTo}`),
-          fetch(`http://localhost:8100/deals?from=${closedFrom}&to=${closedTo}`).catch(() => null),
-          fetch('http://localhost:5000/api/mappings'),
+          fetch(`${API_BASE}/api/exposure/pnl?from=${closedFrom}&to=${closedTo}`),
+          fetch(`${API_BASE}/api/coverage/deals?from=${closedFrom}&to=${closedTo}`).catch(() => null),
+          fetch(`${API_BASE}/api/mappings`),
         ]);
 
         const bbMap: Record<string, ClosedSymbol> = {};

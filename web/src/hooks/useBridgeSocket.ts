@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import type { ExecutionPair, BridgeSocketMessage } from '../types/bridge';
+import { WS_BASE } from '../config';
 
-const WS_URL = 'ws://localhost:5000/ws/bridge';
+const WS_URL = `${WS_BASE}/ws/bridge`;
 const MIN_RECONNECT_DELAY = 1000;
 const MAX_RECONNECT_DELAY = 10000;
 

@@ -4,6 +4,7 @@ import { useBridgeSocket } from '../../hooks/useBridgeSocket';
 import type { BridgeExecutionsResponse, BridgeHealth, ExecutionPair } from '../../types/bridge';
 import { BridgeFilters, type SideFilter } from './BridgeFilters';
 import { BridgeTable } from './BridgeTable';
+import { API_BASE } from '../../config';
 
 const todayUtc = () => new Date().toISOString().slice(0, 10);
 
@@ -39,7 +40,7 @@ export function BridgePanel() {
     try {
       const qs = new URLSearchParams({ from: fromDate, to: toDate, limit: String(MAX_LIVE_ROWS) });
       if (symbol) qs.set('symbol', symbol);
-      const res = await fetch(`http://localhost:5000/api/bridge/executions?${qs}`);
+      const res = await fetch(`${API_BASE}/api/bridge/executions?${qs}`);
       if (!res.ok) {
         const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
         setError(body?.error ?? 'Failed to load');
@@ -56,7 +57,7 @@ export function BridgePanel() {
 
   const fetchHealth = useCallback(async () => {
     try {
-      const res = await fetch('http://localhost:5000/api/bridge/health');
+      const res = await fetch(`${API_BASE}/api/bridge/health`);
       if (res.ok) setHealth(await res.json());
     } catch { /* ignore */ }
   }, []);

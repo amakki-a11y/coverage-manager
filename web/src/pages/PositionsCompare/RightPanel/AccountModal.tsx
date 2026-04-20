@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { THEME } from '../../../theme';
 import { formatBeirut, formatBeirutTime } from '../../../utils/time';
+import { API_BASE } from '../../../config';
 
 interface Account {
   login: number;
@@ -84,9 +85,9 @@ export function AccountModal({ login, onClose }: AccountModalProps) {
       setLoading(true);
       try {
         const [accRes, posRes, dealRes] = await Promise.all([
-          fetch('http://localhost:5000/api/accounts'),
-          fetch('http://localhost:5000/api/exposure/positions'),
-          fetch(`http://localhost:5000/api/accounts/deals?source=bbook&from=${todayStr()}&to=${tomorrowStr()}`),
+          fetch(`${API_BASE}/api/accounts`),
+          fetch(`${API_BASE}/api/exposure/positions`),
+          fetch(`${API_BASE}/api/accounts/deals?source=bbook&from=${todayStr()}&to=${tomorrowStr()}`),
         ]);
 
         if (accRes.ok) {

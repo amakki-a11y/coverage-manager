@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { THEME } from '../theme';
 import type { EquityPnLClientConfig } from '../types';
 import { formatBeirutDate } from '../utils/time';
+import { API_BASE } from '../config';
 
 /**
  * Per-login config for the Equity P&L tab: commission rebate %, PS %, contract
@@ -10,8 +11,8 @@ import { formatBeirutDate } from '../utils/time';
  * accumulated. Dealers shouldn't edit those fields by hand — they're engine-
  * managed.
  */
-const API = 'http://localhost:5000/api/equity-pnl-config';
-const ACCOUNTS_API = 'http://localhost:5000/api/accounts';
+const API = `${API_BASE}/api/equity-pnl-config`;
+const ACCOUNTS_API = `${API_BASE}/api/accounts`;
 
 const inputStyle: React.CSSProperties = {
   background: THEME.bg,

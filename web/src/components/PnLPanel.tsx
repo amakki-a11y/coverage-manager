@@ -1,13 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
 import { THEME } from '../theme';
 import { useDateRange } from '../hooks/useDateRange';
+import { API_BASE } from '../config';
 
 /**
  * Legacy "P&L" tab — settled-only P&L per canonical symbol for the picker range.
  *
  * Uses:
  *   - `GET /api/exposure/pnl?from=&to=` for B-Book (sub-second `aggregate_bbook_pnl_full` RPC).
- *   - `GET http://localhost:8100/deals?from=&to=` for optional Coverage P&L toggle.
+ *   - `GET /api/coverage/deals?from=&to=` (C# proxy) for optional Coverage P&L toggle.
  *
  * Presents client perspective (positive P&L = clients profited) — not inverted
  * for broker view. For the dealer-oriented broker edge view see `PeriodPnLPanel`
@@ -127,7 +128,7 @@ export function PnLPanel() {
       if (inFlight) return;
       inFlight = true;
       try {
-        const res = await fetch(`http://localhost:5000/api/exposure/pnl?from=${fromDate}&to=${toDate}`);
+        const res = await fetch(`${API_BASE}/api/exposure/pnl?from=${fromDate}&to=${toDate}`);
         if (!cancelled && res.ok) setData(await res.json());
       } catch { /* ignore */ }
       inFlight = false;
@@ -141,8 +142,8 @@ export function PnLPanel() {
     try {
       // Fetch mappings and coverage deals in parallel
       const [mapRes, dealRes] = await Promise.all([
-        fetch('http://localhost:5000/api/mappings'),
-        fetch(`http://localhost:8100/deals?from=${fromDate}&to=${toDate}`),
+        fetch(`${API_BASE}/api/mappings`),
+        fetch(`${API_BASE}/api/coverage/deals?from=${fromDate}&to=${toDate}`),
       ]);
       if (!mapRes.ok || !dealRes.ok) return;
 
@@ -197,7 +198,7 @@ export function PnLPanel() {
     setLoading(true);
     try {
       const res = await fetch(
-        `http://localhost:5000/api/exposure/pnl/reload?from=${fromDate}&to=${toDate}`,
+        `${API_BASE}/api/exposure/pnl/reload?from=${fromDate}&to=${toDate}`,
         { method: 'POST' }
       );
       if (res.ok) setData(await res.json());

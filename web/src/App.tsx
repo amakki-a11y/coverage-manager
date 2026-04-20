@@ -22,6 +22,7 @@ import { ErrorToastProvider } from './components/ErrorToast';
 import { StaleWrapper } from './components/Skeleton';
 import { KeyboardShortcutsOverlay } from './components/KeyboardShortcutsOverlay';
 import { UserGuideOverlay } from './components/UserGuideOverlay';
+import { API_BASE } from './config';
 import type { Position } from './types';
 
 /**
@@ -53,7 +54,7 @@ function AppContent() {
 
   const acknowledgeAlert = useCallback(async (id: string) => {
     try {
-      await fetch(`http://localhost:5000/api/alerts/${id}/acknowledge`, { method: 'POST' });
+      await fetch(`${API_BASE}/api/alerts/${id}/acknowledge`, { method: 'POST' });
     } catch { /* ignore */ }
   }, []);
 
@@ -80,7 +81,7 @@ function AppContent() {
       if (inFlight || document.hidden) return;
       inFlight = true;
       try {
-        const res = await fetch('http://localhost:5000/api/exposure/positions');
+        const res = await fetch(`${API_BASE}/api/exposure/positions`);
         if (!cancelled && res.ok) setPositions(await res.json());
       } catch { /* ignore */ }
       inFlight = false;

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { THEME } from '../theme';
 import { ConfirmDialog } from './ConfirmDialog';
 import type { SpreadRebateRate, SymbolMapping } from '../types';
+import { API_BASE } from '../config';
 
 /**
  * Per-(login, canonical-symbol) spread rebate rate editor. Dealer adds one row
@@ -10,8 +11,8 @@ import type { SpreadRebateRate, SymbolMapping } from '../types';
  *
  * Rows without a matching canonical symbol fall back to 0 in the engine.
  */
-const API = 'http://localhost:5000/api/equity-pnl-config/spread-rebates';
-const MAPPINGS_API = 'http://localhost:5000/api/mappings';
+const API = `${API_BASE}/api/equity-pnl-config/spread-rebates`;
+const MAPPINGS_API = `${API_BASE}/api/mappings`;
 
 const inputStyle: React.CSSProperties = {
   background: THEME.bg,

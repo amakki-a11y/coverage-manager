@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { SymbolExposure, TradeRecord } from '../types/compare';
-
-const API_BASE = 'http://localhost:5000';
+import { API_BASE } from '../config';
 
 /**
  * Drives the Compare tab. Polls two REST endpoints on different cadences:

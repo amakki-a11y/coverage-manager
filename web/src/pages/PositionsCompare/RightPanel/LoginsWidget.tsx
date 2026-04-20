@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { THEME } from '../../../theme';
 import { AccountModal } from './AccountModal';
+import { API_BASE } from '../../../config';
 
 interface Position {
   source: string;
@@ -35,7 +36,7 @@ export function LoginsWidget({ symbol }: LoginsWidgetProps) {
   useEffect(() => {
     const fetchPositions = async () => {
       try {
-        const res = await fetch('http://localhost:5000/api/exposure/positions');
+        const res = await fetch(`${API_BASE}/api/exposure/positions`);
         if (!res.ok) return;
         const positions: Position[] = await res.json();
 

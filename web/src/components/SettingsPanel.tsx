@@ -8,6 +8,7 @@ import { ConfirmDialog } from './ConfirmDialog';
 import { EquityPnLClientConfigCard } from './EquityPnLClientConfigCard';
 import { SpreadRebatesCard } from './SpreadRebatesCard';
 import { LoginGroupsCard } from './LoginGroupsCard';
+import { API_BASE as API_ORIGIN } from '../config';
 
 /**
  * Settings tab — organized into 5 sub-tabs to keep what used to be one long
@@ -23,7 +24,7 @@ import { LoginGroupsCard } from './LoginGroupsCard';
  * same section. All writes redact passwords — the panel only sees
  * `passwordSet: true|false`.
  */
-const API_BASE = 'http://localhost:5000/api/settings/accounts';
+const API_BASE = `${API_ORIGIN}/api/settings/accounts`;
 
 const inputStyle: React.CSSProperties = {
   background: THEME.bg,
@@ -161,7 +162,7 @@ export function SettingsPanel() {
 
   useEffect(() => {
     fetchAccounts();
-    fetch('http://localhost:5000/api/settings/moved-accounts')
+    fetch(`${API_ORIGIN}/api/settings/moved-accounts`)
       .then(r => r.ok ? r.json() : [])
       .then(setMovedAccounts)
       .catch(() => {});
@@ -238,7 +239,7 @@ export function SettingsPanel() {
     setVerifyError(null);
     setVerifyResult(null);
     try {
-      const res = await fetch(`http://localhost:5000/api/exposure/verify?from=${verifyFrom}&to=${verifyTo}`);
+      const res = await fetch(`${API_ORIGIN}/api/exposure/verify?from=${verifyFrom}&to=${verifyTo}`);
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: 'Request failed' }));
         setVerifyError(err.error || `HTTP ${res.status}`);
@@ -260,7 +261,7 @@ export function SettingsPanel() {
     setFixing(true);
     setVerifyError(null);
     try {
-      const res = await fetch(`http://localhost:5000/api/exposure/verify?from=${verifyFrom}&to=${verifyTo}&fix=true`);
+      const res = await fetch(`${API_ORIGIN}/api/exposure/verify?from=${verifyFrom}&to=${verifyTo}&fix=true`);
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: 'Request failed' }));
         setVerifyError(err.error || `HTTP ${res.status}`);
@@ -848,7 +849,7 @@ function AccountCard({
 // Snapshot Schedules section — drives Period P&L "Begin" anchor captures.
 // =========================================================================
 
-const SCHEDULES_API = 'http://localhost:5000/api/snapshot-schedules';
+const SCHEDULES_API = `${API_ORIGIN}/api/snapshot-schedules`;
 const CADENCES: SnapshotCadence[] = ['daily', 'weekly', 'monthly', 'custom'];
 
 interface ScheduleDraft {
@@ -1066,7 +1067,7 @@ function SnapshotSchedulesCard() {
 // Each capture = N symbol rows sharing the same snapshot_time, so we group by time.
 // =========================================================================
 
-const SNAPSHOTS_API = 'http://localhost:5000/api/exposure/snapshots';
+const SNAPSHOTS_API = `${API_ORIGIN}/api/exposure/snapshots`;
 
 interface GroupedSnapshot {
   snapshotTime: string;
@@ -1211,7 +1212,7 @@ function SnapshotHistoryCard() {
   );
 }
 
-const RECON_API = 'http://localhost:5000/api/reconciliation';
+const RECON_API = `${API_ORIGIN}/api/reconciliation`;
 
 function ReconciliationCard() {
   const [runs, setRuns] = useState<ReconciliationRun[]>([]);

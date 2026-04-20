@@ -1,6 +1,7 @@
 import { useRef, useEffect, useCallback, useState } from 'react';
 import { THEME } from '../../../theme';
 import type { TradeRecord } from '../../../types/compare';
+import { API_BASE } from '../../../config';
 
 interface PriceChartProps {
   trades: TradeRecord[];
@@ -34,7 +35,7 @@ export function PriceChart({ trades, symbol }: PriceChartProps) {
     const fetchEquity = async () => {
       try {
         const canonical = symbol.replace(/[-.]$/, '').toUpperCase();
-        const res = await fetch(`http://localhost:5000/api/accounts/deals?source=bbook&from=${todayStr()}&to=${tomorrowStr()}`);
+        const res = await fetch(`${API_BASE}/api/accounts/deals?source=bbook&from=${todayStr()}&to=${tomorrowStr()}`);
         if (!res.ok) return;
         const data = await res.json();
         const allDeals: any[] = data.deals || data || [];

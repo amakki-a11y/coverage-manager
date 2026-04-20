@@ -2,8 +2,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { THEME } from '../theme';
 import type { SymbolMapping } from '../types';
 import { ConfirmDialog } from './ConfirmDialog';
+import { API_BASE as API_ORIGIN } from '../config';
 
-const API_BASE = 'http://localhost:5000/api/mappings';
+const API_BASE = `${API_ORIGIN}/api/mappings`;
 
 const inputStyle: React.CSSProperties = {
   background: THEME.bg,

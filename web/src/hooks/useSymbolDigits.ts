@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { SymbolMapping } from '../types';
+import { API_BASE } from '../config';
 
 /**
  * Per-instrument price precision source of truth.
@@ -10,7 +11,7 @@ import type { SymbolMapping } from '../types';
  * heuristic when the mapping is missing so every cell still renders something
  * sane, but the real answer comes from `symbol_mappings.digits`.
  */
-const API = 'http://localhost:5000/api/mappings';
+const API = `${API_BASE}/api/mappings`;
 
 type DigitsMap = Record<string, number>;
 let cache: DigitsMap | null = null;

@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { THEME } from '../../theme';
 import { formatBeirutTime } from '../../utils/time';
+import { API_BASE } from '../../config';
 
 interface BookSide {
   deals: number;
@@ -112,7 +113,7 @@ export function MarkupPanel() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`http://localhost:5000/api/markup/match?from=${from}&to=${to}`);
+      const res = await fetch(`${API_BASE}/api/markup/match?from=${from}&to=${to}`);
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
         setError(err.error || 'Failed to load');

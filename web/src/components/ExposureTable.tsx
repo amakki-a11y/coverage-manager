@@ -6,6 +6,7 @@ import { useSymbolDigits } from '../hooks/useSymbolDigits';
 import { HedgeBar } from './HedgeBar';
 import { DateRangePicker } from './DateRangePicker';
 import { FlashingCell } from './FlashingCell';
+import { API_BASE } from '../config';
 
 /**
  * The flagship Exposure tab — the live view the dealer stares at all day.
@@ -17,7 +18,7 @@ import { FlashingCell } from './FlashingCell';
  * Data sources:
  *   - Open row: `ExposureSummary[]` streamed by `useExposureSocket`.
  *   - Closed row B-Book: `GET /api/exposure/pnl?from=&to=` (Beirut-local dates).
- *   - Closed row Coverage: `GET http://localhost:8100/deals` via the Python collector.
+ *   - Closed row Coverage: `GET /api/coverage/deals` (C# proxy to Python collector).
  *
  * Dealer ergonomics:
  *   - Drag-reorder symbol rows (persisted in localStorage).
@@ -153,9 +154,9 @@ export function ExposureTable({ summaries, prices }: ExposureTableProps) {
       const errs: string[] = [];
       try {
         const [bbRes, covRes, mapRes] = await Promise.all([
-          fetch(`http://localhost:5000/api/exposure/pnl?from=${closedFrom}&to=${closedTo}`).catch(() => null),
-          fetch(`http://localhost:8100/deals?from=${closedFrom}&to=${closedTo}`).catch(() => null),
-          fetch('http://localhost:5000/api/mappings').catch(() => null),
+          fetch(`${API_BASE}/api/exposure/pnl?from=${closedFrom}&to=${closedTo}`).catch(() => null),
+          fetch(`${API_BASE}/api/coverage/deals?from=${closedFrom}&to=${closedTo}`).catch(() => null),
+          fetch(`${API_BASE}/api/mappings`).catch(() => null),
         ]);
         if (!bbRes || !bbRes.ok) errs.push('B-Book');
         if (!covRes || !covRes.ok) errs.push('coverage');

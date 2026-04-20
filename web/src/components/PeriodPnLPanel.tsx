@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { THEME } from '../theme';
 import type { PeriodPnLResponse, PeriodPnLRow, PeriodPnLSide } from '../types';
 import { useDateRange } from '../hooks/useDateRange';
+import { API_BASE } from '../config';
 
 /**
  * Net P&L tab — period P&L decomposition.
@@ -24,8 +25,6 @@ import { useDateRange } from '../hooks/useDateRange';
  *
  * Capture Snapshot Now button → `POST /api/exposure/snapshot`.
  */
-const API_BASE = 'http://localhost:5000';
-
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
 }
