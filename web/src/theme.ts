@@ -54,23 +54,26 @@ export interface ThemeColors {
   badgeAmber: string;
 }
 
+// Dark-mode hex values synced to `styles/styles.css` :root palette so the
+// JS-side inline styles used by legacy components render in the same
+// palette as the new CSS-class-based shell.
 export const DARK_THEME: ThemeColors = {
-  bg: '#0C0F14',
-  bg2: '#141820',
-  bg3: '#1A1F2A',
-  card: '#1E2430',
-  border: 'rgba(255,255,255,0.08)',
-  t1: '#F0EDE6',
-  t2: '#9BA3B0',
-  t3: '#636B78',
-  green: '#66BB6A',
-  red: '#FF5252',
-  amber: '#FFBA42',
-  teal: '#3DD9A0',
-  blue: '#5B9EFF',
+  bg: '#0A0D12',
+  bg2: '#10141B',
+  bg3: '#171C25',
+  card: '#1A202B',
+  border: 'rgba(255,255,255,0.07)',
+  t1: '#F1EEE6',
+  t2: '#A6ADBA',
+  t3: '#6A7280',
+  green: '#4ADE80',
+  red: '#F87171',
+  amber: '#FBBF24',
+  teal: '#2DD4BF',
+  blue: '#60A5FA',
 
   rowAlt: 'rgba(255,255,255,0.02)',
-  rowSelected: 'rgba(91,158,255,0.08)',
+  rowSelected: 'rgba(96,165,250,0.08)',
   rowHover: 'rgba(255,255,255,0.04)',
 
   shadow: '0 4px 20px rgba(0,0,0,0.4)',

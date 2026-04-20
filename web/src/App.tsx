@@ -21,6 +21,8 @@ import { KeyboardShortcutsOverlay } from './components/KeyboardShortcutsOverlay'
 import { UserGuideOverlay } from './components/UserGuideOverlay';
 import { Sidebar, type SidebarTab } from './shell/Sidebar';
 import { Topbar } from './shell/Topbar';
+import { CommandPalette } from './shell/CommandPalette';
+import { TweaksPanel, DEFAULT_TWEAKS, type Tweaks } from './shell/TweaksPanel';
 import { API_BASE } from './config';
 import type { Position } from './types';
 
@@ -43,6 +45,15 @@ function AppContent() {
   const [positions, setPositions] = useState<Position[]>([]);
   const [showAlertHistory, setShowAlertHistory] = useState(false);
   const [showUserGuide, setShowUserGuide] = useState(false);
+  const [showPalette, setShowPalette] = useState(false);
+  const [showTweaks, setShowTweaks] = useState(false);
+  const [tweaks, setTweaks] = useState<Tweaks>(() => {
+    try {
+      const raw = localStorage.getItem('tweaks');
+      if (raw) return { ...DEFAULT_TWEAKS, ...JSON.parse(raw) };
+    } catch { /* ignore */ }
+    return DEFAULT_TWEAKS;
+  });
   const [soundEnabled, setSoundEnabled] = useState(() => {
     const saved = localStorage.getItem('alertSound');
     return saved !== 'false';
@@ -53,23 +64,38 @@ function AppContent() {
     localStorage.setItem('sidebar.collapsed', String(collapsed));
   }, [collapsed]);
 
+  // Persist tweaks + mirror accent/density onto <html> data attrs so
+  // CSS rules (in styles-extra.css) can react without touching JS.
+  useEffect(() => {
+    localStorage.setItem('tweaks', JSON.stringify(tweaks));
+    document.documentElement.setAttribute('data-accent', tweaks.accent);
+    document.documentElement.setAttribute('data-density', tweaks.density);
+  }, [tweaks]);
+
   const acknowledgeAlert = useCallback(async (id: string) => {
     try {
       await fetch(`${API_BASE}/api/alerts/${id}/acknowledge`, { method: 'POST' });
     } catch { /* ignore */ }
   }, []);
 
-  // Keyboard shortcuts 1..8 → tabs in sidebar order. Skip when focus is in an
-  // editable element so typing numbers into inputs doesn't jump tabs.
+  // Keyboard shortcuts:
+  //   1-8         → tabs in sidebar order (only when focus is outside inputs)
+  //   Cmd/Ctrl-K  → Command Palette (works regardless of focus)
   useEffect(() => {
     const TAB_KEYS: Record<string, SidebarTab> = {
       '1': 'exposure', '2': 'positions', '3': 'compare', '4': 'bridge',
       '5': 'pnl',      '6': 'netpnl',    '7': 'equitypnl','8': 'markup',
     };
     const onKey = (e: KeyboardEvent) => {
+      // Cmd+K / Ctrl+K opens the palette from anywhere
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setShowPalette(o => !o);
+        return;
+      }
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
       const el = e.target as HTMLElement | null;
       if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
       const t = TAB_KEYS[e.key];
       if (t) {
         e.preventDefault();
@@ -121,10 +147,10 @@ function AppContent() {
         mode={mode}
         alertCount={alertCount}
         onToggleTheme={toggleTheme}
-        onOpenPalette={() => {/* TODO: Phase 5 — Command Palette */}}
+        onOpenPalette={() => setShowPalette(true)}
         onOpenAlerts={() => setShowAlertHistory(true)}
         onOpenGuide={() => setShowUserGuide(true)}
-        onOpenTweaks={() => {/* TODO: Phase 5 — Tweaks panel */}}
+        onOpenTweaks={() => setShowTweaks(true)}
       />
 
       <div className="main">
@@ -154,6 +180,20 @@ function AppContent() {
       )}
       <KeyboardShortcutsOverlay />
       <UserGuideOverlay open={showUserGuide} onClose={() => setShowUserGuide(false)} />
+      <CommandPalette
+        open={showPalette}
+        onClose={() => setShowPalette(false)}
+        onNavigate={setTab}
+        onOpenGuide={() => setShowUserGuide(true)}
+        onOpenAlerts={() => setShowAlertHistory(true)}
+        onToggleTheme={toggleTheme}
+      />
+      <TweaksPanel
+        open={showTweaks}
+        onClose={() => setShowTweaks(false)}
+        tweaks={tweaks}
+        setTweaks={setTweaks}
+      />
       {/* Silence unused-var warning; soundEnabled toggle will land on the Tweaks panel in Phase 5. */}
       <input type="hidden" value={String(soundEnabled)} readOnly />
     </div>
