@@ -1,6 +1,6 @@
 import {
-  LayoutGrid, List, Split, Combine, Wallet, Layers, Bell, Map as MapIcon,
-  Settings, Zap, Keyboard,
+  LayoutGrid, List, Split, Wallet, Layers, Bell, Map as MapIcon,
+  Settings, Keyboard,
 } from 'lucide-react';
 
 /**
@@ -12,8 +12,8 @@ import {
  * adding a new tab is two lines here + one line in the App.tsx router.
  */
 export type SidebarTab =
-  | 'exposure' | 'positions' | 'compare' | 'bridge'
-  | 'pnl' | 'netpnl' | 'equitypnl' | 'markup'
+  | 'exposure' | 'positions' | 'compare'
+  | 'pnl' | 'netpnl' | 'equitypnl'
   | 'mappings' | 'alerts' | 'settings';
 
 interface Item {
@@ -40,16 +40,14 @@ export function Sidebar({ tab, setTab, collapsed, setCollapsed, alertCount }: Pr
         { id: 'exposure',  label: 'Exposure',   icon: LayoutGrid, kbd: '1' },
         { id: 'positions', label: 'Positions',  icon: List,       kbd: '2' },
         { id: 'compare',   label: 'Compare',    icon: Split,      kbd: '3' },
-        { id: 'bridge',    label: 'Bridge',     icon: Combine,    kbd: '4' },
       ],
     },
     {
       label: 'P&L',
       items: [
-        { id: 'pnl',        label: 'P&L',        icon: Wallet, kbd: '5' },
-        { id: 'netpnl',     label: 'Net P&L',    icon: Layers, kbd: '6' },
-        { id: 'equitypnl',  label: 'Equity P&L', icon: Wallet, kbd: '7' },
-        { id: 'markup',     label: 'Markup',     icon: Zap,    kbd: '8' },
+        { id: 'pnl',        label: 'P&L',        icon: Wallet, kbd: '4' },
+        { id: 'netpnl',     label: 'Net P&L',    icon: Layers, kbd: '5' },
+        { id: 'equitypnl',  label: 'Equity P&L', icon: Wallet, kbd: '6' },
       ],
     },
     {

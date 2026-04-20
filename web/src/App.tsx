@@ -9,8 +9,6 @@ import { PnLPanel } from './components/PnLPanel';
 import { PeriodPnLPanel } from './components/PeriodPnLPanel';
 import { EquityPnLPage } from './components/EquityPnLPage';
 import { PositionsCompare } from './pages/PositionsCompare';
-import { MarkupPanel } from './pages/Markup';
-import { BridgePanel } from './pages/Bridge';
 import { AlertToast } from './components/AlertToast';
 import { AlertBanner } from './components/AlertBanner';
 import { AlertHistory } from './components/AlertHistory';
@@ -83,8 +81,8 @@ function AppContent() {
   //   Cmd/Ctrl-K  → Command Palette (works regardless of focus)
   useEffect(() => {
     const TAB_KEYS: Record<string, SidebarTab> = {
-      '1': 'exposure', '2': 'positions', '3': 'compare', '4': 'bridge',
-      '5': 'pnl',      '6': 'netpnl',    '7': 'equitypnl','8': 'markup',
+      '1': 'exposure', '2': 'positions', '3': 'compare',
+      '4': 'pnl',      '5': 'netpnl',    '6': 'equitypnl',
     };
     const onKey = (e: KeyboardEvent) => {
       // Cmd+K / Ctrl+K opens the palette from anywhere
@@ -165,8 +163,6 @@ function AppContent() {
             {tab === 'netpnl'     && <PeriodPnLPanel />}
             {tab === 'equitypnl'  && <EquityPnLPage />}
             {tab === 'compare'    && <PositionsCompare prices={prices} />}
-            {tab === 'markup'     && <MarkupPanel />}
-            {tab === 'bridge'     && <BridgePanel />}
             {tab === 'mappings'   && <SymbolMappingAdmin />}
             {tab === 'alerts'     && <AlertHistoryTabStub onOpen={() => setShowAlertHistory(true)} />}
             {tab === 'settings'   && <SettingsPanel />}
