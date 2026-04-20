@@ -53,6 +53,16 @@ public class MarkupController : ControllerBase
         [JsonPropertyName("count")] public int Count { get; set; }
     }
 
+    /// <summary>
+    /// GET /api/markup/match?from=YYYY-MM-DD&amp;to=YYYY-MM-DD
+    /// <para>
+    /// Pairs client (bbook) OUT deals with coverage OUT deals per canonical symbol and
+    /// returns the broker's true mark-up <c>(markup = −ClientPnL + CoveragePnL)</c>
+    /// alongside informational VWAP price-edge per side (BUY/SELL). Also includes up
+    /// to 50 sample matched pairs (bbook deal ↔ coverage deals within ±500 ms) for
+    /// spot-checking in the Markup tab's sample table.
+    /// </para>
+    /// </summary>
     [HttpGet("match")]
     public async Task<IActionResult> Match(
         [FromQuery] DateTime? from = null,

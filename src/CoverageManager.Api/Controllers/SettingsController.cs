@@ -5,6 +5,14 @@ using CoverageManager.Api.Services;
 
 namespace CoverageManager.Api.Controllers;
 
+/// <summary>
+/// Stores and retrieves dealer-editable configuration:
+///  - MT5 Manager + Coverage account credentials (<c>/accounts</c>)
+///  - Moved/excluded login list (<c>/moved-accounts</c>)
+///  - Centroid Bridge credentials, mode, base URL (<c>/bridge</c>)
+/// All responses redact passwords — the UI sees <c>passwordSet: true|false</c>
+/// rather than the raw value.
+/// </summary>
 [ApiController]
 [Route("api/settings")]
 public class SettingsController : ControllerBase

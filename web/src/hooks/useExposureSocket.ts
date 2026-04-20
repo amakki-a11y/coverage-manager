@@ -1,6 +1,22 @@
 import { useEffect, useReducer, useCallback, useRef } from 'react';
 import type { ExposureSummary, PriceQuote, AlertEvent, ExposureMessage } from '../types';
 
+/**
+ * Live-exposure WebSocket hook. Subscribes to the C# backend's `/ws` feed and
+ * exposes the most-recent state to any consumer:
+ *
+ * - `exposureSummaries` — one row per canonical symbol (B-Book + Coverage + Summary).
+ * - `prices`            — latest bid/ask per MT5 symbol (used by Exposure table + flashing cells).
+ * - `connected`         — socket open/closed; drives the StaleWrapper diagonal-hatch overlay.
+ * - `newAlerts`         — queue of alerts not yet shown to the user (consumed by AlertToast).
+ * - `alertCount`        — unacknowledged count (drives the bell badge).
+ *
+ * Backend throttles the feed to ~10 msg/sec. Reconnects with linear backoff
+ * (1 s → 10 s cap) if the socket drops. Uses `useReducer` so multiple message
+ * types arriving in one React batch don't tear state.
+ *
+ * @returns State snapshot plus `acknowledgeAlert(id)` for clearing a toast.
+ */
 interface State {
   exposureSummaries: ExposureSummary[];
   prices: PriceQuote[];

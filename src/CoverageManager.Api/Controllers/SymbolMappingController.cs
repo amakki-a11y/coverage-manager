@@ -5,6 +5,13 @@ using CoverageManager.Api.Services;
 
 namespace CoverageManager.Api.Controllers;
 
+/// <summary>
+/// CRUD over <c>symbol_mappings</c> — the translation layer between raw B-Book
+/// symbols (e.g. <c>XAUUSD-</c>), coverage/LP symbols (e.g. <c>GOLD</c>), and
+/// the canonical name used everywhere else in the app (e.g. <c>XAUUSD</c>).
+/// Any write refreshes <c>PositionManager</c>'s in-memory map so the next
+/// broadcast reflects the change.
+/// </summary>
 [ApiController]
 [Route("api/mappings")]
 public class SymbolMappingController : ControllerBase

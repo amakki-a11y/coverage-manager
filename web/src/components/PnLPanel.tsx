@@ -2,6 +2,17 @@ import { useState, useEffect, useCallback } from 'react';
 import { THEME } from '../theme';
 import { useDateRange } from '../hooks/useDateRange';
 
+/**
+ * Legacy "P&L" tab — settled-only P&L per canonical symbol for the picker range.
+ *
+ * Uses:
+ *   - `GET /api/exposure/pnl?from=&to=` for B-Book (sub-second `aggregate_bbook_pnl_full` RPC).
+ *   - `GET http://localhost:8100/deals?from=&to=` for optional Coverage P&L toggle.
+ *
+ * Presents client perspective (positive P&L = clients profited) — not inverted
+ * for broker view. For the dealer-oriented broker edge view see `PeriodPnLPanel`
+ * (Net P&L tab), which adds floating + delta decomposition.
+ */
 interface SymbolPnL {
   symbol: string;
   dealCount: number;

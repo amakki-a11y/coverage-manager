@@ -5,6 +5,13 @@ using CoverageManager.Api.Services;
 
 namespace CoverageManager.Api.Controllers;
 
+/// <summary>
+/// Alert surface: live in-memory alerts from <c>AlertEngine</c>,
+/// persisted alert events from <c>alert_events</c>, and CRUD over
+/// <c>alert_rules</c> (risk thresholds). Rule edits automatically reload
+/// the in-process engine and mark the broadcast service dirty so the
+/// next WebSocket push reflects the new thresholds.
+/// </summary>
 [ApiController]
 [Route("api/alerts")]
 public class AlertsController : ControllerBase

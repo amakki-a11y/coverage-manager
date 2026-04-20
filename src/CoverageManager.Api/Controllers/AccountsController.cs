@@ -4,6 +4,11 @@ using CoverageManager.Connector;
 
 namespace CoverageManager.Api.Controllers;
 
+/// <summary>
+/// Read/backfill endpoints over the <c>trading_accounts</c>, <c>deals</c>, and
+/// <c>trade_audit_log</c> Supabase tables. Used by the Accounts / Audit panels
+/// in the UI and by the ad-hoc backfill tools in Settings.
+/// </summary>
 [ApiController]
 [Route("api/accounts")]
 public class AccountsController : ControllerBase
@@ -17,6 +22,10 @@ public class AccountsController : ControllerBase
         _mt5Connection = mt5Connection;
     }
 
+    /// <summary>
+    /// GET /api/accounts?source=bbook|coverage — list MT5 accounts (both sides)
+    /// mirrored into Supabase. Omitting <paramref name="source"/> returns all.
+    /// </summary>
     [HttpGet]
     public async Task<IActionResult> GetAccounts([FromQuery] string? source = null)
     {
@@ -24,6 +33,11 @@ public class AccountsController : ControllerBase
         return Ok(new { count = accounts.Count, accounts });
     }
 
+    /// <summary>
+    /// GET /api/accounts/audit — modification log for deals (price/volume/profit changes
+    /// detected by <c>DataSyncService</c>). Optional filters: from date, symbol, login.
+    /// Default <paramref name="from"/> is today (UTC).
+    /// </summary>
     [HttpGet("audit")]
     public async Task<IActionResult> GetAuditLog(
         [FromQuery] string? from = null,

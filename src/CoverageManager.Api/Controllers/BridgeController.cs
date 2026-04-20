@@ -84,6 +84,16 @@ public class BridgeController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// GET /api/bridge/executions — ExecutionPairs persisted in Supabase for a UTC
+    /// date range, optionally filtered by canonical symbol. Falls back to the live
+    /// in-memory store when Supabase returns empty (e.g. fresh session). Result is
+    /// enriched with real MT5 deal IDs on both CLIENT and COV OUT sides.
+    /// </summary>
+    /// <param name="from">UTC start (date-only, inclusive). Defaults to today.</param>
+    /// <param name="to">UTC end (date-only, inclusive-of-day).</param>
+    /// <param name="symbol">Optional canonical symbol to filter.</param>
+    /// <param name="limit">Max pairs to return (default 500).</param>
     [HttpGet("executions")]
     public async Task<IActionResult> GetExecutions(
         [FromQuery] DateTime? from = null,
@@ -126,6 +136,11 @@ public class BridgeController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// GET /api/bridge/live — in-memory ExecutionPairs currently tracked by
+    /// <c>BridgeExecutionStore</c> (roughly the last 24h of live traffic).
+    /// Used as a "tail" view on the Bridge tab while the persisted query loads.
+    /// </summary>
     [HttpGet("live")]
     public IActionResult GetLive([FromQuery] int limit = 500)
     {
@@ -142,6 +157,12 @@ public class BridgeController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// GET /api/bridge/health — Centroid feed state: mode (Stub/Live/Replay),
+    /// connection state, last message timestamp, total messages received,
+    /// last error string, and pairs currently in memory. Feeds the
+    /// "Centroid" dot in the top-right health indicator.
+    /// </summary>
     [HttpGet("health")]
     public IActionResult Health()
     {

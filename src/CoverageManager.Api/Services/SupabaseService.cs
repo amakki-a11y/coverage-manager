@@ -7,6 +7,25 @@ using CoverageManager.Core.Models.EquityPnL;
 
 namespace CoverageManager.Api.Services;
 
+/// <summary>
+/// Thin HTTP client over Supabase's PostgREST API. Every domain read or write
+/// the backend needs against Postgres lives here — deals, accounts, symbol
+/// mappings, alert rules, exposure snapshots, reconciliation runs, login
+/// groups, the Equity P&amp;L config tables, and bridge settings.
+///
+/// <para>Conventions:
+///   * All methods are async, catch their own errors, log with context, and
+///     return an "empty" result on failure (empty list, null, false) rather
+///     than throwing — consistent with the Error Handling rules.
+///   * Large reads page through PostgREST's 1000-row cap explicitly.
+///   * Upserts use <c>on_conflict=...</c> on natural keys so restarts / retries
+///     are idempotent.
+///   * The RPC aggregation helpers (<c>AggregateBBookSettledPnlAsync</c>,
+///     <c>AggregateBBookPnlFullAsync</c>, <c>GetLatestSnapshotsBeforeAsync</c>)
+///     call server-side SQL functions defined in <c>supabase/migrations</c>
+///     — see CLAUDE.md's "Supabase functions" section.
+/// </para>
+/// </summary>
 public class SupabaseService
 {
     private readonly HttpClient _http;

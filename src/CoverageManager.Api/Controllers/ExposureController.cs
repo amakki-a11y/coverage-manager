@@ -7,6 +7,31 @@ using CoverageManager.Api.Services;
 
 namespace CoverageManager.Api.Controllers;
 
+/// <summary>
+/// The widest-surface controller in the API. Serves the live Exposure view,
+/// historical P&amp;L (both the original settled-only tab and the newer Net P&amp;L
+/// period tab), manual backfills, deal verification, snapshot capture, and
+/// the Equity P&amp;L endpoint used by the Equity P&amp;L tab.
+///
+/// <para>Route conventions:
+///   * <c>GET  /summary</c>            — live exposure (WebSocket also available)
+///   * <c>GET  /positions</c>          — all open positions
+///   * <c>GET  /status</c>             — MT5 connection status
+///   * <c>GET  /pnl?from&amp;to</c>        — per-symbol settled P&amp;L (legacy P&amp;L tab)
+///   * <c>GET  /pnl/period?from&amp;to</c> — floating + settled decomposition (Net P&amp;L tab)
+///   * <c>POST /pnl/reload</c>          — re-pull deals from MT5 for a date range
+///   * <c>GET  /verify?from&amp;to&amp;fix</c> — compare MT5 ↔ Supabase; fix=true backfills missing
+///   * <c>POST /snapshot</c>            — capture an exposure snapshot now
+///   * <c>GET  /snapshots</c>           — raw snapshot history
+///   * <c>GET  /equity-pnl</c>          — per-login Equity P&amp;L with rebate/PS resolution
+///   * <c>POST /equity-pnl/backfill-cash-movements</c> — one-shot MT5 scan for balance/credit deals
+///   * <c>GET  /equity-pnl/account-live</c> — diagnostic live MT5 account read
+/// </para>
+///
+/// <para>All date-only query params are interpreted as midnight
+/// <c>Asia/Beirut</c> converted to UTC (DST-aware). See CLAUDE.md → "Date +
+/// Timezone Model" for why.</para>
+/// </summary>
 [ApiController]
 [Route("api/exposure")]
 public class ExposureController : ControllerBase

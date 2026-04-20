@@ -3,6 +3,27 @@ import { THEME } from '../theme';
 import type { PeriodPnLResponse, PeriodPnLRow, PeriodPnLSide } from '../types';
 import { useDateRange } from '../hooks/useDateRange';
 
+/**
+ * Net P&L tab — period P&L decomposition.
+ *
+ * For a date range the backend returns per-symbol Begin / Current / ΔFloat /
+ * Settled / Net on both sides (Clients vs Coverage) plus the broker Edge.
+ *
+ *   FloatingΔ = CurrentFloating − BeginFloating
+ *   Net       = FloatingΔ + Settled
+ *   Edge Net  = Coverage.Net − Clients.Net       (positive → broker profited)
+ *
+ * Amber dot on Begin means no snapshot exists before the picker `from` date
+ * → Begin treated as 0. "—" cells mean that side has zero live volume on
+ * open positions (Settled / Net still show real realized P&L).
+ *
+ * Caching: `periodCache` at module scope survives tab unmount — re-entering
+ * the tab shows the previous result instantly, then refreshes silently.
+ * Date-change fetches show a ≥450 ms amber "Loading…" badge; 10 s interval
+ * polls refresh silently.
+ *
+ * Capture Snapshot Now button → `POST /api/exposure/snapshot`.
+ */
 const API_BASE = 'http://localhost:5000';
 
 function todayStr() {

@@ -9,6 +9,20 @@ import { EquityPnLClientConfigCard } from './EquityPnLClientConfigCard';
 import { SpreadRebatesCard } from './SpreadRebatesCard';
 import { LoginGroupsCard } from './LoginGroupsCard';
 
+/**
+ * Settings tab — organized into 5 sub-tabs to keep what used to be one long
+ * scroll tractable:
+ *
+ *   - **Connections**    — MT5 Manager & Coverage account credentials.
+ *   - **Equity P&L**     — Client config · Spread rebates · Login groups.
+ *   - **Snapshots**      — Snapshot schedules (cron) · Snapshot history.
+ *   - **Data Integrity** — Deal verification · Reconciliation history.
+ *   - **Reference**      — Moved accounts · Alert rules.
+ *
+ * Sub-tab selection persisted in localStorage so a reload returns you to the
+ * same section. All writes redact passwords — the panel only sees
+ * `passwordSet: true|false`.
+ */
 const API_BASE = 'http://localhost:5000/api/settings/accounts';
 
 const inputStyle: React.CSSProperties = {

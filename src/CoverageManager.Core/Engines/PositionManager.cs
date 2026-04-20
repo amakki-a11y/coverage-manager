@@ -4,8 +4,18 @@ using CoverageManager.Core.Models;
 namespace CoverageManager.Core.Engines;
 
 /// <summary>
-/// In-memory position store. Holds both B-Book and coverage positions.
-/// Thread-safe for concurrent updates from MT5 callbacks and HTTP posts.
+/// In-memory store of open positions — the single source of truth for live
+/// B-Book (via MT5 Manager callbacks) and coverage (via Python collector POST)
+/// positions. Also owns the symbol-mapping lookup table.
+///
+/// <para>Key shape: <c>"bbook:{login}:{ticket}"</c> or <c>"coverage:{ticket}"</c>
+/// so the two sides never collide. Writers are MT5 event callbacks and the
+/// <c>/api/coverage/positions</c> endpoint; readers are <c>ExposureEngine</c>,
+/// the WebSocket broadcast, and the Compare/Positions views.</para>
+///
+/// <para>Thread-safe — backed by <see cref="ConcurrentDictionary{TKey,TValue}"/>
+/// so concurrent MT5 deal callbacks and HTTP writes are safe without external
+/// locking.</para>
 /// </summary>
 public class PositionManager
 {

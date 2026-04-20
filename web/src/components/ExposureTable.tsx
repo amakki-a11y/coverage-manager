@@ -7,6 +7,25 @@ import { HedgeBar } from './HedgeBar';
 import { DateRangePicker } from './DateRangePicker';
 import { FlashingCell } from './FlashingCell';
 
+/**
+ * The flagship Exposure tab — the live view the dealer stares at all day.
+ *
+ * Layout per canonical symbol:
+ *   - Two rows: **O** (Open / live floating) and **C** (Closed / settled P&L for the picker range).
+ *   - Three groups: **Clients (B-Book)** | **Coverage (LP)** | **Summary**.
+ *
+ * Data sources:
+ *   - Open row: `ExposureSummary[]` streamed by `useExposureSocket`.
+ *   - Closed row B-Book: `GET /api/exposure/pnl?from=&to=` (Beirut-local dates).
+ *   - Closed row Coverage: `GET http://localhost:8100/deals` via the Python collector.
+ *
+ * Dealer ergonomics:
+ *   - Drag-reorder symbol rows (persisted in localStorage).
+ *   - Sort dropdown over net / P&L / hedge columns.
+ *   - Grid-line toggle, "C"/"O" shorthand, UNMAPPED badge when a symbol
+ *     isn't in `symbol_mappings`, flashing green/red cells on tick moves.
+ *   - `DateRangePicker` is shared across Exposure / P&L / Net P&L / Compare.
+ */
 type SortField = 'custom' | 'symbol' | 'bbNet' | 'bbPnL' | 'covNet' | 'covPnL' | 'netPnL' | 'hedge' | 'toCover';
 
 interface ExposureTableProps {

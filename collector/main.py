@@ -1,7 +1,41 @@
 """
 Coverage Manager — Python Collector
-Reads coverage (LP) positions from MT5 terminal, POSTs to C# backend.
-Fetches account credentials from the backend API on startup.
+====================================
+
+The coverage (LP) side of the Coverage Manager pipeline. The C# Manager API
+we use for the B-Book side is bound to a single MT5 Manager login and cannot
+see accounts that live on the LP's MT5 server, so we run this small Python
+service alongside an MT5 Terminal that IS logged into the LP account.
+
+What this process does
+----------------------
+* Polls ``mt5.positions_get()`` every ``POLL_INTERVAL`` (default 100 ms) and
+  POSTs the open-position snapshot to ``/api/coverage/positions`` on the C#
+  backend. The backend treats each POST as authoritative — this is a "pull
+  me into sync" message, not a delta.
+* Exposes FastAPI endpoints the backend/UI call directly:
+    * ``GET /health``       — liveness + staleness for the top-bar health dot.
+    * ``GET /account``      — LP balance/credit/equity for the Equity P&L tab.
+    * ``GET /positions``    — on-demand pull (rarely used; positions are pushed).
+    * ``GET /deals``        — aggregated closed-deal P&L per symbol for a window.
+    * ``GET /deals/raw``    — individual deals used by Markup + Bridge matching.
+* Reconnects MT5 on drop with exponential backoff capped at 10 s — dealers
+  routinely close/reopen the MT5 Terminal during the day.
+
+Startup
+-------
+* Tries to attach to an already-running MT5 Terminal first (simplest path).
+* Falls back to pulling creds from ``/api/settings/accounts`` and calling
+  ``mt5.initialize(login=..., server=..., password=...)``.
+* If neither works, the process stays up and logs a warning so the backend
+  health dot shows "disconnected" rather than the collector crashing.
+
+Environment variables
+---------------------
+* ``BACKEND_URL``             — C# API base URL (default ``http://localhost:5000``).
+* ``COLLECTOR_POLL_INTERVAL`` — position poll interval in seconds (default 0.1).
+
+Run locally: ``uvicorn main:app --host 0.0.0.0 --port 8100``.
 """
 import os
 from fastapi import FastAPI, Query
@@ -203,6 +237,18 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 
 @app.get("/health")
 def health():
+    """Liveness probe for the top-bar 'Collector' dot.
+
+    Returns
+    -------
+    dict
+        ``status``                    — ``ok`` (healthy) / ``stale`` (MT5 up but positions
+                                        haven't refreshed in 10 s) / ``disconnected`` (MT5 down).
+        ``terminal``                  — MT5 terminal name (e.g. ``MetaTrader 5``) or ``None``.
+        ``login`` / ``server``        — cached LP login + server.
+        ``last_position_update_utc``  — ISO timestamp of the last successful positions poll.
+        ``stale``                     — bool; true when the position poll has gone quiet.
+    """
     info = mt5.terminal_info()
     acc = mt5.account_info()
     now = datetime.now(tz=timezone.utc)
@@ -248,7 +294,12 @@ def get_account():
 
 @app.get("/positions")
 def get_positions():
-    """Alternative: C# can pull instead of Python pushing."""
+    """Return open coverage positions on demand (pull instead of push).
+
+    Not used in steady state — ``position_loop`` pushes to the backend every
+    100 ms. Kept for ad-hoc diagnostics and as a fallback if the push path
+    is ever disabled.
+    """
     positions = mt5.positions_get()
     if not positions:
         return []
@@ -269,7 +320,29 @@ def get_deals(
     from_date: str = Query(..., alias="from", description="Start date YYYY-MM-DD"),
     to_date: str = Query(..., alias="to", description="End date YYYY-MM-DD"),
 ):
-    """Get closed deals from coverage account for a date range."""
+    """Aggregated closed-deal P&L per coverage symbol for a UTC date range.
+
+    Parameters
+    ----------
+    from_date, to_date : str (``YYYY-MM-DD``, via query aliases ``from`` / ``to``)
+        Inclusive date range. Dates are interpreted as UTC midnight; ``to`` is
+        exclusive internally (we add 1 day) so "today..today" = full 24 h.
+
+    Returns
+    -------
+    dict
+        ``totalDeals`` — count of OUT (closing) deals.
+        ``symbols``    — per-symbol aggregate with ``buyVolume``, ``sellVolume``,
+                         ``totalVolume`` (includes IN+OUT to match MT5 totals),
+                         ``totalProfit`` / ``totalCommission`` / ``totalSwap`` /
+                         ``totalFee`` (OUT-only for P&L math), and ``netPnL``.
+        ``debug``      — raw sums across all deals (balance/credit excluded)
+                         for spot-checking against the MT5 terminal History tab.
+
+    Volume vs P&L split: MT5 emits two deals per close (IN + OUT). Volume
+    summed naively would double-count, so per-CLAUDE.md conventions volume
+    uses both sides and P&L only the OUT side.
+    """
     dt_from = datetime.strptime(from_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
     # MT5 history_deals_get 'to' is exclusive, so add 1 day to include the end date
     dt_to = datetime.strptime(to_date, "%Y-%m-%d").replace(tzinfo=timezone.utc) + timedelta(days=1)
@@ -345,9 +418,20 @@ def get_deals_raw(
     from_date: str = Query(..., alias="from", description="Start date YYYY-MM-DD"),
     to_date: str = Query(..., alias="to", description="End date YYYY-MM-DD"),
 ):
-    """
-    Return individual coverage deals (not aggregated) for matching against client deals.
-    Used by the /api/markup/match endpoint for time-window matching.
+    """Return individual (un-aggregated) coverage deals for a UTC date range.
+
+    Consumed by:
+      * ``/api/markup/match`` — time-window matching (±500 ms) between client
+        OUT deals and coverage OUT deals to build the Markup tab.
+      * The Compare tab's coverage trade stream.
+      * The Bridge tab's coverage-side enrichment path.
+
+    Each deal carries the MT5 ticket, order id, magic, ``externalId`` (used by
+    the Bridge to resolve Centroid's ``maker_order_id`` back to a real MT5
+    deal number), volume/price/profit/commission/fee/swap, and ``timeMsc``
+    (millisecond-precision Unix timestamp).
+
+    Balance / credit deals (``type >= 2``) are filtered out.
     """
     try:
         dt_from = datetime.strptime(from_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)

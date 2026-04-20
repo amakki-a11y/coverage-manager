@@ -3,6 +3,15 @@ using CoverageManager.Core.Models;
 
 namespace CoverageManager.Core.Engines;
 
+/// <summary>
+/// Evaluates configured <see cref="RiskThreshold"/> rules against live exposure /
+/// position state and raises <see cref="AlertEvent"/>s when a threshold is
+/// breached. Breach tracking and a 5-minute cooldown per rule prevent the
+/// dealer from being spammed when a metric oscillates around a limit.
+///
+/// <para>Evaluated by <c>ExposureBroadcastService</c> on every broadcast tick,
+/// and by <c>AlertsController</c> when rules are added/updated.</para>
+/// </summary>
 public class AlertEngine
 {
     private readonly ExposureEngine _exposureEngine;

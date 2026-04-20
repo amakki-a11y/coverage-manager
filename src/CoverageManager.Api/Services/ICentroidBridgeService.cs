@@ -2,6 +2,7 @@ using CoverageManager.Core.Models.Bridge;
 
 namespace CoverageManager.Api.Services;
 
+/// <summary>Connection state of the active Centroid feed — rendered as a color in the UI health dot.</summary>
 public enum CentroidConnectionState
 {
     Disconnected,
@@ -11,6 +12,10 @@ public enum CentroidConnectionState
     Stubbed,
 }
 
+/// <summary>
+/// Snapshot of feed health returned by <see cref="ICentroidBridgeService.GetHealth"/>.
+/// Surfaced by <c>GET /api/bridge/health</c> and fed into the top-right health dot.
+/// </summary>
 public class CentroidHealth
 {
     public CentroidConnectionState State { get; set; }

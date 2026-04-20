@@ -3,6 +3,19 @@ import type { SymbolExposure, TradeRecord } from '../types/compare';
 
 const API_BASE = 'http://localhost:5000';
 
+/**
+ * Drives the Compare tab. Polls two REST endpoints on different cadences:
+ *
+ * - `/api/compare/exposure` every 500 ms — merged per-symbol snapshot (B-Book
+ *   + Coverage volumes, P&L, hedge%). This is a "cheap" read — served from
+ *   the same in-memory state the WebSocket uses.
+ * - `/api/compare/trades`   every 5 s — merged trade stream (client +
+ *   coverage) for the right-panel charts. 2-day rolling window so pre-market
+ *   activity shows up on the detail view before today accumulates fills.
+ *
+ * Exposes: `symbols`, `trades`, `selectedSymbol`, `isConnected`, `lastUpdated`,
+ * plus `selectSymbol(s)` and `refresh()`.
+ */
 export function usePositionsCompare() {
   const [symbols, setSymbols] = useState<SymbolExposure[]>([]);
   const [trades, setTrades] = useState<TradeRecord[]>([]);

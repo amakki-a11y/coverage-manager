@@ -7,6 +7,13 @@ using CoverageManager.Api.Services;
 
 namespace CoverageManager.Api.Controllers;
 
+/// <summary>
+/// Feeds the Positions Compare tab (side-by-side client vs coverage):
+///   GET /api/compare/exposure — live snapshot with merged B-Book + coverage metrics per symbol.
+///   GET /api/compare/trades   — merged trade stream for the right-panel charts.
+/// Both endpoints interpret date params as Asia/Beirut midnight converted to UTC
+/// so totals agree across Exposure, P&L, and Net P&L tabs.
+/// </summary>
 [ApiController]
 [Route("api/compare")]
 public class CompareController : ControllerBase

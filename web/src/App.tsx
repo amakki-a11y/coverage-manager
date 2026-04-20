@@ -21,8 +21,22 @@ import { RiskBanner } from './components/RiskBanner';
 import { ErrorToastProvider } from './components/ErrorToast';
 import { StaleWrapper } from './components/Skeleton';
 import { KeyboardShortcutsOverlay } from './components/KeyboardShortcutsOverlay';
+import { UserGuideOverlay } from './components/UserGuideOverlay';
 import type { Position } from './types';
 
+/**
+ * Root shell. Owns the top bar (TotalBar + RiskBanner + connection dots +
+ * alert bell + theme toggle), the tab strip, and the currently-active panel.
+ *
+ * Tab registration lives here: add a new entry to the `Tab` union, import the
+ * panel component, add a `<button>` in the tab strip, and render it inside the
+ * `<StaleWrapper>`. Every tab is lazy only in the sense that it receives an
+ * empty / default state until it mounts — the WebSocket feed is always on
+ * regardless of which tab is visible so returning to a tab is instant.
+ *
+ * Providers: `ThemeProvider` (dark/light + localStorage) wraps
+ * `ErrorToastProvider` (global throttled error toast).
+ */
 type Tab = 'exposure' | 'positions' | 'pnl' | 'netpnl' | 'equitypnl' | 'compare' | 'markup' | 'bridge' | 'mappings' | 'settings';
 
 function AppContent() {
@@ -31,6 +45,7 @@ function AppContent() {
   const { exposureSummaries, prices, connected, newAlerts, alertCount } = useExposureSocket();
   const [positions, setPositions] = useState<Position[]>([]);
   const [showAlertHistory, setShowAlertHistory] = useState(false);
+  const [showUserGuide, setShowUserGuide] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(() => {
     const saved = localStorage.getItem('alertSound');
     return saved !== 'false';
@@ -176,6 +191,23 @@ function AppContent() {
         </button>
 
         <button
+          onClick={() => setShowUserGuide(true)}
+          style={{
+            marginLeft: 6,
+            background: 'transparent',
+            border: `1px solid ${theme.border}`,
+            borderRadius: 6,
+            padding: '4px 10px',
+            cursor: 'pointer',
+            fontSize: 14,
+            color: theme.t2,
+          }}
+          title="Open user guide"
+        >
+          {'\uD83D\uDCD6'}
+        </button>
+
+        <button
           onClick={toggleTheme}
           style={{
             marginLeft: 6,
@@ -214,6 +246,7 @@ function AppContent() {
         <AlertHistory onClose={() => setShowAlertHistory(false)} onAcknowledge={acknowledgeAlert} />
       )}
       <KeyboardShortcutsOverlay />
+      <UserGuideOverlay open={showUserGuide} onClose={() => setShowUserGuide(false)} />
     </div>
   );
 }

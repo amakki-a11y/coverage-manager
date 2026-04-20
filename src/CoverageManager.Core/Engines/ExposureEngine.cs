@@ -3,7 +3,21 @@ using CoverageManager.Core.Models;
 namespace CoverageManager.Core.Engines;
 
 /// <summary>
-/// Calculates net exposure by combining B-Book and coverage positions per canonical symbol.
+/// Combines B-Book and coverage positions held in <see cref="PositionManager"/>
+/// into a per-canonical-symbol <see cref="ExposureSummary"/> used by the live
+/// Exposure view, the WebSocket broadcast, and every floating-P&amp;L surface
+/// in the app (Compare, Net P&amp;L's "Current" column, Equity P&amp;L diagnostics).
+///
+/// <para>Key outputs per symbol:</para>
+/// <list type="bullet">
+///   <item><c>BBook*</c> / <c>Coverage*</c> volumes and VWAP — raw aggregation by side.</item>
+///   <item><c>BBookPnL</c> / <c>CoveragePnL</c> — sum of <c>Profit + Swap</c> across open positions.</item>
+///   <item><c>NetVolume = BBookNet − CoverageNet</c> — "To Cover" column.</item>
+///   <item><c>NetPnL = −BBookPnL + CoveragePnL</c> — broker's edge on currently-open positions.</item>
+///   <item><c>HedgeRatio</c> — <c>|CoverageNet| / |BBookNet|</c>, uncapped (may exceed 100%).</item>
+/// </list>
+///
+/// <para>Pure / synchronous: no IO, no persistent locks beyond the <c>PositionManager</c> read.</para>
 /// </summary>
 public class ExposureEngine
 {
