@@ -72,10 +72,41 @@ export function useSymbolDigits() {
   }
 
   function fmtPrice(symbol: string | undefined | null, price: number): string {
-    if (!isFinite(price)) return '—';
+    if (!isFinite(price)) return '\u2014';
     const d = digitsFor(symbol, price);
-    return price.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+    // Format with full precision, then strip trailing zeros from the fractional
+    // part so indices like US30 show "49,371.20" instead of "49,371.20000" and
+    // silver shows "77.858" instead of "77.85800". FX pairs that end on a real
+    // trailing zero (e.g. 1.17480 → 1.1748) lose the fractional-pip marker,
+    // which is fine for a glance-value bid rendered under the symbol name.
+    // Always keep at least 2 decimals so "77" doesn't collapse to "77".
+    const formatted = price.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+    return trimTrailingZeros(formatted, 2);
   }
 
   return { digitsFor, fmtPrice };
+}
+
+/**
+ * Strip trailing zeros from a locale-formatted decimal string while keeping
+ * at least `minDecimals` places. Works on comma-grouped numbers (thousands
+ * separators are untouched) — only the fractional part is trimmed.
+ *
+ *   trimTrailingZeros("49,371.20000", 2) → "49,371.20"
+ *   trimTrailingZeros("77.85800",     2) → "77.858"
+ *   trimTrailingZeros("1.10000",      2) → "1.10"
+ *   trimTrailingZeros("100.00",       2) → "100.00"
+ */
+function trimTrailingZeros(s: string, minDecimals: number): string {
+  const dot = s.indexOf('.');
+  if (dot === -1) return s;
+  // Walk back from the end stripping '0', but stop so we keep at least minDecimals.
+  let end = s.length;
+  const minEnd = dot + 1 + minDecimals;
+  while (end > minEnd && s[end - 1] === '0') end--;
+  // If trimming lands on the decimal point (all zeros), leave the decimal in
+  // place with the minimum places — the while loop's `> minEnd` already does
+  // this; belt-and-suspenders for a zero-decimal minDecimals call.
+  if (end === dot + 1) end--; // drop the dot itself
+  return s.slice(0, end);
 }
