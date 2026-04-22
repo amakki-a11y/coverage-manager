@@ -22,15 +22,35 @@ The Python collector needs MT5 Terminal open with the LP account (96900) logged 
 
 ---
 
-## 2. Top bar (always visible)
+## 2. Shell — sidebar + top bar (always visible)
 
-- **TotalBar** — running totals across every symbol: net B-Book vol, net Coverage vol, net exposure, net P&L. Green number = positive for the broker.
-- **RiskBanner** — amber banner when total `|net volume|` crosses 50 lots, red at 150 (thresholds dealer-adjustable via the inline "Thresholds" control).
-- **Connection dots** — see above.
-- **Alert bell** — count of unacknowledged alerts. Click to open alert history.
-- **Sound toggle** — mute/unmute new-alert sounds.
-- **Theme toggle** — dark/light mode. Persisted.
+### Sidebar (left edge)
+Three grouped sections with keyboard shortcuts:
+
+| Group | Tabs | Kbd |
+|---|---|---|
+| **Real-time** | Exposure · Positions · Compare | `1` / `2` / `3` |
+| **P&L** | P&L · Net P&L · Equity P&L | `4` / `5` / `6` |
+| **Config** | Mappings · Alerts · Settings | — |
+
+Click the brand logo (top) to collapse the sidebar to a 56-px icon strip when you need more horizontal room for a wide table. The collapsed state persists across reloads.
+
+### Top bar (right side)
+- **Metric tiles** — live Client Exposure / Coverage / **Net P&L Today** in always-visible totals across every symbol.
+- **Connection dots** (4-dot cluster) — MT5 / Collector / Centroid / Supabase. Hover for detail. Green=ok, amber=degraded, red=down, gray=unknown.
+- **Search / ⌘K** — opens the **Command Palette** — fuzzy jump-to-tab + quick actions. Works from anywhere in the app. Arrow keys to nav, Enter to fire, Esc to close.
+- **Alert bell** — unacknowledged count badge; click to open alert history.
+- **Book icon** — opens this user guide inside the app.
+- **Theme toggle** — dark / light. Persisted.
+- **Tweaks icon (sliders)** — opens a right-edge drawer for dealer-configurable preferences: accent color (blue/teal/purple), density (compact/cozy/spacious), grid lines, animate-ticks.
 - **`?` anywhere** — opens the keyboard shortcut cheat-sheet.
+
+### RiskBanner (below top bar)
+Amber/red watchdog. Trips when **either**:
+- Total `|net volume|` crosses 50 lots amber / 150 lots red (dealer-adjustable via inline "Thresholds" control), **or**
+- Any meaningful-volume symbol (>5 lots) sits below 80% hedged.
+
+Message shows total unhedged lots + worst symbol + its hedge% and net lots so you know where to look first.
 
 ---
 
@@ -54,6 +74,10 @@ Date picker (top-right) filters the Closed row. **Beirut-local dates** — midni
 Preset buttons: Today / Yesterday / Week / MTD / 7D / 30D. Keyboard: `T` / `Y` / `W` / `M`.
 
 Other controls: symbol drag-reorder, sort dropdown, grid-line toggle — all persisted to localStorage.
+
+**Symbol badges** — 2-letter colored chip beside each symbol for quick asset-class recognition: amber for metals (XA), blue for indices (US30/NAS/UK100), teal for energy, purple for crypto, grey for FX.
+
+**UNMAPPED badge** — a symbol on the exposure table that isn't in `symbol_mappings`. **Click the badge** → jumps to the Mappings tab with the new-mapping form pre-filled so you can save the row in one click.
 
 ### 3.2 Positions
 Raw open positions across both sides. One row per position. Use for audit / forensic work — e.g. "why is this symbol showing −50 lots?"
@@ -102,9 +126,14 @@ Sections:
 2. **Coverage (LP)** — one row per LP account synced via the collector (currently 96900).
 3. **Broker Edge total** at the very bottom.
 
-**UNMAPPED** badges flag symbols that don't map back to any canonical; these silently fall back to raw prices and should be added to `symbol_mappings`.
+**UNMAPPED** badges flag symbols that don't map back to any canonical; these silently fall back to raw prices and should be added to `symbol_mappings`. (Exposure tab's UNMAPPED badges are clickable — see §3.1.)
 
-Per-login config (Commission Rebate %, Profit Share %, Spread rebate per lot) is managed in Settings → Equity P&L sub-tab.
+**Sub-tabs** at the top of the Equity P&L tab:
+- **Table** — the 12-column per-login breakdown (default view).
+- **Login Groups** — create/edit named groups (VIP-TierA, IB-Lebanon, Retail, …) with per-group commission rebate % and profit-share % that apply to every member login unless the login has its own override.
+- **Spread Rebates** — per-(login, symbol) or per-(group, symbol) USD/lot rate. Login-level overrides group.
+
+Same tables used to live under Settings → Equity P&L sub-tab; they now sit alongside the data they configure.
 
 ### 3.6 Compare
 Side-by-side client vs coverage per symbol. Left panel is a compact list (Symbol · Hedge% · Net CLI/COV/Δ · P&L CLI/COV/Δ), draggable. Drag the right edge of the left panel to resize. Click a symbol → right panel opens with:
@@ -115,15 +144,11 @@ Side-by-side client vs coverage per symbol. Left panel is a compact list (Symbol
 
 "Full Table" toggle expands the left panel into a full Exposure-style layout (Open/Closed rows, date picker, To Cover, Hedge %, TOTAL footer).
 
-### 3.7 Markup
-Per-symbol broker markup analysis — client P&L vs coverage P&L gives the broker's edge in dollar terms, and VWAP(client entry) − VWAP(coverage entry) gives the price edge in pips. Includes a sample matched-pairs table for spot-checking.
+### 3.7 Markup (hidden in current build)
+Per-symbol broker markup analysis — client P&L vs coverage P&L gives the broker's edge in dollar terms, and VWAP(client entry) − VWAP(coverage entry) gives the price edge in pips. **Removed from the sidebar for the current dealer persona**; the underlying route (`/api/markup/match`) and component are still in the codebase. Restore in three lines of `Sidebar.tsx` + one line of `App.tsx` if you want it back.
 
-### 3.8 Bridge
-Post-trade execution analysis from the **Centroid CS 360 Dropcopy feed** (FIX 4.4). Each CLIENT fill is paired with its COV OUT coverage legs via FIX OrderID (tag 37). Table shows one CLIENT row + N COV OUT rows per pair, with shared Symbol / Price Edge / Pips cells.
-
-- Filters: UTC date range (the only tab that uses UTC; Centroid times are UTC μs-precision), symbol, side, anomaly-only (no coverage leg OR `|pips| > 10`).
-- Colors: CLIENT blue, COV OUT teal, BUY green, SELL red. Time-diff green ≤500ms / amber ≤2000ms / red beyond. Edge red when negative.
-- Requires Centroid FIX Dropcopy creds + IP whitelisting. Falls back to Stub mode without creds.
+### 3.8 Bridge (hidden in current build)
+Post-trade execution analysis from the **Centroid CS 360 Dropcopy feed** (FIX 4.4). Each CLIENT fill is paired with its COV OUT coverage legs via FIX OrderID (tag 37). Table shows one CLIENT row + N COV OUT rows per pair, with shared Symbol / Price Edge / Pips cells. Requires Centroid FIX Dropcopy creds + IP whitelisting. **Removed from the sidebar for the current dealer persona**; API endpoints and WebSocket feed still run. Restore the same way as Markup.
 
 ### 3.9 Mappings
 Manage `symbol_mappings`: B-Book symbol ↔ canonical ↔ Coverage symbol + contract sizes + optional `pip_size` override. Any symbol flagged **UNMAPPED** on other tabs should end up here.
@@ -156,10 +181,32 @@ Rate resolution at request time: `login-specific override → highest-priority g
 
 ---
 
-## 4. Daily dealer workflow
+## 4. Keyboard shortcuts
+
+Every shortcut fires when focus is outside an input (except ⌘K which works everywhere).
+
+| Key | Action |
+|---|---|
+| `1` | Exposure |
+| `2` | Positions |
+| `3` | Compare |
+| `4` | P&L |
+| `5` | Net P&L |
+| `6` | Equity P&L |
+| `⌘K` / `Ctrl+K` | Open Command Palette |
+| `?` | Keyboard shortcut cheat-sheet |
+| `Esc` | Close any modal / overlay |
+| `T` | Today (date picker) |
+| `Y` | Yesterday |
+| `W` | This week |
+| `M` | Month-to-date |
+
+---
+
+## 5. Daily dealer workflow
 
 **Morning (before London open):**
-1. Check TotalBar + RiskBanner. Any red means immediate attention.
+1. Check topbar metric tiles + RiskBanner. Any red means immediate attention.
 2. Net P&L → Today preset. Scan Begin → Current movement per symbol.
 3. Exposure tab → verify hedge % on top-traffic symbols (XAUUSD, US30, GOLD, etc).
 
@@ -179,7 +226,7 @@ Rate resolution at request time: `login-specific override → highest-priority g
 
 ---
 
-## 5. Terminology cheat-sheet
+## 6. Terminology cheat-sheet
 
 | Term | Meaning |
 |---|---|
@@ -197,7 +244,7 @@ Rate resolution at request time: `login-specific override → highest-priority g
 
 ---
 
-## 6. Common issues
+## 7. Common issues
 
 **"Coverage section empty on Equity P&L"**
 - Collector disconnected. Check health dots. Restart MT5 Terminal and leave the collector running — it polls `/account` every 5 min and the row reappears on the next tick.
@@ -222,7 +269,7 @@ Rate resolution at request time: `login-specific override → highest-priority g
 
 ---
 
-## 7. Support
+## 8. Support
 
 - **Source & issues**: https://github.com/amakki-a11y/coverage-manager
 - **Architecture docs**: `docs/ARCHITECTURE.md`
