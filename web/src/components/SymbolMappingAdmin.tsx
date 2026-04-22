@@ -103,6 +103,24 @@ export function SymbolMappingAdmin() {
 
   useEffect(() => { fetchMappings(); }, [fetchMappings]);
 
+  // Deep-link handoff from the Exposure tab: when a dealer clicks an UNMAPPED
+  // badge there, we stash the canonical symbol in localStorage before
+  // navigating. On mount, pick it up, pre-fill the form, and open it —
+  // then clear the stash so a plain tab-switch doesn't reopen the form.
+  useEffect(() => {
+    const focus = localStorage.getItem('mappings.focusSymbol');
+    if (focus) {
+      setForm((f) => ({
+        ...f,
+        canonical_name: focus,
+        bbook_symbol: focus,
+        coverage_symbol: focus,
+      }));
+      setShowForm(true);
+      try { localStorage.removeItem('mappings.focusSymbol'); } catch { /* storage unavailable */ }
+    }
+  }, []);
+
   const handleSubmit = async () => {
     const err = validateDraft(form);
     if (err) { setFormError(err); return; }

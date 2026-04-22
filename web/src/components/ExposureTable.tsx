@@ -33,6 +33,13 @@ type SortField = 'custom' | 'symbol' | 'bbNet' | 'bbPnL' | 'covNet' | 'covPnL' |
 interface ExposureTableProps {
   summaries: ExposureSummary[];
   prices: PriceQuote[];
+  /**
+   * Optional nav callback — when the UNMAPPED badge is clicked, we stash
+   * the symbol to `localStorage.mappings.focusSymbol` and ask the parent
+   * to switch to the Mappings tab. `SymbolMappingAdmin` picks up the
+   * symbol on mount and pre-fills the new-mapping form.
+   */
+  onNavigate?: (tab: 'mappings') => void;
 }
 
 interface ClosedSymbol {
@@ -62,7 +69,7 @@ function todayStr() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-export function ExposureTable({ summaries, prices }: ExposureTableProps) {
+export function ExposureTable({ summaries, prices, onNavigate }: ExposureTableProps) {
   const { fmtPrice } = useSymbolDigits();
   // Build price lookup by symbol (exact match + strip trailing - for canonical matching)
   const priceMap: Record<string, PriceQuote> = {};
@@ -573,8 +580,17 @@ export function ExposureTable({ summaries, prices }: ExposureTableProps) {
                           <SymbolBadge symbol={s.canonicalSymbol} />
                           <span>{s.canonicalSymbol}</span>
                           {isUnmapped && (
-                            <span
-                              title={`No symbol_mappings row for "${s.canonicalSymbol}". Contract size conversion will fall back to raw MT5 name.`}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                // Stash the symbol so SymbolMappingAdmin can pre-fill its
+                                // "New mapping" form with this canonical on mount. Using
+                                // localStorage (not a prop) keeps the mapping tab's
+                                // component independent of how we got there.
+                                try { localStorage.setItem('mappings.focusSymbol', s.canonicalSymbol); } catch { /* storage unavailable */ }
+                                onNavigate?.('mappings');
+                              }}
+                              title={`No symbol_mappings row for "${s.canonicalSymbol}". Click to open Mappings and add one.`}
                               style={{
                                 fontSize: 10,
                                 padding: '1px 5px',
@@ -584,10 +600,12 @@ export function ExposureTable({ summaries, prices }: ExposureTableProps) {
                                 fontWeight: 700,
                                 fontFamily: 'inherit',
                                 letterSpacing: 0.3,
+                                border: `1px solid ${THEME.amber}33`,
+                                cursor: onNavigate ? 'pointer' : 'default',
                               }}
                             >
                               UNMAPPED
-                            </span>
+                            </button>
                           )}
                         </span>
                       );

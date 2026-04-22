@@ -157,7 +157,7 @@ function AppContent() {
 
         <StaleWrapper isStale={!connected} style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
           <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
-            {tab === 'exposure'   && <ExposureTable summaries={exposureSummaries} prices={prices} />}
+            {tab === 'exposure'   && <ExposureTable summaries={exposureSummaries} prices={prices} onNavigate={setTab} />}
             {tab === 'positions'  && <PositionsGrid positions={positions} />}
             {tab === 'pnl'        && <PnLPanel />}
             {tab === 'netpnl'     && <PeriodPnLPanel />}
