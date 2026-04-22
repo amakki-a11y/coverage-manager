@@ -4,10 +4,12 @@ import { ConnectionHealthDots } from '../components/ConnectionHealthDots';
 
 /**
  * Top bar — metric tiles on the left (live totals over WebSocket-fed
- * exposure data), utility chips + avatar on the right. Matches the
- * "Client Exposure / Coverage / Net P&L Today" layout in the new
- * design; dropped the "Active Clients" and "Open Positions" tiles
- * that aren't computed on the backend.
+ * exposure data), utility chips + avatar on the right.
+ *
+ * Tiles show **floating P&L** (unrealized, from currently-open positions)
+ * for each side, plus the broker Net P&L ("Net P&L Today") — the numbers
+ * a dealer cares about at a glance. Don't confuse with net *volume* in
+ * lots, which lives on the Exposure tab's Summary column.
  */
 interface Props {
   summaries: ExposureSummary[];
@@ -27,34 +29,39 @@ function colorClass(n: number): string {
 }
 
 function formatSigned(n: number): string {
-  const sign = n > 0 ? '+' : n < 0 ? '' : '';
-  const abs = Math.abs(n);
-  return `${sign}${n < 0 ? '-' : ''}${abs.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  if (!Number.isFinite(n) || n === 0) return '0.00';
+  const sign = n > 0 ? '+' : '\u2212';
+  const abs = Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return `${sign}${abs}`;
 }
 
 export function Topbar({
   summaries, mode, alertCount,
   onToggleTheme, onOpenPalette, onOpenAlerts, onOpenGuide, onOpenTweaks,
 }: Props) {
-  const bbNet = summaries.reduce((s, x) => s + (x.bBookNetVolume || 0), 0);
-  const covNet = summaries.reduce((s, x) => s + (x.coverageNetVolume || 0), 0);
-  const netPnl = summaries.reduce((s, x) => s + (x.netPnL || 0), 0);
+  // Sum floating P&L across every live symbol. bBookPnL / coveragePnL are
+  // already per-symbol `sum(Profit + Swap)` on open positions per ExposureEngine.
+  const bbookFloating    = summaries.reduce((s, x) => s + (x.bBookPnL    || 0), 0);
+  const coverageFloating = summaries.reduce((s, x) => s + (x.coveragePnL || 0), 0);
+  // Broker P&L convention (same as in ExposureEngine / PnLRings): negate
+  // client because the broker is the counter-party to the client.
+  const netPnlToday      = -bbookFloating + coverageFloating;
 
   return (
     <div className="topbar">
       <div className="top-totals">
         <div className="top-metric">
-          <span className="lbl">Client Exposure</span>
-          <span className={`val ${colorClass(bbNet)}`}>{formatSigned(bbNet)}</span>
+          <span className="lbl">Client Floating P&L</span>
+          <span className={`val ${colorClass(bbookFloating)}`}>{formatSigned(bbookFloating)}</span>
         </div>
         <div className="top-metric">
-          <span className="lbl">Coverage</span>
-          <span className={`val ${colorClass(covNet)}`}>{formatSigned(covNet)}</span>
+          <span className="lbl">Coverage Floating P&L</span>
+          <span className={`val ${colorClass(coverageFloating)}`}>{formatSigned(coverageFloating)}</span>
         </div>
         <div className="top-divider" />
         <div className="top-metric highlight">
           <span className="lbl">Net P&L Today</span>
-          <span className={`val ${colorClass(netPnl)}`}>{formatSigned(netPnl)}</span>
+          <span className={`val ${colorClass(netPnlToday)}`}>{formatSigned(netPnlToday)}</span>
         </div>
       </div>
 
