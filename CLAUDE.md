@@ -475,6 +475,57 @@ CLIENT fills paired with COV OUT coverage legs from the Centroid CS 360 Dropcopy
 - `cov_fills` is a jsonb array of `{dealId, volume, price, time, timeDiffMs, lpName?}`.
 - Extra column `pip_size` added to `symbol_mappings` for per-symbol pip overrides.
 
+## Operational Learnings (from first production deploy, 2026-04-20)
+
+Notes discovered in production that future contributors should internalize. Full deploy runbook with workarounds is in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md); this section documents the *why*.
+
+### Collector hangs silently
+The Python collector uses the synchronous `MetaTrader5` C wrapper on the asyncio event loop. Any `mt5.*` call can block the loop indefinitely under MT5 server hiccups — port stays in "Listen" state but `accept()` never fires. NSSM doesn't detect this (process is alive, just deaf). Dealers see the collector health-dot go red and stay red until someone manually `nssm restart`s.
+
+**Planned fix:** wrap every `mt5.*` call as `await asyncio.wait_for(asyncio.to_thread(fn, ...), timeout=2.0)`. Event loop survives; on timeout we log + return sentinel + keep serving.
+
+**Stopgap until then:** a Windows Scheduled Task probing `/health` every 30s with a 3-sec timeout, triggering `nssm restart` after 3 consecutive failures. Bounds outage to ~90s.
+
+### Equity P&L NetDepW race
+`NetDepW = (CurrentBalance − BeginBalance) − Σ(trade-flow)`:
+- `CurrentBalance` is live from MT5 Manager (sub-second).
+- `Σ(trade-flow)` is from Supabase `deals` via `SumTradeBalanceFlowPerLoginAsync` — lagged 30s by `DataSyncService`.
+
+When a trade closes, `CurrentBalance` jumps immediately but `trade-flow` doesn't catch up for ~30s. The calculation then appears to show a phantom "deposit" equal to the deal's profit, which disappears when Supabase catches up. For high-turnover accounts (13+ open positions, closes every few seconds) this creates constant visible flicker that dealers read as "a deposit was added and then removed".
+
+**Planned fix:** read trade-flow from the in-memory `DealStore` (event-driven, no lag) instead of Supabase. Keep Supabase path as fallback when DealStore is cold.
+
+### Date-boundary mismatch with MT5 Manager reports
+Every date picker in the app interprets user input as **Asia/Beirut midnight**. MT5 Manager's Summary / Segregated reports appear to use a different boundary (UTC midnight or broker-local midnight — exact rule not empirically nailed down). Cross-checks between the app and Manager reports show per-login residuals on any account that had activity in the ~2-hour window between boundaries on the `from` date.
+
+One observed case: login 5250 had a $10,000 credit deal at `2026-03-27 22:55 UTC` = `2026-03-28 00:55 Beirut`. App's `from=2026-03-28` includes it (Beirut window starts 22:00 UTC). Manager's `from=2026.03.28` excludes it. Delta: $10k NetCredit. Resolved by adjusting the snapshot seed for this specific login as a one-off fix until a proper TZ-alignment change lands.
+
+**Planned fix (strategy TBD):** either switch the app to UTC-midnight (cleanest; matches Manager + financial industry convention) OR add a TZ toggle to the date picker. First requires empirical investigation to pin down Manager's exact boundary rule.
+
+### Admin balance/credit transfers are invisible at the deal level
+MT5 Manager admin ops that move value between Balance and Credit buckets produce **no deal row**. Balance reconciliation (`current − begin − trade-flow`) picks these up automatically because `current` reflects them. But summing `deals` table rows for action=2/action=3 will miss them. Keep this in mind when investigating "why does App.NetCredit disagree with the deal-sum?" — an honest discrepancy usually means admin transfers happened in the window.
+
+### `dotnet publish` puts MT5 native DLL in a `Libs\` subfolder
+`CoverageManager.Connector.csproj` references `MT5APIManager64.dll` as:
+```xml
+<None Include="Libs\MT5APIManager64.dll">
+  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+</None>
+```
+This copies to `publish\api\Libs\MT5APIManager64.dll`. But Windows P/Invoke only searches the .exe's directory for native DLLs by default — **you must also copy the native DLL to `publish\api\` (root)**. Without this, the service fails at runtime with a native-lib load error the moment it touches the Manager API.
+
+**Fix candidate:** add `<Link>MT5APIManager64.dll</Link>` to the csproj `<None>` entry to flatten the copy path. Until then, every deploy must manually copy.
+
+### `ASPNETCORE_URLS` is silently overridden by Kestrel:Endpoints config
+When `appsettings.json` has a `"Kestrel": { "Endpoints": { "Http": { "Url": ... } } }` section (which this repo does), Kestrel picks that URL and ignores `ASPNETCORE_URLS`. Startup log prints a WARNING ("Overriding address(es) 'http://...'. Binding to endpoints defined via IConfiguration...") but the service still binds the Kestrel-config URL, not the env var.
+
+**The correct override** via env var is `Kestrel__Endpoints__Http__Url=http://0.0.0.0:<port>` — the double-underscore notation .NET uses to represent nested keys.
+
+### VPS provider firewalls ≠ Windows firewall
+Providers (GoDaddy, Hetzner, AWS, OVH, DigitalOcean, …) have a firewall layer **above** the Windows firewall you configure via `netsh`. By default most only allow RDP/SSH. Binding to non-standard ports (e.g. :5000) may pass Windows firewall but still get blocked at the provider's perimeter. Bind to :80 or :443 for zero-config external reachability.
+
+**Diagnostic:** if `Test-NetConnection <public-IP> -Port <port>` from the server itself succeeds but external clients get "connection refused" or timeout, the provider firewall is the culprit.
+
 ## Phase Status
 - [x] Phase 1: Live Exposure View (complete)
 - [x] Phase 2: P&L Tracking (closed trades with buy/sell volume split, coverage P&L toggle, date range filtering)
