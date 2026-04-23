@@ -235,6 +235,12 @@ try
     }
 
     app.UseCors();
+
+    // Serve the React SPA from wwwroot. UseDefaultFiles rewrites / -> /index.html;
+    // UseStaticFiles serves the rest (assets/, favicon, etc.).
+    app.UseDefaultFiles();
+    app.UseStaticFiles();
+
     app.UseWebSockets();
 
     // WebSocket endpoint for real-time exposure updates
@@ -305,6 +311,10 @@ try
     });
 
     app.MapControllers();
+
+    // SPA fallback: any unmatched non-API route serves index.html so React Router
+    // can handle it client-side (deep links to /exposure, /compare, etc.).
+    app.MapFallbackToFile("index.html");
 
     Log.Information("Coverage Manager API starting on http://localhost:5000");
     app.Run();
