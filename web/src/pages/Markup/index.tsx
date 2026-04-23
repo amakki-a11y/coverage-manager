@@ -371,9 +371,6 @@ export function MarkupPanel() {
                       const covAvgPrice = m.coverageMatches.length > 0
                         ? m.coverageMatches.reduce((s, c) => s + c.price * c.volume, 0) / covTotalVol
                         : 0;
-                      const avgDiffMs = m.coverageMatches.length > 0
-                        ? m.coverageMatches.reduce((s, c) => s + c.timeDiffMs, 0) / m.coverageMatches.length
-                        : 0;
                       const priceEdge = m.clientDirection === 'BUY'
                         ? m.clientPrice - covAvgPrice
                         : covAvgPrice - m.clientPrice;

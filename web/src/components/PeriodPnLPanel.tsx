@@ -25,10 +25,6 @@ import { API_BASE } from '../config';
  *
  * Capture Snapshot Now button → `POST /api/exposure/snapshot`.
  */
-function todayStr() {
-  return new Date().toISOString().slice(0, 10);
-}
-
 function fmt(v: number | undefined | null, opts?: { signed?: boolean; dim?: boolean }) {
   if (v === undefined || v === null || !isFinite(v as number)) return '—';
   const signed = opts?.signed ?? true;

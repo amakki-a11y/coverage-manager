@@ -39,24 +39,6 @@ function fmtPrice(p: number): string {
   return p.toFixed(5);
 }
 
-const lbl: React.CSSProperties = {
-  fontSize: 9,
-  fontWeight: 600,
-  textTransform: 'uppercase',
-  letterSpacing: 0.4,
-  color: THEME.t3,
-  marginBottom: 2,
-};
-
-function Cell({ label, value, color }: { label: string; value: string; color: string }) {
-  return (
-    <div style={{ flex: 1, minWidth: 0, textAlign: 'center' }}>
-      <div style={lbl}>{label}</div>
-      <div style={{ fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace", fontSize: 13, fontWeight: 600, color }}>{value}</div>
-    </div>
-  );
-}
-
 export function SymbolRow({ data, isSelected, onClick, price }: SymbolRowProps) {
   const [expanded, setExpanded] = useState(false);
   const prevPrice = useRef(price);

@@ -35,7 +35,6 @@ function Row({ label, value, color }: { label: string; value: string; color: str
 export function SummaryCards({ data }: SummaryCardsProps) {
   const entryDelta = data.entryPriceDelta;
   const cliWinRate = data.clientTradeCount > 0 ? (data.clientWins / data.clientTradeCount * 100) : 0;
-  const covWinRate = data.coverageTradeCount > 0 ? (data.coverageWins / data.coverageTradeCount * 100) : 0;
 
   return (
     <div style={{ display: 'flex', gap: 8, padding: '8px 16px', flexShrink: 0 }}>

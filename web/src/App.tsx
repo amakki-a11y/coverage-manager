@@ -52,7 +52,9 @@ function AppContent() {
     } catch { /* ignore */ }
     return DEFAULT_TWEAKS;
   });
-  const [soundEnabled, setSoundEnabled] = useState(() => {
+  // `soundEnabled` is read by AlertToast below. The setter moves to
+  // TweaksPanel in a later Phase-5 polish pass; until then we omit it.
+  const [soundEnabled] = useState(() => {
     const saved = localStorage.getItem('alertSound');
     return saved !== 'false';
   });

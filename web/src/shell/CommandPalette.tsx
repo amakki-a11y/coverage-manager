@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import type { SidebarTab } from './Sidebar';
 
 /**
@@ -84,7 +84,7 @@ export function CommandPalette({ open, onClose, onNavigate, onOpenGuide, onOpenA
 
   // Render with groups preserved — walk filtered in order, emit a group header
   // when the group name changes.
-  const rendered: JSX.Element[] = [];
+  const rendered: ReactElement[] = [];
   let lastGroup = '';
   filtered.forEach((c, i) => {
     if (c.group !== lastGroup) {

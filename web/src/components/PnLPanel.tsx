@@ -103,13 +103,8 @@ const btnStyle: React.CSSProperties = {
   cursor: 'pointer',
 };
 
-function todayStr() {
-  return new Date().toISOString().slice(0, 10);
-}
-
 export function PnLPanel() {
   const [data, setData] = useState<PnLData | null>(null);
-  const [expandedDay, setExpandedDay] = useState<string | null>(null);
   // Shared date range — persisted across tab switches via localStorage.
   const [fromDate, toDate, setFromDate, setToDate] = useDateRange();
   const [loading, setLoading] = useState(false);
@@ -227,24 +222,6 @@ export function PnLPanel() {
     }),
     { deals: 0, profit: 0, commission: 0, swap: 0, net: 0, volume: 0 }
   );
-
-  const formatDate = (dateStr: string) => {
-    // The backend stores dates as Asia/Beirut-local YYYY-MM-DD strings in this
-    // context (one row per Beirut trading day). Parsing via `new Date(dateStr)`
-    // yields UTC midnight; calling `.getUTCDay()` then returns the weekday at
-    // that UTC instant, which on Sunday nights is already Monday in Beirut.
-    // Use Intl.DateTimeFormat with the Beirut zone so Mon is Mon regardless of
-    // where the dealer's browser is running.
-    const d = new Date(dateStr);
-    const parts = new Intl.DateTimeFormat('en-GB', {
-      timeZone: 'Asia/Beirut',
-      weekday: 'short',
-      day: '2-digit',
-    }).formatToParts(d);
-    const wk = parts.find(p => p.type === 'weekday')?.value ?? '';
-    const day = parts.find(p => p.type === 'day')?.value ?? '';
-    return `${wk} ${Number(day)}`;
-  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
@@ -389,83 +366,10 @@ export function PnLPanel() {
   );
 }
 
-function DayRow({ day, isExpanded, formatDate, onToggle, showCoverage, coverageData }: {
-  day: DailyPnL;
-  isExpanded: boolean;
-  formatDate: (d: string) => string;
-  onToggle: () => void;
-  showCoverage: boolean;
-  coverageData: Record<string, CoverageSymbolPnL>;
-}) {
-  return (
-    <>
-      <tr
-        onClick={onToggle}
-        style={{
-          borderBottom: `1px solid ${THEME.border}`,
-          background: THEME.bg3,
-          cursor: 'pointer',
-        }}
-      >
-        <td style={{ ...cellStyle, textAlign: 'left', color: THEME.t1, fontWeight: 700, fontFamily: 'inherit' }}>
-          {isExpanded ? '▼' : '▶'} {formatDate(day.date)}
-        </td>
-        <td style={{ ...cellStyle, color: THEME.t2 }}>{day.dealCount}</td>
-        <td style={{ ...cellStyle, color: THEME.t2 }}>
-          {day.symbols.reduce((a, s) => a + s.totalVolume, 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-        </td>
-        <td style={{ ...cellStyle, color: pnlColor(day.totalProfit) }}>{fmtPnl(day.totalProfit)}</td>
-        <td style={{ ...cellStyle, color: day.totalCommission < 0 ? THEME.red : THEME.t2 }}>
-          {fmtPnl(day.totalCommission)}
-        </td>
-        <td style={{ ...cellStyle, color: pnlColor(day.totalSwap) }}>{fmtPnl(day.totalSwap)}</td>
-        <td style={{ ...cellStyle, color: pnlColor(day.netPnL), fontWeight: 700 }}>{fmtPnl(day.netPnL)}</td>
-        {showCoverage && <>
-          <td style={{ ...cellStyle, borderLeft: `1px solid ${THEME.border}`, color: THEME.t3 }}>—</td>
-          <td style={{ ...cellStyle, color: THEME.t3 }}>—</td>
-        </>}
-      </tr>
-
-      {isExpanded && day.symbols.map((s) => (
-        <tr key={`${day.date}-${s.symbol}`} style={{ borderBottom: `1px solid ${THEME.border}` }}>
-          <td style={{ ...cellStyle, textAlign: 'left', color: THEME.t2, fontFamily: 'inherit', paddingLeft: 32 }}>
-            {s.symbol}
-          </td>
-          <td style={{ ...cellStyle, color: THEME.t3 }}>{s.dealCount}</td>
-          <td style={{ ...cellStyle, color: THEME.t3 }}>{s.totalVolume.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-          <td style={{ ...cellStyle, color: pnlColor(s.totalProfit) }}>{fmtPnl(s.totalProfit)}</td>
-          <td style={{ ...cellStyle, color: s.totalCommission < 0 ? THEME.red : THEME.t3 }}>
-            {fmtPnl(s.totalCommission)}
-          </td>
-          <td style={{ ...cellStyle, color: pnlColor(s.totalSwap) }}>{fmtPnl(s.totalSwap)}</td>
-          <td style={{ ...cellStyle, color: pnlColor(s.netPnL), fontWeight: 600 }}>{fmtPnl(s.netPnL)}</td>
-          {showCoverage && (() => {
-            const cov = coverageData[s.symbol];
-            const covPnL = cov?.netPnL ?? 0;
-            const combined = s.netPnL + covPnL;
-            return <>
-              <td style={{ ...cellStyle, borderLeft: `1px solid ${THEME.border}`, color: covPnL !== 0 ? pnlColor(covPnL) : THEME.t3 }}>
-                {covPnL !== 0 ? fmtPnl(covPnL) : '—'}
-              </td>
-              <td style={{ ...cellStyle, color: covPnL !== 0 ? pnlColor(combined) : pnlColor(s.netPnL), fontWeight: 600 }}>
-                {covPnL !== 0 ? fmtPnl(combined) : fmtPnl(s.netPnL)}
-              </td>
-            </>;
-          })()}
-        </tr>
-      ))}
-    </>
-  );
-}
-
 function fmtPnl(v: number): string {
   // Match the Exposure / Compare / Net P&L tabs: signed, 2 decimals, thousand separators.
   const sign = v >= 0 ? '+' : '';
   return sign + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
-function fmtNum(v: number): string {
-  return v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function pnlColor(v: number): string {
