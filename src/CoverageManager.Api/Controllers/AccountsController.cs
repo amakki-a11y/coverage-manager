@@ -53,8 +53,13 @@ public class AccountsController : ControllerBase
     /// POST /api/accounts/backfill-deals?from=2026-03-01&to=2026-03-31
     /// Backfills historical deals from MT5 and persists to Supabase.
     /// </summary>
+    // `ReloadDeals` is synchronous (it just fires the MT5 Manager deal-request
+    // call and returns the count); all the work to persist the deals happens
+    // on the next 30-s DataSyncService tick. Keeping this handler sync removes
+    // the CS1998 "async without await" warning and avoids the pointless state
+    // machine allocation for a hot-path admin endpoint.
     [HttpPost("backfill-deals")]
-    public async Task<IActionResult> BackfillDeals([FromQuery] DateTime from, [FromQuery] DateTime to)
+    public IActionResult BackfillDeals([FromQuery] DateTime from, [FromQuery] DateTime to)
     {
         if (!_mt5Connection.IsConnected)
             return StatusCode(503, "MT5 not connected");

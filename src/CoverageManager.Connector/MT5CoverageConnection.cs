@@ -17,7 +17,12 @@ public sealed class MT5CoverageConnection : BackgroundService
     private readonly Func<Task<List<AccountSettings>>> _getAccounts;
     private readonly Action _onUpdate;
 
+    // Only assigned when MT5_MANAGER_COVERAGE_ENABLED is defined at build time.
+    // Suppress CS0649 ("never assigned") for the default build where the gated
+    // ExecuteAsync block is excluded.
+#pragma warning disable CS0649
     private IMT5Api? _api;
+#pragma warning restore CS0649
     private long _tickCount;
 
     private const int InitialBackoffMs = 1000;
@@ -57,6 +62,11 @@ public sealed class MT5CoverageConnection : BackgroundService
         return;
 
         // ---- Original Manager API logic (kept for reference) ----
+        // Toggle on by defining the symbol at project level if Manager API coverage
+        // is ever re-enabled. Under the default build this block compiles as a no-op,
+        // which also suppresses the CS0162 "unreachable code" warning the unguarded
+        // version produced.
+#if MT5_MANAGER_COVERAGE_ENABLED
         await Task.Delay(3000, stoppingToken); // Let manager connection start first
 
         var backoffMs = InitialBackoffMs;
@@ -147,6 +157,7 @@ public sealed class MT5CoverageConnection : BackgroundService
         }
 
         _logger.LogInformation("[Coverage] Connection service stopped");
+#endif
     }
 
     private void SnapshotCoveragePositions(ulong login)
