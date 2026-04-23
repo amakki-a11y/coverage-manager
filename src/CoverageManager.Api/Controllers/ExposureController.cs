@@ -972,7 +972,27 @@ public class ExposureController : ControllerBase
                 StringComparer.OrdinalIgnoreCase);
         var moved       = movedLoginsTask.Result;
         var beginSnaps  = beginSnapsTask.Result;
-        var tradeFlow   = tradeFlowTask.Result; // login -> (profit+commission+swap+fee) sum
+
+        // bbook trade flow — prefer the in-memory DealStore over Supabase.
+        // DealStore is updated on every MT5 deal callback (sub-100 ms); Supabase
+        // is the 30-s DataSyncService flush. Without this override, active
+        // accounts showed a visible Net Dep/W flicker: the value jumped up
+        // $300-$2,200 when a trade closed and settled back 30 s later when
+        // the deal landed in Supabase. DealStore is a strict superset of
+        // Supabase for any window it covers (it's backfilled from Supabase on
+        // startup, then fed live), so this is always the fresher answer.
+        // Fall back to Supabase when DealStore is empty (cold restart before
+        // backfill completes) or when the DealStore result is zero for a
+        // given login (cold-storage data only in Supabase).
+        var liveTradeFlow   = _dealStore.SumTradeBalanceFlowPerLogin(fromUtc, toUtc);
+        var supabaseFlow    = tradeFlowTask.Result; // login -> supabase sum
+        var tradeFlow       = new Dictionary<long, decimal>(supabaseFlow);
+        foreach (var kv in liveTradeFlow)
+        {
+            // DealStore wins outright when it has a value; its coverage of the
+            // current session is strictly more up-to-date than Supabase.
+            tradeFlow[kv.Key] = kv.Value;
+        }
 
         // Phase 2 resolution maps. For each (login, source), pre-compute the
         // highest-priority group's config + spread rates so the per-login loop

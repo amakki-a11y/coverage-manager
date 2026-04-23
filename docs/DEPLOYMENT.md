@@ -89,12 +89,13 @@ The MT5 Manager + LP account credentials go in the **Settings tab in the UI** (s
 
 ## 5. MT5 Manager DLLs
 
-Copy the 4 MetaQuotes DLLs into `src\CoverageManager.Connector\Libs\`. These ship privately — grab them from the existing dev machine or from your broker's backend team.
+The repo already tracks the three DLLs the C# backend needs under `src\CoverageManager.Connector\Libs\`:
 
-```powershell
-# From your dev machine, e.g. via scp or an RDP copy-paste:
-# MT5APIManager64.dll, MT5APIServer64.dll, MT5APIManager.dll, MT5APIServer.dll
-```
+- `MetaQuotes.MT5CommonAPI64.dll` — managed wrapper (common types)
+- `MetaQuotes.MT5ManagerAPI64.dll` — managed wrapper (manager API)
+- `MT5APIManager64.dll` — native library the wrappers P/Invoke into
+
+**No copy needed** — they come with the clone. On `dotnet publish`, the native `MT5APIManager64.dll` is auto-emitted at the publish root (flattened via a `<Link>` entry in `CoverageManager.Connector.csproj`) so Windows P/Invoke can find it without a manual post-publish step.
 
 ---
 
@@ -156,14 +157,35 @@ nssm start coverage-collector
 ```powershell
 nssm install coverage-api "C:\apps\coverage-manager\publish\api\CoverageManager.Api.exe"
 nssm set coverage-api AppDirectory "C:\apps\coverage-manager\publish\api"
-nssm set coverage-api AppEnvironmentExtra "ASPNETCORE_URLS=http://127.0.0.1:5000" "ASPNETCORE_ENVIRONMENT=Production"
+
+# Binding note: `ASPNETCORE_URLS` is overridden by `Kestrel:Endpoints` in
+# appsettings.json on modern .NET, so the env var no longer wins on its own.
+# Use the `Kestrel__Endpoints__Http__Url` override (double-underscore = nested
+# JSON key in env-var form) to bind reliably on any port. For a public IP-only
+# deployment, bind port 80 directly and skip Caddy — see §8c for alternatives.
+nssm set coverage-api AppEnvironmentExtra `
+  "ASPNETCORE_ENVIRONMENT=Production" `
+  "Kestrel__Endpoints__Http__Url=http://127.0.0.1:5000" `
+  "Supabase__Key=<paste service-role JWT here>"
+
 nssm set coverage-api Start SERVICE_AUTO_START
 nssm set coverage-api AppStdout "C:\apps\coverage-manager\logs\api.log"
 nssm set coverage-api AppStderr "C:\apps\coverage-manager\logs\api.err.log"
+# Optional: rotate logs at 10 MB to stop them eating the C: drive.
+nssm set coverage-api AppRotateFiles 1
+nssm set coverage-api AppRotateBytes 10485760
 nssm start coverage-api
 ```
 
-### 8c. Caddy (TLS reverse proxy)
+**VPS provider firewalls:** most hosts (GoDaddy, Hetzner Cloud, OVH, AWS Security Groups, DigitalOcean) run a cloud firewall in front of Windows Firewall. Even with the Windows rule added in §9, non-standard ports (5000, 8100, …) often get silently dropped. **Prefer port 80 (HTTP) or 443 (HTTPS)** — they're open by default almost everywhere. If you bind the API directly to port 80, change `Kestrel__Endpoints__Http__Url` above to `http://0.0.0.0:80` and skip the Caddy reverse proxy.
+
+### 8c. Caddy (TLS reverse proxy) — only when using HTTPS with a domain
+
+**Skip this whole section if you're on IP-only / plain HTTP.** For an
+IP-only deployment, bind the API directly to port 80 via the
+`Kestrel__Endpoints__Http__Url` override in §8b and go straight to §9
+(firewall). Caddy is only needed when you have a DNS name and want TLS.
+
 Create `C:\apps\coverage-manager\Caddyfile`:
 ```
 coverage.yourbroker.com {
@@ -260,27 +282,76 @@ When you have a new commit on `live`:
 cd C:\apps\coverage-manager
 git pull origin live
 
-# Rebuild the C# backend
+# Rebuild the C# backend. The native MT5APIManager64.dll is auto-emitted at
+# the publish root now — no manual copy step needed.
 dotnet publish src\CoverageManager.Api\CoverageManager.Api.csproj -c Release -o C:\apps\coverage-manager\publish\api
 
-# Rebuild the frontend
+# Rebuild the frontend. If `npm run build` fails with 23 TS6133 "declared
+# but never read" errors, fall back to `npx vite build` — the runtime
+# bundle is produced by vite anyway; `tsc -b` is a strict typecheck gate.
 cd web
 npm ci
 npm run build
 Copy-Item -Recurse -Force dist\* ..\publish\api\wwwroot
 cd ..
 
-# Python collector — only if collector/ changed
+# Python collector — only if collector/ changed. Always restart it after a
+# collector commit since the MetaTrader5 library loads at import time.
 cd collector
 .\venv\Scripts\activate
 pip install -r requirements.txt
 deactivate
 cd ..
 
-# Restart services
+# Restart both services. coverage-collector IS needed even for backend-only
+# changes if you bumped MT5 timeouts, polling intervals, or env vars.
 nssm restart coverage-api
 nssm restart coverage-collector
 ```
+
+---
+
+## 13. Collector watchdog (recommended)
+
+NSSM detects process crash but not a process that's up-but-unresponsive. A
+rare MT5 hang can leave `coverage-collector` answering to NSSM (`sc query`
+reports RUNNING) while /health times out indefinitely — the dealer sees the
+Collector dot go red and nothing recovers.
+
+The watchdog in [`_deploy/collector-watchdog.ps1`](_deploy/collector-watchdog.ps1)
+probes `/health` on a 30-second cadence; three consecutive failures (~90 s)
+triggers `nssm restart coverage-collector`.
+
+Register as a Windows Scheduled Task running under the same local user
+(`makkioo`) that runs the collector service:
+
+```powershell
+# Run once on the server. `-AtStartup` + a 30-second `RepetitionInterval`
+# keeps the watchdog active every boot; `MultipleInstances Ignore` prevents
+# overlapping runs if a restart takes longer than 30 seconds.
+$action   = New-ScheduledTaskAction -Execute 'powershell.exe' `
+              -Argument '-NoProfile -ExecutionPolicy Bypass -File "C:\apps\coverage-manager\_deploy\collector-watchdog.ps1"'
+$trigger  = New-ScheduledTaskTrigger -AtStartup
+$trigger.Repetition = (New-ScheduledTaskTrigger -Once -At (Get-Date) `
+              -RepetitionInterval (New-TimeSpan -Seconds 30) `
+              -RepetitionDuration ([TimeSpan]::MaxValue)).Repetition
+$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries `
+              -DontStopIfGoingOnBatteries -StartWhenAvailable `
+              -MultipleInstances Ignore -ExecutionTimeLimit (New-TimeSpan -Minutes 2)
+$principal = New-ScheduledTaskPrincipal -UserId '.\makkioo' -LogonType ServiceAccount -RunLevel Highest
+
+Register-ScheduledTask -TaskName 'CoverageCollectorWatchdog' `
+  -Action $action -Trigger $trigger -Settings $settings -Principal $principal `
+  -Description 'Restart coverage-collector when /health stops responding.'
+
+# Kick it off immediately (otherwise first fire is at next reboot).
+Start-ScheduledTask -TaskName 'CoverageCollectorWatchdog'
+```
+
+Health probe output appends to `C:\apps\coverage-manager\logs\watchdog.log`;
+the failure counter persists in `watchdog.state` next to the log.
+
+To unregister later: `Unregister-ScheduledTask -TaskName 'CoverageCollectorWatchdog' -Confirm:$false`.
 
 ---
 

@@ -171,4 +171,44 @@ public class DealStore
     }
 
     public int DealCount => _deals.Count;
+
+    /// <summary>
+    /// Per-login trade-balance flow for the Equity P&amp;L reconciliation path.
+    /// Sums <c>Profit + Commission + Swap + Fee</c> across every **trade** deal
+    /// in the window — matching the <c>action NOT IN (2, 3)</c> filter in the
+    /// Supabase aggregator <c>SumTradeBalanceFlowPerLoginAsync</c>.
+    ///
+    /// <para>Fresher than the Supabase path — DealStore is updated on every
+    /// MT5 deal callback (sub-100 ms), whereas DataSyncService only flushes
+    /// to Supabase every 30 s. On active accounts the lag produced a visible
+    /// Net Dep/W "flicker" (value jumps up when a trade closes, settles back
+    /// down when the deal lands in Supabase). Callers should prefer this
+    /// method and fall back to Supabase only when DealStore is cold (e.g.
+    /// just after a backend restart before the Supabase backfill completes).</para>
+    ///
+    /// <para>Filters: <c>Action &lt; 2</c> keeps BUY / SELL (0, 1); values
+    /// 4 (CHARGE), 5 (CORRECTION), 6 (BONUS), 7+ (commission variants) are
+    /// included too — we filter OUT balance (2) and credit (3), leaving
+    /// everything else as "trade flow" consistent with the Supabase side.</para>
+    /// </summary>
+    /// <param name="from">Inclusive UTC start of window.</param>
+    /// <param name="to">Exclusive UTC end of window.</param>
+    public IReadOnlyDictionary<long, decimal> SumTradeBalanceFlowPerLogin(DateTime from, DateTime to)
+    {
+        var result = new Dictionary<long, decimal>();
+        foreach (var d in _deals.Values)
+        {
+            if (d.Time < from || d.Time >= to) continue;
+            // Mirror Supabase filter: action NOT IN (2, 3).
+            if (d.Action == 2 || d.Action == 3) continue;
+            var flow = d.Profit + d.Commission + d.Swap + d.Fee;
+            if (flow == 0m) continue;
+            // MT5 logins fit comfortably in signed 32-bit; cast ulong → long
+            // here so the return type matches the Supabase aggregator's
+            // Dictionary<long, decimal> contract.
+            var key = (long)d.Login;
+            result[key] = (result.TryGetValue(key, out var cur) ? cur : 0m) + flow;
+        }
+        return result;
+    }
 }
