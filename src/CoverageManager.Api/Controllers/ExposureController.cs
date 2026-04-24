@@ -101,10 +101,10 @@ public class ExposureController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/exposure/diagnostics — Stage 2a counters. Events are now
-    /// authoritative for PositionManager; the 500 ms poll still runs and
-    /// reports drift between the event cache and the MT5 snapshot. Stage 2b
-    /// drops the poll to 60 s once driftCount stays near zero for 24 h.
+    /// GET /api/exposure/diagnostics — Stage 2b counters. Events are
+    /// authoritative for PositionManager; the poll runs every 60 s as a
+    /// reconciliation safety net and logs any drift. If drift stays near
+    /// zero, the poll interval can be widened further.
     /// </summary>
     [HttpGet("diagnostics")]
     public IActionResult GetDiagnostics()
@@ -112,7 +112,8 @@ public class ExposureController : ControllerBase
         return Ok(new
         {
             mt5Connected = _mt5Connection.IsConnected,
-            stage = "2a",
+            stage = "2b",
+            pollIntervalMs = 60_000,
             snapshotCount = _mt5Connection.SnapshotCount,
             lastSnapshotAt = _mt5Connection.LastSnapshotAt == DateTime.MinValue
                 ? (DateTime?)null : _mt5Connection.LastSnapshotAt,

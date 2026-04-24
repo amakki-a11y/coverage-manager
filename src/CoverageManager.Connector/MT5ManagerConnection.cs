@@ -56,7 +56,13 @@ public sealed class MT5ManagerConnection : BackgroundService
 
     public const int InitialBackoffMs = 1000;
     public const int MaxBackoffMs = 60000;
-    private const int PositionSnapshotIntervalMs = 500;
+
+    // Stage 2b — position events are authoritative. Poll is reduced from 500ms
+    // to 60s as a reconciliation safety net. Drops MT5 GetPositions load from
+    // ~30 calls/sec (15 logins × 2/s) to ~0.25/sec (-99%). If Stage 2a drift
+    // ever trends non-zero in production, raise this interval's frequency or
+    // revert to 500 via git.
+    private const int PositionSnapshotIntervalMs = 60_000;
     private const int AccountSyncIntervalMinutes = 5;
 
     /// <summary>
@@ -217,22 +223,22 @@ public sealed class MT5ManagerConnection : BackgroundService
                 else
                     _logger.LogInformation("Subscribed to deal stream");
 
-                // Stage 1 shadow mode — subscribe to position + user events.
-                // Handlers only count + log; the 500ms poll below remains
-                // authoritative for PositionManager until Stage 2 flips over.
+                // Events are authoritative for PositionManager (Stage 2b);
+                // the SnapshotPositions poll below runs every 60s as a
+                // reconciliation safety net and reports drift.
                 _api.OnPositionAdd += OnPositionAddEvent;
                 _api.OnPositionUpdate += OnPositionUpdateEvent;
                 _api.OnPositionDelete += OnPositionDeleteEvent;
                 if (!_api.SubscribePositions())
                     _logger.LogWarning("Position subscribe failed: {Error}", _api.LastError);
                 else
-                    _logger.LogInformation("Subscribed to position stream (shadow mode)");
+                    _logger.LogInformation("Subscribed to position stream (authoritative)");
 
                 _api.OnUserUpdate += OnUserUpdateEvent;
                 if (!_api.SubscribeUsers())
                     _logger.LogWarning("User subscribe failed: {Error}", _api.LastError);
                 else
-                    _logger.LogInformation("Subscribed to user stream (shadow mode)");
+                    _logger.LogInformation("Subscribed to user stream (authoritative)");
 
                 backoffMs = InitialBackoffMs;
 
