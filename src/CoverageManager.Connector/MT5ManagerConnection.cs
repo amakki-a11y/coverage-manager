@@ -26,6 +26,28 @@ public sealed class MT5ManagerConnection : BackgroundService
     private long _tickCount;
     private DateTime _lastAccountSync = DateTime.MinValue;
 
+    // Shadow-mode diagnostics counters for the event-driven rollout (Stage 1).
+    // Populated by the live MT5 position/user sinks; compared against the poll
+    // snapshot count via /api/exposure/diagnostics to confirm event completeness
+    // before Stage 2 flips events to authoritative.
+    private long _positionAddCount;
+    private long _positionUpdateCount;
+    private long _positionDeleteCount;
+    private long _userUpdateCount;
+    private long _snapshotCount;
+    private DateTime _lastPositionEventAt = DateTime.MinValue;
+    private DateTime _lastUserEventAt = DateTime.MinValue;
+    private DateTime _lastSnapshotAt = DateTime.MinValue;
+
+    public long PositionAddCount => Interlocked.Read(ref _positionAddCount);
+    public long PositionUpdateCount => Interlocked.Read(ref _positionUpdateCount);
+    public long PositionDeleteCount => Interlocked.Read(ref _positionDeleteCount);
+    public long UserUpdateCount => Interlocked.Read(ref _userUpdateCount);
+    public long SnapshotCount => Interlocked.Read(ref _snapshotCount);
+    public DateTime LastPositionEventAt => _lastPositionEventAt;
+    public DateTime LastUserEventAt => _lastUserEventAt;
+    public DateTime LastSnapshotAt => _lastSnapshotAt;
+
     public const int InitialBackoffMs = 1000;
     public const int MaxBackoffMs = 60000;
     private const int PositionSnapshotIntervalMs = 500;
@@ -189,6 +211,23 @@ public sealed class MT5ManagerConnection : BackgroundService
                 else
                     _logger.LogInformation("Subscribed to deal stream");
 
+                // Stage 1 shadow mode — subscribe to position + user events.
+                // Handlers only count + log; the 500ms poll below remains
+                // authoritative for PositionManager until Stage 2 flips over.
+                _api.OnPositionAdd += OnPositionAddEvent;
+                _api.OnPositionUpdate += OnPositionUpdateEvent;
+                _api.OnPositionDelete += OnPositionDeleteEvent;
+                if (!_api.SubscribePositions())
+                    _logger.LogWarning("Position subscribe failed: {Error}", _api.LastError);
+                else
+                    _logger.LogInformation("Subscribed to position stream (shadow mode)");
+
+                _api.OnUserUpdate += OnUserUpdateEvent;
+                if (!_api.SubscribeUsers())
+                    _logger.LogWarning("User subscribe failed: {Error}", _api.LastError);
+                else
+                    _logger.LogInformation("Subscribed to user stream (shadow mode)");
+
                 backoffMs = InitialBackoffMs;
 
                 // Position snapshot loop
@@ -233,8 +272,14 @@ public sealed class MT5ManagerConnection : BackgroundService
                 {
                     _api.OnTick -= OnTickReceived;
                     _api.OnDealAdd -= OnDealReceived;
+                    _api.OnPositionAdd -= OnPositionAddEvent;
+                    _api.OnPositionUpdate -= OnPositionUpdateEvent;
+                    _api.OnPositionDelete -= OnPositionDeleteEvent;
+                    _api.OnUserUpdate -= OnUserUpdateEvent;
                     _api.UnsubscribeTicks();
                     _api.UnsubscribeDeals();
+                    _api.UnsubscribePositions();
+                    _api.UnsubscribeUsers();
                     _api.Disconnect();
                     _api.Dispose();
                     _api = null;
@@ -331,6 +376,8 @@ public sealed class MT5ManagerConnection : BackgroundService
 
             _positionManager.SnapshotBBookPositions(snapshot);
             PositionCount = snapshot.Count;
+            Interlocked.Increment(ref _snapshotCount);
+            _lastSnapshotAt = DateTime.UtcNow;
             _onUpdate();
 
             _logger.LogDebug("Snapshot: {Count} B-Book positions across {Logins} logins",
@@ -340,6 +387,39 @@ public sealed class MT5ManagerConnection : BackgroundService
         {
             _logger.LogError(ex, "Failed to snapshot positions");
         }
+    }
+
+    // Stage 1 shadow-mode handlers — count + log only. Do NOT mutate
+    // PositionManager or trigger _onUpdate(): the 500ms poll above is still
+    // authoritative. Once /api/exposure/diagnostics shows event count tracks
+    // snapshot count for 24h, Stage 2 will promote events to authoritative.
+    private void OnPositionAddEvent(RawPosition pos)
+    {
+        Interlocked.Increment(ref _positionAddCount);
+        _lastPositionEventAt = DateTime.UtcNow;
+        _logger.LogDebug("[shadow] Position add: #{PositionId} {Symbol} login={Login}",
+            pos.PositionId, pos.Symbol, pos.Login);
+    }
+
+    private void OnPositionUpdateEvent(RawPosition pos)
+    {
+        Interlocked.Increment(ref _positionUpdateCount);
+        _lastPositionEventAt = DateTime.UtcNow;
+    }
+
+    private void OnPositionDeleteEvent(ulong positionId)
+    {
+        Interlocked.Increment(ref _positionDeleteCount);
+        _lastPositionEventAt = DateTime.UtcNow;
+        _logger.LogDebug("[shadow] Position delete: #{PositionId}", positionId);
+    }
+
+    private void OnUserUpdateEvent(RawAccount account)
+    {
+        Interlocked.Increment(ref _userUpdateCount);
+        _lastUserEventAt = DateTime.UtcNow;
+        _logger.LogDebug("[shadow] User update: login={Login} balance={Balance} credit={Credit}",
+            account.Login, account.Balance, account.Credit);
     }
 
     private void OnTickReceived(RawTick raw)

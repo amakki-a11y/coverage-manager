@@ -25,6 +25,21 @@ public interface IMT5Api : IDisposable
     void UnsubscribeDeals();
     List<RawDeal> RequestDeals(ulong login, DateTimeOffset from, DateTimeOffset to);
 
+    // Position subscriptions — server-side events for position add/update/delete.
+    // Shadow-mode: subscribe so we can observe event completeness before the
+    // poll loop is dropped; events do not yet update PositionManager.
+    event Action<RawPosition>? OnPositionAdd;
+    event Action<RawPosition>? OnPositionUpdate;
+    event Action<ulong>? OnPositionDelete;
+    bool SubscribePositions();
+    void UnsubscribePositions();
+
+    // User subscriptions — balance/credit/user-record changes. Used by Equity P&L
+    // to sidestep the 5-minute polling sync once Stage 2 flips to event-driven.
+    event Action<RawAccount>? OnUserUpdate;
+    bool SubscribeUsers();
+    void UnsubscribeUsers();
+
     // Position queries
     List<RawPosition> GetPositions(ulong login);
     ulong[] GetUserLogins(string groupMask);

@@ -101,6 +101,38 @@ public class ExposureController : ControllerBase
     }
 
     /// <summary>
+    /// GET /api/exposure/diagnostics — Stage 1 shadow-mode counters comparing
+    /// the poll loop (authoritative) against event subscriptions (observational).
+    /// Watch this for 24h to confirm event completeness before Stage 2 flips
+    /// the poll interval from 500ms to 60s.
+    /// </summary>
+    [HttpGet("diagnostics")]
+    public IActionResult GetDiagnostics()
+    {
+        return Ok(new
+        {
+            mt5Connected = _mt5Connection.IsConnected,
+            snapshotCount = _mt5Connection.SnapshotCount,
+            lastSnapshotAt = _mt5Connection.LastSnapshotAt == DateTime.MinValue
+                ? (DateTime?)null : _mt5Connection.LastSnapshotAt,
+            positionEvents = new
+            {
+                add = _mt5Connection.PositionAddCount,
+                update = _mt5Connection.PositionUpdateCount,
+                delete = _mt5Connection.PositionDeleteCount,
+                lastAt = _mt5Connection.LastPositionEventAt == DateTime.MinValue
+                    ? (DateTime?)null : _mt5Connection.LastPositionEventAt
+            },
+            userEvents = new
+            {
+                update = _mt5Connection.UserUpdateCount,
+                lastAt = _mt5Connection.LastUserEventAt == DateTime.MinValue
+                    ? (DateTime?)null : _mt5Connection.LastUserEventAt
+            }
+        });
+    }
+
+    /// <summary>
     /// GET /api/exposure/pnl?from=2026-03-29&to=2026-04-01 — realized P&L with date filtering.
     /// Queries Supabase directly for the date range (persistent history).
     /// Falls back to in-memory DealStore if no dates specified.
