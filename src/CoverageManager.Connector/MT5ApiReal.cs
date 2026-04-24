@@ -20,11 +20,31 @@ public sealed class MT5ApiReal : IMT5Api
     private CIMTDealArray? _dealArray;
     private TickSinkHandler? _tickSink;
     private DealSinkHandler? _dealSink;
+    private PositionSinkHandler? _positionSink;
+    private UserSinkHandler? _userSink;
     private bool _connected;
     private bool _disposed;
 
     public event Action<RawTick>? OnTick;
     public event Action<RawDeal>? OnDealAdd;
+    public event Action<RawPosition>? OnPositionAdd;
+    public event Action<RawPosition>? OnPositionUpdate;
+    public event Action<RawPosition>? OnPositionDelete;
+    public event Action<RawAccount>? OnUserUpdate;
+
+    // Native-call counters — single ground-truth source for measuring how
+    // many round-trips we make against the MT5 Manager API. Read via the
+    // matching IMT5Api properties; surfaced on /api/exposure/diagnostics.
+    private long _getPositionsCalls;
+    private long _getUserAccountCalls;
+    private long _getUserLoginsCalls;
+    private long _requestDealsCalls;
+    private long _tickLastCalls;
+    public long GetPositionsCalls => Interlocked.Read(ref _getPositionsCalls);
+    public long GetUserAccountCalls => Interlocked.Read(ref _getUserAccountCalls);
+    public long GetUserLoginsCalls => Interlocked.Read(ref _getUserLoginsCalls);
+    public long RequestDealsCalls => Interlocked.Read(ref _requestDealsCalls);
+    public long TickLastCalls => Interlocked.Read(ref _tickLastCalls);
     public bool IsConnected => _connected && _manager != null;
     public string LastError { get; private set; } = "";
 
@@ -81,6 +101,8 @@ public sealed class MT5ApiReal : IMT5Api
         _connected = false;
         UnsubscribeDeals();
         UnsubscribeTicks();
+        UnsubscribePositions();
+        UnsubscribeUsers();
         _manager?.Disconnect();
     }
 
@@ -120,6 +142,7 @@ public sealed class MT5ApiReal : IMT5Api
         var fromMt5 = SMTTime.FromDateTime(from.UtcDateTime);
         var toMt5 = SMTTime.FromDateTime(to.UtcDateTime);
 
+        Interlocked.Increment(ref _requestDealsCalls);
         var res = _manager.DealRequest(login, fromMt5, toMt5, _dealArray);
         if (res != MTRetCode.MT_RET_OK) return result;
 
@@ -185,6 +208,60 @@ public sealed class MT5ApiReal : IMT5Api
         }
     }
 
+    public bool SubscribePositions()
+    {
+        if (_manager == null) { LastError = "Manager is null"; return false; }
+
+        _positionSink = new PositionSinkHandler(this);
+        var regRes = _positionSink.RegisterSink();
+        if (regRes != MTRetCode.MT_RET_OK)
+        {
+            LastError = $"PositionSink.RegisterSink failed: {regRes}";
+            return false;
+        }
+
+        var res = _manager.PositionSubscribe(_positionSink);
+        if (res != MTRetCode.MT_RET_OK)
+            LastError = $"PositionSubscribe failed: {res}";
+        return res == MTRetCode.MT_RET_OK;
+    }
+
+    public void UnsubscribePositions()
+    {
+        if (_manager != null && _positionSink != null)
+        {
+            _manager.PositionUnsubscribe(_positionSink);
+            _positionSink = null;
+        }
+    }
+
+    public bool SubscribeUsers()
+    {
+        if (_manager == null) { LastError = "Manager is null"; return false; }
+
+        _userSink = new UserSinkHandler(this);
+        var regRes = _userSink.RegisterSink();
+        if (regRes != MTRetCode.MT_RET_OK)
+        {
+            LastError = $"UserSink.RegisterSink failed: {regRes}";
+            return false;
+        }
+
+        var res = _manager.UserSubscribe(_userSink);
+        if (res != MTRetCode.MT_RET_OK)
+            LastError = $"UserSubscribe failed: {res}";
+        return res == MTRetCode.MT_RET_OK;
+    }
+
+    public void UnsubscribeUsers()
+    {
+        if (_manager != null && _userSink != null)
+        {
+            _manager.UserUnsubscribe(_userSink);
+            _userSink = null;
+        }
+    }
+
     public bool SelectedAddAll()
     {
         if (_manager == null) { LastError = "Manager is null"; return false; }
@@ -205,6 +282,7 @@ public sealed class MT5ApiReal : IMT5Api
         var posArray = _manager.PositionCreateArray();
         if (posArray == null) return result;
 
+        Interlocked.Increment(ref _getPositionsCalls);
         var res = _manager.PositionGet(login, posArray);
         if (res != MTRetCode.MT_RET_OK)
         {
@@ -239,6 +317,7 @@ public sealed class MT5ApiReal : IMT5Api
     public ulong[] GetUserLogins(string groupMask)
     {
         if (_manager == null) return Array.Empty<ulong>();
+        Interlocked.Increment(ref _getUserLoginsCalls);
         var logins = _manager.UserLogins(groupMask, out var res);
         return res == MTRetCode.MT_RET_OK && logins != null ? logins : Array.Empty<ulong>();
     }
@@ -248,6 +327,7 @@ public sealed class MT5ApiReal : IMT5Api
         if (_manager == null) return null;
         try
         {
+            Interlocked.Increment(ref _tickLastCalls);
             var res = _manager.TickLast(symbol, out MTTickShort tick);
             if (res != MTRetCode.MT_RET_OK) return null;
             if (tick.bid <= 0 && tick.ask <= 0) return null;
@@ -271,6 +351,7 @@ public sealed class MT5ApiReal : IMT5Api
             var user = _manager.UserCreate();
             if (user == null) return null;
 
+            Interlocked.Increment(ref _getUserAccountCalls);
             var res = _manager.UserGet(login, user);
             if (res != MTRetCode.MT_RET_OK)
             {
@@ -327,6 +408,46 @@ public sealed class MT5ApiReal : IMT5Api
 
     internal void FireTick(RawTick tick) => OnTick?.Invoke(tick);
     internal void FireDealAdd(RawDeal deal) => OnDealAdd?.Invoke(deal);
+    internal void FirePositionAdd(RawPosition pos) => OnPositionAdd?.Invoke(pos);
+    internal void FirePositionUpdate(RawPosition pos) => OnPositionUpdate?.Invoke(pos);
+    internal void FirePositionDelete(RawPosition pos) => OnPositionDelete?.Invoke(pos);
+    internal void FireUserUpdate(RawAccount account) => OnUserUpdate?.Invoke(account);
+
+    private static RawPosition CopyPosition(CIMTPosition pos) => new()
+    {
+        PositionId = pos.Position(),
+        Login = pos.Login(),
+        Symbol = pos.Symbol(),
+        Action = pos.Action(),
+        Volume = (decimal)pos.Volume() / 10000m,
+        PriceOpen = (decimal)pos.PriceOpen(),
+        PriceCurrent = (decimal)pos.PriceCurrent(),
+        Profit = (decimal)pos.Profit(),
+        Storage = (decimal)pos.Storage(),
+        TimeMsc = (long)pos.TimeCreate() * 1000
+    };
+
+    // Shadow-mode user-event copy. Equity/Margin come from a separate IMTAccount
+    // fetch (UserAccountGet) which we skip on the event path to avoid amplifying
+    // load — Stage 2 will decide whether to enrich on a subset of fields.
+    private static RawAccount CopyUserMinimal(CIMTUser user) => new()
+    {
+        Login = user.Login(),
+        Name = user.Name(),
+        Group = user.Group(),
+        Leverage = user.Leverage(),
+        Balance = (decimal)user.Balance(),
+        Equity = 0m,
+        Credit = (decimal)user.Credit(),
+        Margin = 0m,
+        FreeMargin = 0m,
+        Currency = "USD",
+        RegistrationTime = (long)user.Registration(),
+        LastTradeTime = (long)user.LastAccess(),
+        Comment = user.Comment(),
+        BalancePrevDay = 0m,
+        EquityPrevDay = 0m
+    };
 
     public void Dispose()
     {
@@ -336,6 +457,8 @@ public sealed class MT5ApiReal : IMT5Api
         _dealArray?.Dispose();
         _dealSink?.Dispose();
         _tickSink?.Dispose();
+        _positionSink?.Dispose();
+        _userSink?.Dispose();
         _manager?.Dispose();
         _manager = null;
 
@@ -402,6 +525,43 @@ public sealed class MT5ApiReal : IMT5Api
                 });
             }
         }
+    }
+
+    /// <summary>
+    /// Position sink — fires OnPositionAdd/Update/Delete when the MT5 server
+    /// pushes position state changes. Shadow-mode in Stage 1: consumers only
+    /// count events; the 500ms snapshot poll still owns PositionManager.
+    /// </summary>
+    private sealed class PositionSinkHandler : CIMTPositionSink
+    {
+        private readonly MT5ApiReal _owner;
+        public PositionSinkHandler(MT5ApiReal owner) => _owner = owner;
+
+        public override void OnPositionAdd(CIMTPosition pos)
+            => _owner.FirePositionAdd(CopyPosition(pos));
+
+        public override void OnPositionUpdate(CIMTPosition pos)
+            => _owner.FirePositionUpdate(CopyPosition(pos));
+
+        public override void OnPositionDelete(CIMTPosition pos)
+            => _owner.FirePositionDelete(CopyPosition(pos));
+    }
+
+    /// <summary>
+    /// User sink — fires OnUserUpdate on balance/credit/group changes. Admin
+    /// balance ↔ credit transfers do NOT emit a deal, so this is the only
+    /// live signal for Net Credit reconciliation on the Equity P&L tab.
+    /// </summary>
+    private sealed class UserSinkHandler : CIMTUserSink
+    {
+        private readonly MT5ApiReal _owner;
+        public UserSinkHandler(MT5ApiReal owner) => _owner = owner;
+
+        public override void OnUserUpdate(CIMTUser user)
+            => _owner.FireUserUpdate(CopyUserMinimal(user));
+
+        public override void OnUserAdd(CIMTUser user)
+            => _owner.FireUserUpdate(CopyUserMinimal(user));
     }
 }
 

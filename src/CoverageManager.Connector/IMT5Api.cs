@@ -25,6 +25,21 @@ public interface IMT5Api : IDisposable
     void UnsubscribeDeals();
     List<RawDeal> RequestDeals(ulong login, DateTimeOffset from, DateTimeOffset to);
 
+    // Position subscriptions — server-side events for position add/update/delete.
+    // Shadow-mode: subscribe so we can observe event completeness before the
+    // poll loop is dropped; events do not yet update PositionManager.
+    event Action<RawPosition>? OnPositionAdd;
+    event Action<RawPosition>? OnPositionUpdate;
+    event Action<RawPosition>? OnPositionDelete;
+    bool SubscribePositions();
+    void UnsubscribePositions();
+
+    // User subscriptions — balance/credit/user-record changes. Used by Equity P&L
+    // to sidestep the 5-minute polling sync once Stage 2 flips to event-driven.
+    event Action<RawAccount>? OnUserUpdate;
+    bool SubscribeUsers();
+    void UnsubscribeUsers();
+
     // Position queries
     List<RawPosition> GetPositions(ulong login);
     ulong[] GetUserLogins(string groupMask);
@@ -34,4 +49,14 @@ public interface IMT5Api : IDisposable
 
     // Account queries
     RawAccount? GetUserAccount(ulong login);
+
+    // Native-call counters — instrumentation for measuring MT5 server load.
+    // Each property reports the lifetime count of that native call since
+    // process start. Combine with ConnectedAt on MT5ManagerConnection to
+    // derive a per-minute rate.
+    long GetPositionsCalls { get; }
+    long GetUserAccountCalls { get; }
+    long GetUserLoginsCalls { get; }
+    long RequestDealsCalls { get; }
+    long TickLastCalls { get; }
 }

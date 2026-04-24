@@ -101,6 +101,69 @@ public class ExposureController : ControllerBase
     }
 
     /// <summary>
+    /// GET /api/exposure/diagnostics — Stage 2b counters. Events are
+    /// authoritative for PositionManager; the poll runs every 60 s as a
+    /// reconciliation safety net and logs any drift. If drift stays near
+    /// zero, the poll interval can be widened further.
+    /// </summary>
+    [HttpGet("diagnostics")]
+    public IActionResult GetDiagnostics()
+    {
+        var connectedAt = _mt5Connection.ConnectedAt;
+        var minutesConnected = connectedAt.HasValue
+            ? Math.Max((DateTime.UtcNow - connectedAt.Value).TotalMinutes, 1.0 / 60.0)
+            : 0.0;
+
+        var callCounts = _mt5Connection.GetApiCallCounts();
+        object PerMinute(long total)
+        {
+            if (minutesConnected <= 0) return new { total, perMinute = 0.0 };
+            return new { total, perMinute = Math.Round(total / minutesConnected, 3) };
+        }
+
+        return Ok(new
+        {
+            mt5Connected = _mt5Connection.IsConnected,
+            stage = "2b",
+            pollIntervalMs = 60_000,
+            connectedAt,
+            uptimeMinutes = Math.Round(minutesConnected, 2),
+            snapshotCount = _mt5Connection.SnapshotCount,
+            lastSnapshotAt = _mt5Connection.LastSnapshotAt == DateTime.MinValue
+                ? (DateTime?)null : _mt5Connection.LastSnapshotAt,
+            drift = new
+            {
+                totalDriftPositions = _mt5Connection.DriftCount,
+                pollsWithDrift = _mt5Connection.DriftPollCount,
+                lastAt = _mt5Connection.LastDriftAt == DateTime.MinValue
+                    ? (DateTime?)null : _mt5Connection.LastDriftAt
+            },
+            apiCalls = new
+            {
+                getPositions = PerMinute(callCounts.GetValueOrDefault("getPositions")),
+                getUserAccount = PerMinute(callCounts.GetValueOrDefault("getUserAccount")),
+                getUserLogins = PerMinute(callCounts.GetValueOrDefault("getUserLogins")),
+                requestDeals = PerMinute(callCounts.GetValueOrDefault("requestDeals")),
+                tickLast = PerMinute(callCounts.GetValueOrDefault("tickLast"))
+            },
+            positionEvents = new
+            {
+                add = _mt5Connection.PositionAddCount,
+                update = _mt5Connection.PositionUpdateCount,
+                delete = _mt5Connection.PositionDeleteCount,
+                lastAt = _mt5Connection.LastPositionEventAt == DateTime.MinValue
+                    ? (DateTime?)null : _mt5Connection.LastPositionEventAt
+            },
+            userEvents = new
+            {
+                update = _mt5Connection.UserUpdateCount,
+                lastAt = _mt5Connection.LastUserEventAt == DateTime.MinValue
+                    ? (DateTime?)null : _mt5Connection.LastUserEventAt
+            }
+        });
+    }
+
+    /// <summary>
     /// GET /api/exposure/pnl?from=2026-03-29&to=2026-04-01 — realized P&L with date filtering.
     /// Queries Supabase directly for the date range (persistent history).
     /// Falls back to in-memory DealStore if no dates specified.
