@@ -49,4 +49,14 @@ public interface IMT5Api : IDisposable
 
     // Account queries
     RawAccount? GetUserAccount(ulong login);
+
+    // Native-call counters — instrumentation for measuring MT5 server load.
+    // Each property reports the lifetime count of that native call since
+    // process start. Combine with ConnectedAt on MT5ManagerConnection to
+    // derive a per-minute rate.
+    long GetPositionsCalls { get; }
+    long GetUserAccountCalls { get; }
+    long GetUserLoginsCalls { get; }
+    long RequestDealsCalls { get; }
+    long TickLastCalls { get; }
 }

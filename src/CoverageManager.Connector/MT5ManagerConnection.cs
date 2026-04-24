@@ -75,9 +75,31 @@ public sealed class MT5ManagerConnection : BackgroundService
 
     public bool IsConnected => _api?.IsConnected ?? false;
     public string? ConnectedServer { get; private set; }
+    public DateTime? ConnectedAt { get; private set; }
     public int PositionCount { get; private set; }
     public int LoginCount { get; private set; }
     public ulong[] Logins => _logins;
+
+    /// <summary>
+    /// Snapshot of native MT5 API call counts since the current connection was
+    /// established. Returns zeros if not connected. Combine with
+    /// <see cref="ConnectedAt"/> to compute per-minute call rates for the
+    /// /api/exposure/diagnostics endpoint.
+    /// </summary>
+    public IReadOnlyDictionary<string, long> GetApiCallCounts()
+    {
+        var api = _api;
+        if (api is null)
+            return new Dictionary<string, long>();
+        return new Dictionary<string, long>
+        {
+            ["getPositions"] = api.GetPositionsCalls,
+            ["getUserAccount"] = api.GetUserAccountCalls,
+            ["getUserLogins"] = api.GetUserLoginsCalls,
+            ["requestDeals"] = api.RequestDealsCalls,
+            ["tickLast"] = api.TickLastCalls,
+        };
+    }
 
     public MT5ManagerConnection(
         ILogger<MT5ManagerConnection> logger,
@@ -146,6 +168,7 @@ public sealed class MT5ManagerConnection : BackgroundService
                 }
 
                 ConnectedServer = managerAccount.Server;
+                ConnectedAt = DateTime.UtcNow;
                 _logger.LogInformation("Connected to MT5 {Server} as login {Login}",
                     managerAccount.Server, managerAccount.Login);
 
@@ -297,6 +320,7 @@ public sealed class MT5ManagerConnection : BackgroundService
                     _api = null;
                 }
                 ConnectedServer = null;
+                ConnectedAt = null;
             }
         }
 

@@ -109,11 +109,25 @@ public class ExposureController : ControllerBase
     [HttpGet("diagnostics")]
     public IActionResult GetDiagnostics()
     {
+        var connectedAt = _mt5Connection.ConnectedAt;
+        var minutesConnected = connectedAt.HasValue
+            ? Math.Max((DateTime.UtcNow - connectedAt.Value).TotalMinutes, 1.0 / 60.0)
+            : 0.0;
+
+        var callCounts = _mt5Connection.GetApiCallCounts();
+        object PerMinute(long total)
+        {
+            if (minutesConnected <= 0) return new { total, perMinute = 0.0 };
+            return new { total, perMinute = Math.Round(total / minutesConnected, 3) };
+        }
+
         return Ok(new
         {
             mt5Connected = _mt5Connection.IsConnected,
             stage = "2b",
             pollIntervalMs = 60_000,
+            connectedAt,
+            uptimeMinutes = Math.Round(minutesConnected, 2),
             snapshotCount = _mt5Connection.SnapshotCount,
             lastSnapshotAt = _mt5Connection.LastSnapshotAt == DateTime.MinValue
                 ? (DateTime?)null : _mt5Connection.LastSnapshotAt,
@@ -123,6 +137,14 @@ public class ExposureController : ControllerBase
                 pollsWithDrift = _mt5Connection.DriftPollCount,
                 lastAt = _mt5Connection.LastDriftAt == DateTime.MinValue
                     ? (DateTime?)null : _mt5Connection.LastDriftAt
+            },
+            apiCalls = new
+            {
+                getPositions = PerMinute(callCounts.GetValueOrDefault("getPositions")),
+                getUserAccount = PerMinute(callCounts.GetValueOrDefault("getUserAccount")),
+                getUserLogins = PerMinute(callCounts.GetValueOrDefault("getUserLogins")),
+                requestDeals = PerMinute(callCounts.GetValueOrDefault("requestDeals")),
+                tickLast = PerMinute(callCounts.GetValueOrDefault("tickLast"))
             },
             positionEvents = new
             {

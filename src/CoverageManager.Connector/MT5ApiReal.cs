@@ -31,6 +31,20 @@ public sealed class MT5ApiReal : IMT5Api
     public event Action<RawPosition>? OnPositionUpdate;
     public event Action<RawPosition>? OnPositionDelete;
     public event Action<RawAccount>? OnUserUpdate;
+
+    // Native-call counters — single ground-truth source for measuring how
+    // many round-trips we make against the MT5 Manager API. Read via the
+    // matching IMT5Api properties; surfaced on /api/exposure/diagnostics.
+    private long _getPositionsCalls;
+    private long _getUserAccountCalls;
+    private long _getUserLoginsCalls;
+    private long _requestDealsCalls;
+    private long _tickLastCalls;
+    public long GetPositionsCalls => Interlocked.Read(ref _getPositionsCalls);
+    public long GetUserAccountCalls => Interlocked.Read(ref _getUserAccountCalls);
+    public long GetUserLoginsCalls => Interlocked.Read(ref _getUserLoginsCalls);
+    public long RequestDealsCalls => Interlocked.Read(ref _requestDealsCalls);
+    public long TickLastCalls => Interlocked.Read(ref _tickLastCalls);
     public bool IsConnected => _connected && _manager != null;
     public string LastError { get; private set; } = "";
 
@@ -128,6 +142,7 @@ public sealed class MT5ApiReal : IMT5Api
         var fromMt5 = SMTTime.FromDateTime(from.UtcDateTime);
         var toMt5 = SMTTime.FromDateTime(to.UtcDateTime);
 
+        Interlocked.Increment(ref _requestDealsCalls);
         var res = _manager.DealRequest(login, fromMt5, toMt5, _dealArray);
         if (res != MTRetCode.MT_RET_OK) return result;
 
@@ -267,6 +282,7 @@ public sealed class MT5ApiReal : IMT5Api
         var posArray = _manager.PositionCreateArray();
         if (posArray == null) return result;
 
+        Interlocked.Increment(ref _getPositionsCalls);
         var res = _manager.PositionGet(login, posArray);
         if (res != MTRetCode.MT_RET_OK)
         {
@@ -301,6 +317,7 @@ public sealed class MT5ApiReal : IMT5Api
     public ulong[] GetUserLogins(string groupMask)
     {
         if (_manager == null) return Array.Empty<ulong>();
+        Interlocked.Increment(ref _getUserLoginsCalls);
         var logins = _manager.UserLogins(groupMask, out var res);
         return res == MTRetCode.MT_RET_OK && logins != null ? logins : Array.Empty<ulong>();
     }
@@ -310,6 +327,7 @@ public sealed class MT5ApiReal : IMT5Api
         if (_manager == null) return null;
         try
         {
+            Interlocked.Increment(ref _tickLastCalls);
             var res = _manager.TickLast(symbol, out MTTickShort tick);
             if (res != MTRetCode.MT_RET_OK) return null;
             if (tick.bid <= 0 && tick.ask <= 0) return null;
@@ -333,6 +351,7 @@ public sealed class MT5ApiReal : IMT5Api
             var user = _manager.UserCreate();
             if (user == null) return null;
 
+            Interlocked.Increment(ref _getUserAccountCalls);
             var res = _manager.UserGet(login, user);
             if (res != MTRetCode.MT_RET_OK)
             {
