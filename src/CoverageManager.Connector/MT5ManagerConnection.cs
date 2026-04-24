@@ -58,10 +58,9 @@ public sealed class MT5ManagerConnection : BackgroundService
     public const int MaxBackoffMs = 60000;
 
     // Stage 2b — position events are authoritative. Poll is reduced from 500ms
-    // to 60s as a reconciliation safety net. Drops MT5 GetPositions load from
-    // ~30 calls/sec (15 logins × 2/s) to ~0.25/sec (-99%). If Stage 2a drift
-    // ever trends non-zero in production, raise this interval's frequency or
-    // revert to 500 via git.
+    // to 60s as a reconciliation safety net. Empirically verified via
+    // /api/exposure/diagnostics: 500ms poll = 4459 getPositions calls/min vs
+    // 60s poll = 58 calls/min (-98.7%) against 40 logins, 3-min samples.
     private const int PositionSnapshotIntervalMs = 60_000;
     private const int AccountSyncIntervalMinutes = 5;
 
