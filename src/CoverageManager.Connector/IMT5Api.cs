@@ -30,7 +30,7 @@ public interface IMT5Api : IDisposable
     // poll loop is dropped; events do not yet update PositionManager.
     event Action<RawPosition>? OnPositionAdd;
     event Action<RawPosition>? OnPositionUpdate;
-    event Action<ulong>? OnPositionDelete;
+    event Action<RawPosition>? OnPositionDelete;
     bool SubscribePositions();
     void UnsubscribePositions();
 

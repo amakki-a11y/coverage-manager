@@ -29,7 +29,7 @@ public sealed class MT5ApiReal : IMT5Api
     public event Action<RawDeal>? OnDealAdd;
     public event Action<RawPosition>? OnPositionAdd;
     public event Action<RawPosition>? OnPositionUpdate;
-    public event Action<ulong>? OnPositionDelete;
+    public event Action<RawPosition>? OnPositionDelete;
     public event Action<RawAccount>? OnUserUpdate;
     public bool IsConnected => _connected && _manager != null;
     public string LastError { get; private set; } = "";
@@ -391,7 +391,7 @@ public sealed class MT5ApiReal : IMT5Api
     internal void FireDealAdd(RawDeal deal) => OnDealAdd?.Invoke(deal);
     internal void FirePositionAdd(RawPosition pos) => OnPositionAdd?.Invoke(pos);
     internal void FirePositionUpdate(RawPosition pos) => OnPositionUpdate?.Invoke(pos);
-    internal void FirePositionDelete(ulong positionId) => OnPositionDelete?.Invoke(positionId);
+    internal void FirePositionDelete(RawPosition pos) => OnPositionDelete?.Invoke(pos);
     internal void FireUserUpdate(RawAccount account) => OnUserUpdate?.Invoke(account);
 
     private static RawPosition CopyPosition(CIMTPosition pos) => new()
@@ -525,7 +525,7 @@ public sealed class MT5ApiReal : IMT5Api
             => _owner.FirePositionUpdate(CopyPosition(pos));
 
         public override void OnPositionDelete(CIMTPosition pos)
-            => _owner.FirePositionDelete(pos.Position());
+            => _owner.FirePositionDelete(CopyPosition(pos));
     }
 
     /// <summary>

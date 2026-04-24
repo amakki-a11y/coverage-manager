@@ -123,6 +123,14 @@ public class PositionManager
         _positions.TryRemove(key, out _);
     }
 
+    /// <summary>
+    /// Snapshot of current B-Book position keys (<c>bbook:{login}:{ticket}</c>).
+    /// Used by the reconciliation poll to compute drift between the event-driven
+    /// cache and the authoritative MT5 snapshot.
+    /// </summary>
+    public IReadOnlyCollection<string> GetBBookPositionKeys() =>
+        _positions.Keys.Where(k => k.StartsWith("bbook:")).ToList();
+
     public IReadOnlyList<Position> GetAllPositions() =>
         _positions.Values.ToList().AsReadOnly();
 

@@ -26,27 +26,33 @@ public sealed class MT5ManagerConnection : BackgroundService
     private long _tickCount;
     private DateTime _lastAccountSync = DateTime.MinValue;
 
-    // Shadow-mode diagnostics counters for the event-driven rollout (Stage 1).
-    // Populated by the live MT5 position/user sinks; compared against the poll
-    // snapshot count via /api/exposure/diagnostics to confirm event completeness
-    // before Stage 2 flips events to authoritative.
+    // Stage 2a diagnostics — events are now authoritative for PositionManager,
+    // but the 500 ms poll still runs and reports drift (event cache vs poll
+    // snapshot mismatch) so we can catch missed events. Stage 2b drops the poll
+    // to 60 s once /api/exposure/diagnostics shows driftCount ≈ 0 over 24 h.
     private long _positionAddCount;
     private long _positionUpdateCount;
     private long _positionDeleteCount;
     private long _userUpdateCount;
     private long _snapshotCount;
+    private long _driftCount;
+    private long _driftPollCount;
     private DateTime _lastPositionEventAt = DateTime.MinValue;
     private DateTime _lastUserEventAt = DateTime.MinValue;
     private DateTime _lastSnapshotAt = DateTime.MinValue;
+    private DateTime _lastDriftAt = DateTime.MinValue;
 
     public long PositionAddCount => Interlocked.Read(ref _positionAddCount);
     public long PositionUpdateCount => Interlocked.Read(ref _positionUpdateCount);
     public long PositionDeleteCount => Interlocked.Read(ref _positionDeleteCount);
     public long UserUpdateCount => Interlocked.Read(ref _userUpdateCount);
     public long SnapshotCount => Interlocked.Read(ref _snapshotCount);
+    public long DriftCount => Interlocked.Read(ref _driftCount);
+    public long DriftPollCount => Interlocked.Read(ref _driftPollCount);
     public DateTime LastPositionEventAt => _lastPositionEventAt;
     public DateTime LastUserEventAt => _lastUserEventAt;
     public DateTime LastSnapshotAt => _lastSnapshotAt;
+    public DateTime LastDriftAt => _lastDriftAt;
 
     public const int InitialBackoffMs = 1000;
     public const int MaxBackoffMs = 60000;
@@ -374,6 +380,26 @@ public sealed class MT5ManagerConnection : BackgroundService
                 }
             }
 
+            // Stage 2a drift detection — compute symmetric difference between
+            // what events have accumulated in PositionManager and what the MT5
+            // poll just returned. A one- or two-position drift per cycle is
+            // normal (events racing the poll); persistent larger drift means
+            // we missed something and should not flip Stage 2b yet.
+            var cachedKeys = new HashSet<string>(_positionManager.GetBBookPositionKeys());
+            var snapshotKeys = new HashSet<string>(snapshot.Keys);
+            var missingFromCache = snapshotKeys.Count(k => !cachedKeys.Contains(k));
+            var extraInCache     = cachedKeys.Count(k => !snapshotKeys.Contains(k));
+            var drift = missingFromCache + extraInCache;
+            if (drift > 0)
+            {
+                Interlocked.Add(ref _driftCount, drift);
+                Interlocked.Increment(ref _driftPollCount);
+                _lastDriftAt = DateTime.UtcNow;
+                _logger.LogWarning(
+                    "Drift detected: missing-from-cache={Missing} extra-in-cache={Extra} cached={Cached} snapshot={Snapshot}",
+                    missingFromCache, extraInCache, cachedKeys.Count, snapshot.Count);
+            }
+
             _positionManager.SnapshotBBookPositions(snapshot);
             PositionCount = snapshot.Count;
             Interlocked.Increment(ref _snapshotCount);
@@ -389,15 +415,36 @@ public sealed class MT5ManagerConnection : BackgroundService
         }
     }
 
-    // Stage 1 shadow-mode handlers — count + log only. Do NOT mutate
-    // PositionManager or trigger _onUpdate(): the 500ms poll above is still
-    // authoritative. Once /api/exposure/diagnostics shows event count tracks
-    // snapshot count for 24h, Stage 2 will promote events to authoritative.
+    // Stage 2a — events are now authoritative for PositionManager. The 500 ms
+    // poll still runs (see SnapshotPositions) and reports drift if the event
+    // cache diverges from the poll snapshot. Stage 2b drops the poll interval
+    // once drift stays near zero over 24h.
+    private static Position ToPosition(RawPosition pos) => new()
+    {
+        Source = "bbook",
+        Login = pos.Login,
+        Symbol = pos.Symbol,
+        Direction = pos.Action == 0 ? "BUY" : "SELL",
+        VolumeLots = pos.Volume,
+        OpenPrice = pos.PriceOpen,
+        CurrentPrice = pos.PriceCurrent,
+        Profit = pos.Profit,
+        Swap = pos.Storage,
+        OpenTime = DateTimeOffset.FromUnixTimeMilliseconds(pos.TimeMsc).UtcDateTime,
+        UpdatedAt = DateTime.UtcNow
+    };
+
+    private static string PositionKey(RawPosition pos) =>
+        $"bbook:{pos.Login}:{pos.PositionId}";
+
     private void OnPositionAddEvent(RawPosition pos)
     {
         Interlocked.Increment(ref _positionAddCount);
         _lastPositionEventAt = DateTime.UtcNow;
-        _logger.LogDebug("[shadow] Position add: #{PositionId} {Symbol} login={Login}",
+        _positionManager.UpdateBBookPosition(PositionKey(pos), ToPosition(pos));
+        PositionCount = _positionManager.GetBBookPositions().Count;
+        _onUpdate();
+        _logger.LogDebug("Position add: #{PositionId} {Symbol} login={Login}",
             pos.PositionId, pos.Symbol, pos.Login);
     }
 
@@ -405,20 +452,26 @@ public sealed class MT5ManagerConnection : BackgroundService
     {
         Interlocked.Increment(ref _positionUpdateCount);
         _lastPositionEventAt = DateTime.UtcNow;
+        _positionManager.UpdateBBookPosition(PositionKey(pos), ToPosition(pos));
+        _onUpdate();
     }
 
-    private void OnPositionDeleteEvent(ulong positionId)
+    private void OnPositionDeleteEvent(RawPosition pos)
     {
         Interlocked.Increment(ref _positionDeleteCount);
         _lastPositionEventAt = DateTime.UtcNow;
-        _logger.LogDebug("[shadow] Position delete: #{PositionId}", positionId);
+        _positionManager.RemoveBBookPosition(PositionKey(pos));
+        PositionCount = _positionManager.GetBBookPositions().Count;
+        _onUpdate();
+        _logger.LogDebug("Position delete: #{PositionId} login={Login}",
+            pos.PositionId, pos.Login);
     }
 
     private void OnUserUpdateEvent(RawAccount account)
     {
         Interlocked.Increment(ref _userUpdateCount);
         _lastUserEventAt = DateTime.UtcNow;
-        _logger.LogDebug("[shadow] User update: login={Login} balance={Balance} credit={Credit}",
+        _logger.LogDebug("User update: login={Login} balance={Balance} credit={Credit}",
             account.Login, account.Balance, account.Credit);
     }
 

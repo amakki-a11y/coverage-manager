@@ -101,10 +101,10 @@ public class ExposureController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/exposure/diagnostics — Stage 1 shadow-mode counters comparing
-    /// the poll loop (authoritative) against event subscriptions (observational).
-    /// Watch this for 24h to confirm event completeness before Stage 2 flips
-    /// the poll interval from 500ms to 60s.
+    /// GET /api/exposure/diagnostics — Stage 2a counters. Events are now
+    /// authoritative for PositionManager; the 500 ms poll still runs and
+    /// reports drift between the event cache and the MT5 snapshot. Stage 2b
+    /// drops the poll to 60 s once driftCount stays near zero for 24 h.
     /// </summary>
     [HttpGet("diagnostics")]
     public IActionResult GetDiagnostics()
@@ -112,9 +112,17 @@ public class ExposureController : ControllerBase
         return Ok(new
         {
             mt5Connected = _mt5Connection.IsConnected,
+            stage = "2a",
             snapshotCount = _mt5Connection.SnapshotCount,
             lastSnapshotAt = _mt5Connection.LastSnapshotAt == DateTime.MinValue
                 ? (DateTime?)null : _mt5Connection.LastSnapshotAt,
+            drift = new
+            {
+                totalDriftPositions = _mt5Connection.DriftCount,
+                pollsWithDrift = _mt5Connection.DriftPollCount,
+                lastAt = _mt5Connection.LastDriftAt == DateTime.MinValue
+                    ? (DateTime?)null : _mt5Connection.LastDriftAt
+            },
             positionEvents = new
             {
                 add = _mt5Connection.PositionAddCount,
