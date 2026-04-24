@@ -62,7 +62,14 @@ public sealed class MT5ManagerConnection : BackgroundService
     // /api/exposure/diagnostics: 500ms poll = 4459 getPositions calls/min vs
     // 60s poll = 58 calls/min (-98.7%) against 40 logins, 3-min samples.
     private const int PositionSnapshotIntervalMs = 60_000;
-    private const int AccountSyncIntervalMinutes = 5;
+
+    // User balance/credit changes push live through CIMTUserSink, so the bulk
+    // account sync is only needed as a reconciliation tick for the roster
+    // (group, leverage, comment) and for equity/margin which CIMTUserSink
+    // does not carry. 15 min is enough for those fields; the Equity P&L tab
+    // has a live MT5 endpoint (/api/equity-pnl/account-live) if the dealer
+    // needs fresher equity than the last sync.
+    private const int AccountSyncIntervalMinutes = 15;
 
     /// <summary>
     /// Exponential-backoff progression used by the reconnect loop. Exposed public
