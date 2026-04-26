@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { THEME } from '../theme';
 import type { PeriodPnLResponse, PeriodPnLRow, PeriodPnLSide } from '../types';
 import { useDateRange } from '../hooks/useDateRange';
+import { useExposureSocket } from '../hooks/useExposureSocket';
 import { API_BASE } from '../config';
 
 /**
@@ -189,14 +190,87 @@ export function PeriodPnLPanel() {
     // range — re-mounting (tab revisit) with a warm cache triggers a silent refresh.
     const hasCached = periodCache.has(cacheKey(fromDate, toDate));
     fetchPeriod(!hasCached);
-    // Silent refresh for "current" floating P&L values. ExposureEngine now
-    // recomputes floating from live tick prices (calibrated-delta), so the
-    // backend response changes on every refresh — 2s gives a visibly-live
-    // feel without hammering the endpoint (the Supabase RPC + collector
-    // call typically take ~1s combined).
-    const interval = setInterval(() => fetchPeriod(false), 2_000);
+    // Periodic silent refresh for slow-changing fields (Begin Floating from
+    // snapshots, Settled from realized P&L). The "Current Floating" column
+    // is overlaid live from the WS exposure feed below — no need to hammer
+    // the REST endpoint just for that. 30 s is enough to catch a fresh
+    // snapshot tick or a newly settled deal.
+    const interval = setInterval(() => fetchPeriod(false), 30_000);
     return () => clearInterval(interval);
   }, [fetchPeriod, fromDate, toDate]);
+
+  // Live overlay — the same WebSocket feed that drives the Exposure tab.
+  // ExposureSummary[] carries per-canonical-symbol bBookPnL / coveragePnL
+  // (live floating, calibrated-delta from PR#6). We splice these into the
+  // last REST snapshot to make the Current / ΔFloat / Net columns tick on
+  // every WS frame instead of waiting for the 30 s REST refresh.
+  const { exposureSummaries } = useExposureSocket();
+  const displayData = useMemo<PeriodPnLResponse | null>(() => {
+    if (!data) return null;
+    if (!exposureSummaries || exposureSummaries.length === 0) return data;
+
+    const liveByKey = new Map<string, { bbook: number; coverage: number }>();
+    for (const s of exposureSummaries) {
+      const k = (s.canonicalSymbol || '').toUpperCase();
+      if (k) liveByKey.set(k, { bbook: s.bBookPnL ?? 0, coverage: s.coveragePnL ?? 0 });
+    }
+
+    let totalBBookDelta = 0;
+    let totalCovDelta   = 0;
+
+    const overlayRow = (r: PeriodPnLRow): PeriodPnLRow => {
+      const live = liveByKey.get((r.canonicalSymbol || '').toUpperCase());
+      if (!live) return r;
+      const bBookDelta = live.bbook    - r.bBook.currentFloating;
+      const covDelta   = live.coverage - r.coverage.currentFloating;
+      totalBBookDelta += bBookDelta;
+      totalCovDelta   += covDelta;
+      return {
+        canonicalSymbol: r.canonicalSymbol,
+        bBook: {
+          ...r.bBook,
+          currentFloating: live.bbook,
+          floatingDelta:   r.bBook.floatingDelta + bBookDelta,
+          net:             r.bBook.net           + bBookDelta,
+        },
+        coverage: {
+          ...r.coverage,
+          currentFloating: live.coverage,
+          floatingDelta:   r.coverage.floatingDelta + covDelta,
+          net:             r.coverage.net           + covDelta,
+        },
+        edge: {
+          floating: r.edge.floating + (covDelta - bBookDelta),
+          settled:  r.edge.settled,
+          net:      r.edge.net      + (covDelta - bBookDelta),
+        },
+      };
+    };
+
+    const overlayedRows = data.rows.map(overlayRow);
+    const totals: PeriodPnLRow = {
+      ...data.totals,
+      bBook: {
+        ...data.totals.bBook,
+        currentFloating: data.totals.bBook.currentFloating + totalBBookDelta,
+        floatingDelta:   data.totals.bBook.floatingDelta   + totalBBookDelta,
+        net:             data.totals.bBook.net             + totalBBookDelta,
+      },
+      coverage: {
+        ...data.totals.coverage,
+        currentFloating: data.totals.coverage.currentFloating + totalCovDelta,
+        floatingDelta:   data.totals.coverage.floatingDelta   + totalCovDelta,
+        net:             data.totals.coverage.net             + totalCovDelta,
+      },
+      edge: {
+        floating: data.totals.edge.floating + (totalCovDelta - totalBBookDelta),
+        settled:  data.totals.edge.settled,
+        net:      data.totals.edge.net      + (totalCovDelta - totalBBookDelta),
+      },
+    };
+
+    return { ...data, rows: overlayedRows, totals };
+  }, [data, exposureSummaries]);
 
   const captureNow = async () => {
     setCapturing(true);
@@ -211,8 +285,8 @@ export function PeriodPnLPanel() {
     setCapturing(false);
   };
 
-  const rows = data?.rows ?? [];
-  const totals = data?.totals;
+  const rows = displayData?.rows ?? [];
+  const totals = displayData?.totals;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
