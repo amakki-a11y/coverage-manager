@@ -148,6 +148,13 @@ try
     // modifications so our historical P&L stays aligned with MT5 Manager over time.
     builder.Services.AddSingleton<ReconciliationService>();
     builder.Services.AddHostedService(sp => sp.GetRequiredService<ReconciliationService>());
+
+    // Periodic cash-movement sync — admin balance/credit deals (action ≥ 2)
+    // don't fire CIMTDealSink reliably and the nightly reconciliation
+    // sweep filters them out. Runs every 15 min over a 7-day lookback so
+    // missing transfers land in Supabase fast enough that the Equity P&L
+    // tab's Net Dep/W and Net Cred columns stay aligned with MT5 Manager.
+    builder.Services.AddHostedService<CashMovementSyncService>();
     // -----------------------------------------------------------------------
 
     builder.Services.AddControllers()
