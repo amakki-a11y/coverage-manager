@@ -189,7 +189,12 @@ export function PeriodPnLPanel() {
     // range — re-mounting (tab revisit) with a warm cache triggers a silent refresh.
     const hasCached = periodCache.has(cacheKey(fromDate, toDate));
     fetchPeriod(!hasCached);
-    const interval = setInterval(() => fetchPeriod(false), 10_000); // silent refresh for "current" values
+    // Silent refresh for "current" floating P&L values. ExposureEngine now
+    // recomputes floating from live tick prices (calibrated-delta), so the
+    // backend response changes on every refresh — 2s gives a visibly-live
+    // feel without hammering the endpoint (the Supabase RPC + collector
+    // call typically take ~1s combined).
+    const interval = setInterval(() => fetchPeriod(false), 2_000);
     return () => clearInterval(interval);
   }, [fetchPeriod, fromDate, toDate]);
 
