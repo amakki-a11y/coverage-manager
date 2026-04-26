@@ -12,6 +12,37 @@ public class DealStore
     private readonly ConcurrentDictionary<ulong, ClosedDeal> _deals = new();
     // Secondary index: (login, orderId) -> dealId. Used by the Bridge to resolve Centroid ext_order -> true MT5 deal number.
     private readonly ConcurrentDictionary<(ulong login, ulong orderId), ulong> _dealIdByOrder = new();
+    // Earliest deal time currently held in memory (UTC). Used by callers that
+    // need to know whether the in-memory cache covers a historical query window
+    // before relying on its aggregates. `null` when the store is empty.
+    private long _earliestDealTimeTicks = long.MaxValue;
+
+    /// <summary>
+    /// Earliest <c>DealTime</c> across all deals currently in the store, UTC.
+    /// Returns <c>null</c> when the store is empty. Equity-P&amp;L's NetDepW
+    /// override path uses this to decide whether DealStore's per-login sum
+    /// covers the requested window — falling back to Supabase otherwise so a
+    /// partial in-memory slice never overrides a complete historical sum.
+    /// </summary>
+    public DateTime? EarliestDealTime
+    {
+        get
+        {
+            var ticks = Interlocked.Read(ref _earliestDealTimeTicks);
+            return ticks == long.MaxValue ? null : new DateTime(ticks, DateTimeKind.Utc);
+        }
+    }
+
+    private void TrackEarliest(DateTime dealTime)
+    {
+        var newTicks = dealTime.ToUniversalTime().Ticks;
+        long current;
+        do
+        {
+            current = Interlocked.Read(ref _earliestDealTimeTicks);
+            if (newTicks >= current) return;
+        } while (Interlocked.CompareExchange(ref _earliestDealTimeTicks, newTicks, current) != current);
+    }
 
     /// <summary>
     /// Add a deal (deduplicated by DealId).
@@ -21,6 +52,7 @@ public class DealStore
         _deals[deal.DealId] = deal;
         if (deal.Login != 0 && deal.OrderId != 0)
             _dealIdByOrder[(deal.Login, deal.OrderId)] = deal.DealId;
+        TrackEarliest(deal.Time);
     }
 
     /// <summary>
@@ -33,6 +65,7 @@ public class DealStore
             _deals[d.DealId] = d;
             if (d.Login != 0 && d.OrderId != 0)
                 _dealIdByOrder[(d.Login, d.OrderId)] = d.DealId;
+            TrackEarliest(d.Time);
         }
     }
 
@@ -43,6 +76,7 @@ public class DealStore
     {
         _deals.Clear();
         _dealIdByOrder.Clear();
+        Interlocked.Exchange(ref _earliestDealTimeTicks, long.MaxValue);
     }
 
     /// <summary>
