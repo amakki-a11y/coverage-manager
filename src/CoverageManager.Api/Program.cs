@@ -33,7 +33,9 @@ try
     // Core singletons
     var positionManager = new PositionManager();
     var priceCache = new PriceCache();
-    var exposureEngine = new ExposureEngine(positionManager);
+    // PriceCache injected so floating P&L is recomputed from live ticks
+    // (every WS frame) instead of stale Position.Profit (60s poll only).
+    var exposureEngine = new ExposureEngine(positionManager, priceCache);
     var dealStore = new DealStore();
 
     var alertEngine = new AlertEngine(exposureEngine, positionManager);
