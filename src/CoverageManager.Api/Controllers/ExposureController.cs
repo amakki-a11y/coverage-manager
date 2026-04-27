@@ -1036,26 +1036,32 @@ public class ExposureController : ControllerBase
         var moved       = movedLoginsTask.Result;
         var beginSnaps  = beginSnapsTask.Result;
 
-        // bbook trade flow — prefer the in-memory DealStore over Supabase.
-        // DealStore is updated on every MT5 deal callback (sub-100 ms); Supabase
-        // is the 30-s DataSyncService flush. Without this override, active
-        // accounts showed a visible Net Dep/W flicker: the value jumped up
-        // $300-$2,200 when a trade closed and settled back 30 s later when
-        // the deal landed in Supabase. DealStore is a strict superset of
-        // Supabase for any window it covers (it's backfilled from Supabase on
-        // startup, then fed live), so this is always the fresher answer.
-        // Fall back to Supabase when DealStore is empty (cold restart before
-        // backfill completes) or when the DealStore result is zero for a
-        // given login (cold-storage data only in Supabase).
+        // bbook trade flow — prefer the in-memory DealStore over Supabase, but
+        // ONLY when DealStore covers the requested window. DealStore is
+        // updated on every MT5 deal callback (sub-100 ms); Supabase is the
+        // 30-s DataSyncService flush. The override removes the visible Net
+        // Dep/W flicker (value jumped $300-$2,200 when a trade closed and
+        // settled back 30 s later when the deal landed in Supabase) on
+        // today's window. But the store is backfilled from "today 00:00 UTC"
+        // on startup — for any window starting earlier than its earliest
+        // deal, the in-memory sum is a partial slice that would override the
+        // complete Supabase sum and produce a phantom NetDepW. So compare
+        // fromUtc against EarliestDealTime and only override when the store
+        // covers the full window.
         var liveTradeFlow   = _dealStore.SumTradeBalanceFlowPerLogin(fromUtc, toUtc);
         var supabaseFlow    = tradeFlowTask.Result; // login -> supabase sum
         var tradeFlow       = new Dictionary<long, decimal>(supabaseFlow);
-        foreach (var kv in liveTradeFlow)
+        var earliestInStore = _dealStore.EarliestDealTime;
+        var dealStoreCoversWindow = earliestInStore.HasValue && fromUtc >= earliestInStore.Value;
+        if (dealStoreCoversWindow)
         {
-            // DealStore wins outright when it has a value; its coverage of the
-            // current session is strictly more up-to-date than Supabase.
-            tradeFlow[kv.Key] = kv.Value;
+            foreach (var kv in liveTradeFlow)
+                tradeFlow[kv.Key] = kv.Value;
         }
+        // else: keep the Supabase sum unchanged. Equity P&L for historical
+        // ranges is accountant-grade (30-s flicker is acceptable); the
+        // flicker it would otherwise prevent only matters for today's
+        // window which DealStore always covers.
 
         // Phase 2 resolution maps. For each (login, source), pre-compute the
         // highest-priority group's config + spread rates so the per-login loop
