@@ -1257,39 +1257,24 @@ public class ExposureController : ControllerBase
                 toUtc,
                 out var updatedCfg);
 
-            // Balance-and-credit reconciliation override for Net Dep/W and
-            // Net Credit. MT5 Manager's `RequestDeals` doesn't surface
-            // admin balance/credit transfers — they silently shift value
-            // between the Balance and Credit buckets with no deal record.
-            // The authoritative figures match the Summary Report:
-            //   NetDepW = (CurrBalance - BeginBalance) - TradeBalanceFlow
-            //   NetCred = CurrCredit  - BeginCredit
-            // Applied for both bbook AND coverage as soon as we have a begin
-            // snapshot. Coverage trade flow comes from the Python collector
-            // (LP deals aren't synced to Supabase), bbook from the Supabase
-            // aggregation above.
-            if (beginSnap != null)
-            {
-                decimal tradeBalanceFlow;
-                if (acct.Source == "coverage" && coverageTradeFlowLogin.HasValue && acct.Login == coverageTradeFlowLogin.Value)
-                    tradeBalanceFlow = coverageTradeFlowValue;
-                else
-                    tradeBalanceFlow = tradeFlow.TryGetValue(acct.Login, out var tf) ? tf : 0m;
-
-                row.NetDepositWithdraw = (acct.Balance - beginSnap.Balance) - tradeBalanceFlow;
-                row.NetCredit          = acct.Credit  - beginSnap.Credit;
-
-                // Recompute downstream columns since we changed two inputs.
-                row.SupposedEquity = row.BeginEquity + row.NetDepositWithdraw + row.NetCredit;
-                row.Pl             = row.CurrentEquity - row.SupposedEquity;
-                var nonTrading     = row.CommRebate + row.SpreadRebate + row.Adjustment + row.ProfitShare;
-                // Sign convention locked in Phase 1: clients strip rebates/PS
-                // out of NetPL (they're broker outlays); coverage keeps them
-                // in NetPL (they're broker income when received from LP).
-                row.NetPl = acct.Source == "coverage"
-                    ? row.Pl + nonTrading
-                    : row.Pl - nonTrading;
-            }
+            // Net Dep/W and Net Credit are taken from the explicit MT5 deal
+            // sums computed in EquityPnLEngine.BuildRow:
+            //   NetDepW = Σ profit of action=2 (BALANCE) deals in window
+            //   NetCred = Σ profit of action=3 (CREDIT)  deals in window
+            // This matches MT5 Manager's Segregated / Summary report 1:1.
+            //
+            // Earlier this block overrode those values with a balance-
+            // reconciliation formula (CurrBalance − BeginBalance − tradeFlow)
+            // which captured silent admin balance/credit transfers that don't
+            // emit a deal — but the dealer team treats MT5 Manager as the
+            // source of truth, so the deal-sum view wins. The trade-off is
+            // that any admin Edit-Account move executed without a deal will
+            // be invisible here; if that becomes a problem, surface it via
+            // a separate column rather than mixing it into NetDepW/NetCred.
+            //
+            // Note: BuildRow already wrote the deal-sum values plus the
+            // derived SupposedEquity / Pl / NetPl chain, so there's nothing
+            // to recompute here.
 
             (acct.Source == "coverage" ? coverageRows : clientRows).Add(row);
             // Only persist HWM state back to Supabase when the login has its
