@@ -103,11 +103,17 @@ function DataRow({ row, bold }: RowProps) {
         )}
       </td>
       <td style={{ ...cell, color: THEME.t1, fontWeight: weight }}>{fmt(row.beginEquity)}</td>
-      <td style={{ ...cell, color: pc(row.netDepositWithdraw), fontWeight: weight }}>
-        {fmtSigned(row.netDepositWithdraw)}
-      </td>
-      <td style={{ ...cell, color: pc(row.netCredit), fontWeight: weight }}>
-        {fmtSigned(row.netCredit)}
+      {/* Net Cash Movement = NetDepW + NetCred. MT5 Manager's Summary report
+          splits balance/credit transfers across two columns using internal
+          ledger semantics that aren't exposed via RequestDeals — so per-column
+          comparison drifts. The combined sum matches MT5 Summary's
+          (In/Out + Credit) per login to the penny, so we collapse them into
+          one column for a clean apples-to-apples view. */}
+      <td
+        style={{ ...cell, color: pc(row.netDepositWithdraw + row.netCredit), fontWeight: weight }}
+        title={`Deposit/Balance ${fmtSigned(row.netDepositWithdraw)}  +  Credit ${fmtSigned(row.netCredit)}`}
+      >
+        {fmtSigned(row.netDepositWithdraw + row.netCredit)}
       </td>
       <td style={{ ...cell, color: row.commRebate === 0 ? THEME.t3 : THEME.teal, fontWeight: weight }}>
         {row.commRebate === 0 ? '0.00' : `+${fmt(row.commRebate)}`}
@@ -235,8 +241,7 @@ export function EquityPnLPanel() {
               <th style={hdrLeft}>Login</th>
               <th style={hdrLeft}>Name</th>
               <th style={hdr}>Begin Eq</th>
-              <th style={hdr}>Net Dep/W</th>
-              <th style={hdr}>Net Cred</th>
+              <th style={hdr} title="MT5 Manager Summary: In/Out + Credit (combined cash movement, matches MT5 to the penny)">Net Cash Movement</th>
               <th style={hdr}>Comm Reb</th>
               <th style={hdr}>Spread Reb</th>
               <th style={hdr}>Adj</th>
