@@ -127,24 +127,35 @@ On every connect / reconnect, [`MT5ManagerConnection.ExecuteAsync`](src/Coverage
 4. `SnapshotPositions(_logins)` → fill `PositionManager` with B-Book positions.
 5. `BackfillDeals(_logins, from, UtcNow)` → fill `DealStore` with historical closes.
 6. `SyncAccountsToSupabaseAsync(_logins)`.
-7. **Then** `OnTick += …` / `SubscribeTicks()`, `OnDealAdd += …` / `SubscribeDeals()`.
+7. **Then** subscribe to all four event sinks: `OnTick` / `SubscribeTicks()`, `OnDealAdd` / `SubscribeDeals()`, `OnPosition*` / `SubscribePositions()`, `OnUserUpdate` / `SubscribeUsers()`.
 
 Subscribing to the sinks BEFORE steps 3–5 opens a race: the first live callback fires against an empty cache, producing WebSocket flickers with stale exposure and duplicate Supa upserts. The order is enforced by the call sequence and a prominent comment block at the call site — change it at your peril.
+
+## Event-Driven MT5 (Stage 2b)
+Position + user state are pushed by MT5 via `CIMTPositionSink` / `CIMTUserSink` rather than polled. The 500 ms position-snapshot poll is dropped to **60 s** and acts only as a reconciliation safety net — it logs `drift` (symmetric difference between event-cache state and MT5 snapshot) but normally finds zero. Event-cache writes are authoritative.
+
+- **`PositionSinkHandler`** ([`MT5ApiReal.cs`](src/CoverageManager.Connector/MT5ApiReal.cs)) → `OnPositionAdd/Update/Delete` → `MT5ManagerConnection` upserts/removes the per-position entry in `PositionManager`.
+- **`UserSinkHandler`** → `OnUserUpdate` → mirrors balance/credit changes for diagnostics. (Equity / margin still come from the periodic `GetUserAccount` poll because `CIMTUserSink` doesn't carry them.)
+- **`AccountSyncIntervalMinutes = 15`** (was 5). Balance/credit arrive via events; the bulk sync only refreshes roster fields (group, leverage, comment) + equity/margin.
+- **A/B verified empirically:** 500 ms poll = 4459 `getPositions` calls/min (40 logins) vs 60 s poll = 58 calls/min — **−98.7%** with zero drift in steady state.
+- **Diagnostics endpoint:** `GET /api/exposure/diagnostics` — returns `{ stage, pollIntervalMs, snapshotCount, drift.{totalDriftPositions,pollsWithDrift}, positionEvents.{add,update,delete}, userEvents.update, apiCalls.{getPositions,getUserAccount,getUserLogins,requestDeals,tickLast}.{total,perMinute} }`. Watch `drift.pollsWithDrift` after any change.
 
 ## Data Sync Architecture
 - **DataSyncService** (background): Syncs deals to Supabase every 30s with change detection
 - **On startup:** Loads deals from Supabase into in-memory DealStore (survives restarts)
 - **Auto-backfill on startup:** Queries last deal time from Supabase, detects gap if app was down, backfills missed deals from MT5 Manager API automatically (no manual backfill needed)
-- **Account sync:** MT5ManagerConnection syncs all trading accounts to Supabase on connect + every 5 minutes
-- **Login refresh:** Periodically re-fetches `GetUserLogins()` to detect new accounts (every 5 min)
+- **Account sync:** MT5ManagerConnection syncs all trading accounts to Supabase on connect + every **15 minutes** (was 5 — see Event-Driven MT5 above)
+- **Login refresh:** Periodically re-fetches `GetUserLogins()` to detect new accounts (every 15 min)
+- **Cash-movement sync:** [`CashMovementSyncService`](src/CoverageManager.Api/Services/CashMovementSyncService.cs) — background timer, 15 min cadence, 7-day sliding window. Backfills MT5 admin balance/credit deals (`action ≥ 2`) into Supabase because `CIMTDealSink.OnDealAdd` doesn't reliably fire for admin transfers and `ReconciliationService.QueryDeals` filters to `action ≤ 1`. Without this loop, admin transfers stay invisible to the Equity P&L tab until a dealer manually clicks Settings → "Backfill Cash Movements".
 - **Change detection:** Compares incoming deals vs stored, logs modifications to `trade_audit_log`
 - **Batch upserts:** 500 records per batch for accounts and deals, with `on_conflict` for dedup
 - **Supabase pagination:** GetDealsAsync pages through results (1000 rows/page) to handle large date ranges
+- **DealStore.EarliestDealTime** — tracks the earliest UTC deal time held in memory (Interlocked CAS in `AddDeal` / `AddDeals`). The Equity P&L NetDepW override path (`ExposureController.cs:1050`) now consults this before letting the in-memory DealStore overwrite the Supabase trade-flow sum: an in-memory slice that doesn't cover the requested window would otherwise produce phantom NetDepW values for historical date ranges.
 
 ## Deal Volume Calculation
 - **Volume includes both IN + OUT deals** to match MT5 Manager totals
 - **P&L only from OUT deals** (Entry=1,2,3) — only closing deals carry profit/loss
-- **Balance/credit deals filtered** (Action >= 2) — excluded from DealStore entirely
+- **Balance/credit deals are KEPT in DealStore** (Action >= 2) so the Equity P&L tab can source NetDepW + NetCred from `deals` directly. Trade-only consumers (`DealStore.GetPnLBySymbol`, `GetPnLByDay`) filter to `Action < 2` themselves.
 - **Commission/Fee from ALL deals** (both IN + OUT may carry commission)
 - **Symbol matching:** Canonical symbols (e.g., "US30") mapped from raw MT5 symbols ("US30-") by stripping trailing `-`/`.`
 
@@ -230,12 +241,13 @@ Edge Net  = Coverage.Net − Clients.Net   (positive = broker profited)
 ### Mechanics
 - **Begin anchor**: midnight Asia/Beirut of `fromDate` converted to UTC (21:00 DST / 22:00 standard). DST spring-forward handled with a 1-hour retry.
 - **Begin source**: latest `exposure_snapshots` row per canonical symbol with `snapshot_time <= anchor`. If none exists, `beginFromSnapshot=false` and Begin treated as 0 (per decision; amber dot shown in UI).
-- **Current floating**: live `ExposureEngine.CalculateExposure()`, date-independent.
+- **Current floating**: live, calibrated-delta from tick prices via `ExposureEngine.CalculateExposure()` (which now takes a `PriceCache`). Per-position formula: `livePnL = (livePrice − OpenPrice) × (Position.Profit / (Position.CurrentPrice − OpenPrice))` — calibration coefficient derived from MT5's own numbers so it stays correct even when `SymbolMapping.BBookContractSize` is mis-configured (which is common for index/futures CFDs in our `symbol_mappings`). Falls back to `Position.Profit` when calibration can't be derived (zero profit, zero open delta, or PriceCache miss).
+- **Live overlay (UI)**: `PeriodPnLPanel` subscribes to `useExposureSocket()` and overlays `currentFloating` from each WS frame onto the cached REST snapshot. Recomputes `floatingDelta`, `net`, `edge.{floating,net}` per row + propagates the delta to TOTAL. Begin + Settled stay REST-driven (snapshots / deal sums change rarely; REST poll slowed back to 30 s).
 - **Settled**: `aggregate_bbook_settled_pnl` RPC for B-Book (Lebanon-time boundary) + Python collector `/deals` for Coverage.
 - **Date pickers**: interpreted as Asia/Beirut throughout so ranges match MT5 terminal views.
 - **Sentinel snapshots**: rows with `canonical_symbol` starting `__`, or containing `SEED_TOTAL` / `PORTFOLIO`, feed the TOTAL only (no per-symbol row). Lets a dealer seed portfolio-level Begin without per-symbol values.
 - **"No position"**: rows whose live summary has 0 volume on a side render `—` for Begin/Current/ΔFloat on that side; Settled/Net still show real realized P&L.
-- **Loading badge**: date-change fetches show a ≥450ms amber pill next to the date pickers; interval polls (every 10s) refresh silently.
+- **Loading badge**: date-change fetches show a ≥450ms amber pill next to the date pickers; the 30 s silent refresh polls don't flash the badge.
 - **Tab-revisit cache**: a module-level `periodCache` keyed by `(from,to)` survives component unmount. Revisiting the tab renders the previous result immediately (no "Loading…" flash); a background refresh updates it silently. First visit for a new range still shows the badge.
 
 ### Scheduler
@@ -265,13 +277,15 @@ Separate from Net P&L — this is the "accountant's" view (balance-reconciled)
 rather than the "dealer's" view (exposure-driven).
 
 ### Columns
-`Login, Begin Eq, Net Dep/W, Net Cred, Comm Reb, Spread Reb, Adj, PS, Supposed Eq, Current Eq, PL, Net PL`
+`Login, Begin Eq, Net Cash Movement, Comm Reb, Spread Reb, Adj, PS, Supposed Eq, Current Eq, PL, Net PL`
+
+The previously-separate **Net Dep/W** and **Net Cred** columns are collapsed into a single **Net Cash Movement** column on the dashboard. Per-login (NetDepW + NetCred) matches MT5 Summary's (In/Out + Credit) penny-perfect on 39 of 40 logins; the per-column split differs because MT5 splits balance/credit transfers across the two columns using internal ledger semantics that aren't exposed via `RequestDeals`. The combined view sidesteps the categorization mismatch. Cell tooltip shows the underlying split for diagnostics. Backend API still returns `netDepositWithdraw` + `netCredit` separately.
 
 ### Math
 ```
 Supposed Eq      = Begin + NetDep + NetCred
-NetDepW          = (CurrentBalance − BeginBalance) − Σ(trade-flow)   // balance reconciliation
-NetCred          = CurrentCredit − BeginCredit                        // credit reconciliation
+NetDepW          = Σ profit of action=2 (BALANCE) deals in window   // matches MT5 Summary's Deposit
+NetCred          = Σ profit of action=3 (CREDIT)  deals in window   // matches MT5 Summary's Credit
 PL               = CurrentEq − Supposed Eq
 NetPL (client)   = PL − CommReb − SpreadReb − Adj − PS
 NetPL (coverage) = PL
@@ -279,7 +293,7 @@ Broker Edge      = −Σ(Clients.NetPL) + Σ(Coverage.NetPL)
 ```
 
 ### Critical data-path rules (MT5 quirks we had to work around)
-- **MT5 `RequestDeals` does NOT surface admin balance/credit transfers** — the dealer can move value between Balance and Credit buckets via MT5 Manager's admin tools and no deal row is emitted. Our Net Dep/W and Net Credit columns are therefore computed from **balance reconciliation** (current − begin − trade flow), not from summing balance/credit deal profits.
+- **MT5 `RequestDeals` does NOT surface admin balance/credit transfers** — the dealer can move value between Balance and Credit buckets via MT5 Manager's admin tools and no deal row is emitted. Earlier we computed Net Dep/W and Net Credit via **balance reconciliation** (current − begin − trade flow) to capture those silent moves, but the dealer team treats MT5 Manager as the source of truth — so the panel now uses **deal-sum** (`Σ action=2` for NetDepW, `Σ action=3` for NetCred) which matches MT5 Summary 1:1. Trade-off: silent admin Edit-Account moves are no longer reflected anywhere; if that becomes a problem, surface it in a separate column rather than mixing it into NetDepW/NetCred.
 - **Trade-flow filter** in `SumTradeBalanceFlowPerLoginAsync` uses `action not in (2,3)` — everything except BALANCE and CREDIT deals contributes to trade flow, including broker-specific action codes (we observed action=19 in this dataset). If we filtered `action<2` we'd leak small deal types into the implicit deposit calculation.
 - **Every writer that builds `DealRecord` MUST use `Action = (int)d.Action`** (preserve MT5's real action code) rather than deriving from `Direction`. The latter was the default before Equity P&L existed — when balance/credit deals started flowing, it clobbered `action=3` to `action=1` (SELL) on every sync. All 5 sites fixed: [DataSyncService.cs:167](src/CoverageManager.Api/Services/DataSyncService.cs:167), [ReconciliationService.cs:174](src/CoverageManager.Api/Services/ReconciliationService.cs:174), [ReconciliationService.cs:205](src/CoverageManager.Api/Services/ReconciliationService.cs:205), [ExposureController.cs:303](src/CoverageManager.Api/Controllers/ExposureController.cs:303), [ExposureController.cs:484](src/CoverageManager.Api/Controllers/ExposureController.cs:484).
 - **MT5 Manager's `GetUserLogins('*')` scope is permission-limited** — HR sub-accounts (e.g. `5222, 5231, 5237, …`) in a different group are invisible to the Manager login we use. They don't appear in `trading_accounts`, and `UserGet(5237)` returns `MT_RET_ERR_NOT_FOUND`. The Segregated report also respects this scope. The Equity P&L tab therefore shows only the 40 logins the Manager can see. Fix would require a second Manager connection with broader permissions.
@@ -472,5 +486,8 @@ CLIENT fills paired with COV OUT coverage legs from the Centroid CS 360 Dropcopy
 - [x] Phase 2.10: Equity P&L tab (Phase 1) — per-login balance reconciliation, PS high-water-mark engine, commission + spread rebate config, cent-perfect vs MT5 Summary report
 - [x] Phase 2.11: Equity P&L Phase 2 — login groups with priority-based resolution (login → group → default), per-group config + spread rebate, scoped trade-deal fetch for perf
 - [x] Phase 2.12: UI shell redesign — Linear/Retool-style sidebar + topbar with metric tiles + Command Palette (⌘K) + Tweaks drawer + per-asset SymbolBadge + Equity P&L sub-tabs + clickable UNMAPPED → Mappings deep-link. Bridge + Markup hidden from dealer nav (backend still runs). Global CSS tokens in `styles.css` + JS THEME object synced.
+- [x] Phase 2.13: MT5 load reduction — Stage 1 shadow event subscriptions, Stage 2a events authoritative for `PositionManager` + drift detection, Stage 2b position poll dropped 500ms → 60s. Adds native API call counters to `/api/exposure/diagnostics`. Verified -98.7% on `getPositions` (4459/min → 58/min) with zero drift in steady state. Account-sync widened 5 min → 15 min on top.
+- [x] Phase 2.14: Equity P&L cleanup — (a) DealStore `EarliestDealTime` guard fixes phantom NetDepW for historical windows where the in-memory store doesn't cover the full range. (b) `CashMovementSyncService` runs every 15 min to backfill admin balance/credit deals MT5 doesn't push via `OnDealAdd`. (c) NetDepW / NetCred switched from balance-reconciliation to deal-sum so the panel matches MT5 Manager Summary 1:1 (loses silent admin-move tracking — accepted trade-off). (d) Net Dep/W + Net Cred columns collapsed into a single "Net Cash Movement" column on the dashboard; per-login combined sum matches MT5 Summary's (In/Out + Credit) penny-perfect on 39/40 logins. (e) Equity P&L Begin Eq sourced from the Segregated 2026-03-28 report — `account_equity_snapshots` rows at `2026-03-27 22:00 UTC` (= picker's anchor for `from=2026-03-28`) overwritten with the report's per-login values.
+- [x] Phase 2.15: Live floating P&L — `ExposureEngine` now consumes a `PriceCache` and recomputes per-position floating P&L from live ticks via the calibrated-delta approach (`livePnL = (livePrice − OpenPrice) × (MT5.Profit / (MT5.CurrentPrice − OpenPrice))`). Net P&L tab subscribes to `useExposureSocket()` and overlays `currentFloating` from every WS frame onto the cached REST snapshot — REST poll slowed back from 2s to 30s (only Begin + Settled need it). Result: Net P&L tab ticks every WS frame (~10/sec) like the Exposure tab, with 93% fewer REST calls than the prior 2s-poll iteration.
 - [ ] Phase 3: Risk Alerts (news events, threshold warnings)
 - [ ] Phase 4: Hedge Execution (one-click hedging via LP terminal — mt5.order_send() ready)
