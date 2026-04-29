@@ -79,6 +79,8 @@ Other controls: symbol drag-reorder, sort dropdown, grid-line toggle — all per
 
 **UNMAPPED badge** — a symbol on the exposure table that isn't in `symbol_mappings`. **Click the badge** → jumps to the Mappings tab with the new-mapping form pre-filled so you can save the row in one click.
 
+**Bid price under each symbol** — refreshes ~20 times per second on active symbols (lightweight `price_update` WebSocket frame, separate from the heavier full-state push so prices don't queue behind exposure recomputes). Color flashes green/red on each tick to signal direction. **Staleness pill:** if the price hasn't ticked for >3 s the value dims to grey and a small amber dot appears beside it; >10 s it dims to red with 50 % opacity. Hover the price for "Price last updated Ns ago — MT5 may not be delivering ticks for this symbol". This separates "MT5 isn't sending ticks for this symbol right now" (server-side, common on quiet symbols outside major sessions) from "the app is stuck" (which would also turn the diagonal-hatch StaleWrapper on the whole screen — see §7).
+
 ### 3.2 Positions
 Raw open positions across both sides. One row per position. Use for audit / forensic work — e.g. "why is this symbol showing −50 lots?"
 
@@ -265,7 +267,10 @@ Every shortcut fires when focus is outside an input (except ⌘K which works eve
 - Run the Reconciliation sweep (Settings → Data Integrity). It uses a ±24h buffer to work around MT5's timezone quirks. Repeat runs should show 0 backfills and 0 ghosts on clean data.
 
 **"Data looks stale / diagonal hatch overlay"**
-- Exposure WebSocket dropped. Check the backend. The StaleWrapper dims the screen automatically.
+- Exposure WebSocket dropped. Check the backend. The StaleWrapper dims the whole screen automatically.
+
+**"One symbol's bid price has a small amber dot / is dimmed"**
+- That price hasn't received a tick from MT5 in >3 s. Different from the screen-wide stale overlay above — the WebSocket is healthy, MT5 just isn't delivering ticks for that specific symbol right now. Common on illiquid symbols outside major sessions. If it persists across all symbols, check `/api/exposure/diagnostics` → `tickEvents.lastAt` (older than 5 s during market hours = MT5 server-side issue, not the app).
 
 ---
 

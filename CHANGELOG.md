@@ -5,6 +5,14 @@ Format: [Conventional Changelog](https://conventionalcommits.org)
 
 ## [Unreleased]
 ### Added
+- **Live-price fast path (Phase 2.16)** — split `/ws/exposure` into two message types so bid prices update at full MT5 tick cadence without paying the per-position exposure recompute on every frame.
+  - New `MarkPriceDirty()` on `ExposureBroadcastService` is idempotent so tick bursts (typical session = ~500/sec) coalesce into one ~50 ms WS frame.
+  - Separate 50 ms timer ships a lightweight `{type:"price_update",data:{prices,timestamp}}` message at ~20 Hz; the existing `{type:"exposure_update",...}` keeps its 100 ms / position-event-gated cadence.
+  - `OnTickReceived` in `MT5ManagerConnection` routes through the fast path; `MarkDirty` (full state) still fires on position/deal/alert events.
+  - `/api/exposure/diagnostics` adds `tickEvents.{total,perMinute,lastAt}` (was hidden — `_tickCount` was incremented but never exposed) plus `broadcasts.{fullState,priceOnly}.{total,perMinute}` and `broadcasts.priceOnly.coalescedTicks` (success metric — high values mean the coalescing is paying off).
+  - Exposure table's bid-price-under-symbol cell renders a staleness pill: amber dot + grey text at >3 s since last tick, red text + 50 % opacity at >10 s. Hover tooltip shows the actual age. Lets the dealer distinguish "MT5 isn't sending ticks for this symbol" from "we have a fresh price".
+  - `useExposureSocket` reducer gains a `PRICE_UPDATE` action that updates only `state.prices`, so the rest of the table doesn't re-render on every tick.
+  - Verified live: 33 K ticks/min in → 1 016 price-only frames/min out (97 % coalescing) → bid prices refresh ~20 Hz on active symbols on the dealer UI.
 - Account modal with equity curve, open positions, and deal history
 - Logins widget showing accounts with positions per symbol
 - Equity curve chart (cumulative realized P&L) in Compare tab and Account modal
