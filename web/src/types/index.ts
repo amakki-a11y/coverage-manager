@@ -91,15 +91,33 @@ export interface ExposureMessage {
 }
 
 /**
+ * Per-canonical-symbol floating P&L decomposition. Backend ships this on every
+ * price_update frame (Phase 2.17) so the frontend can overlay live floating
+ * onto ExposureSummary at full tick cadence without recomputing the heavy
+ * full-state aggregation. Sum already includes Swap to match what
+ * CalculateExposure puts in ExposureSummary.bBookPnL / coveragePnL.
+ */
+export interface FloatingPnL {
+  canonicalSymbol: string;
+  bBook: number;
+  coverage: number;
+}
+
+/**
  * Lightweight price-only WS frame, pushed at higher cadence (~20 Hz) than the
  * full exposure_update frame (~10 Hz). The backend sends this on every MT5
  * tick — bypasses the heavy per-position exposure recompute so the bid price
  * shown under each symbol stays fresh even when the position book is large.
+ *
+ * Phase 2.17 added `floatingPnls` so the frontend can also keep B-Book /
+ * Coverage / Net P&L cells fresh at the same cadence (Exposure open row,
+ * Net P&L tab "Current", Topbar "Net P&L Today" tile).
  */
 export interface PriceUpdateMessage {
   type: 'price_update';
   data: {
     prices: PriceQuote[];
+    floatingPnls?: FloatingPnL[];
     timestamp: string;
   };
 }
