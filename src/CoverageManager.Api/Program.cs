@@ -258,6 +258,23 @@ try
 
     app.UseWebSockets();
 
+    // permessage-deflate compression (Phase 2.18) — shrinks WS frames ~60-80%
+    // for our payload (lots of repeated symbol names, JSON keys, similar
+    // floating-point shapes). Critical for dealers accessing the dashboard
+    // over WAN where uplink bandwidth from the live VPS is the bottleneck.
+    // `DangerousEnableCompression` is ASP.NET Core's name — the "Dangerous"
+    // prefix flags CRIME-style attacks when mixing compression with secrets
+    // in the same channel. We send only public market data (no auth tokens
+    // or session cookies in the WS payload), so the risk doesn't apply here.
+    var wsAcceptCompressed = new WebSocketAcceptContext
+    {
+        DangerousEnableCompression = true,
+        // Keep the deflate context between frames — better compression ratio
+        // for our high-frequency tick stream (each frame is similar to the
+        // previous one, so the dictionary stays warm).
+        DisableServerContextTakeover = false
+    };
+
     // WebSocket endpoint for real-time exposure updates
     app.Map("/ws/exposure", async (HttpContext context) =>
     {
@@ -267,7 +284,7 @@ try
             return;
         }
 
-        var ws = await context.WebSockets.AcceptWebSocketAsync();
+        var ws = await context.WebSockets.AcceptWebSocketAsync(wsAcceptCompressed);
         var broadcastService = context.RequestServices.GetRequiredService<ExposureBroadcastService>();
         var clientId = Guid.NewGuid().ToString();
 
@@ -302,7 +319,7 @@ try
             return;
         }
 
-        var ws = await context.WebSockets.AcceptWebSocketAsync();
+        var ws = await context.WebSockets.AcceptWebSocketAsync(wsAcceptCompressed);
         var bridgeBroadcast = context.RequestServices.GetRequiredService<BridgeBroadcastService>();
         var clientId = Guid.NewGuid().ToString();
         bridgeBroadcast.AddClient(clientId, ws);
