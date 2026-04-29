@@ -90,6 +90,22 @@ export interface ExposureMessage {
   };
 }
 
+/**
+ * Lightweight price-only WS frame, pushed at higher cadence (~20 Hz) than the
+ * full exposure_update frame (~10 Hz). The backend sends this on every MT5
+ * tick — bypasses the heavy per-position exposure recompute so the bid price
+ * shown under each symbol stays fresh even when the position book is large.
+ */
+export interface PriceUpdateMessage {
+  type: 'price_update';
+  data: {
+    prices: PriceQuote[];
+    timestamp: string;
+  };
+}
+
+export type WsMessage = ExposureMessage | PriceUpdateMessage;
+
 // ---- Period P&L (Net P&L tab) ----
 
 export interface PeriodPnLSide {

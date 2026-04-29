@@ -42,6 +42,7 @@ public class ExposureController : ControllerBase
     private readonly DealStore _dealStore;
     private readonly SupabaseService _supabase;
     private readonly ExposureSnapshotService _snapshotService;
+    private readonly ExposureBroadcastService _broadcast;
     private readonly IHttpClientFactory _httpFactory;
     private readonly ILogger<ExposureController> _logger;
 
@@ -52,6 +53,7 @@ public class ExposureController : ControllerBase
         DealStore dealStore,
         SupabaseService supabase,
         ExposureSnapshotService snapshotService,
+        ExposureBroadcastService broadcast,
         IHttpClientFactory httpFactory,
         ILogger<ExposureController> logger)
     {
@@ -61,6 +63,7 @@ public class ExposureController : ControllerBase
         _dealStore = dealStore;
         _supabase = supabase;
         _snapshotService = snapshotService;
+        _broadcast = broadcast;
         _httpFactory = httpFactory;
         _logger = logger;
     }
@@ -159,6 +162,40 @@ public class ExposureController : ControllerBase
                 update = _mt5Connection.UserUpdateCount,
                 lastAt = _mt5Connection.LastUserEventAt == DateTime.MinValue
                     ? (DateTime?)null : _mt5Connection.LastUserEventAt
+            },
+            // Tick events drive the price-only fast path. If `tickEvents.perMinute`
+            // is low (< ~60/min) and the dealer reports stale prices, the
+            // bottleneck is upstream (MT5 server-side tick delivery), not the
+            // app's broadcast path. `lastAt` getting older than ~5s for an
+            // active market session is a red flag.
+            tickEvents = new
+            {
+                total = _mt5Connection.TickCount,
+                perMinute = minutesConnected > 0
+                    ? Math.Round(_mt5Connection.TickCount / minutesConnected, 3)
+                    : 0.0,
+                lastAt = _mt5Connection.LastTickAt == DateTime.MinValue
+                    ? (DateTime?)null : _mt5Connection.LastTickAt
+            },
+            // Broadcast counters help separate "events arrived but never went
+            // out" from "events arrived AND went out — frontend at fault".
+            broadcasts = new
+            {
+                fullState = new
+                {
+                    total = _broadcast.BroadcastCount,
+                    perMinute = minutesConnected > 0
+                        ? Math.Round(_broadcast.BroadcastCount / minutesConnected, 3)
+                        : 0.0
+                },
+                priceOnly = new
+                {
+                    total = _broadcast.PriceBroadcastCount,
+                    perMinute = minutesConnected > 0
+                        ? Math.Round(_broadcast.PriceBroadcastCount / minutesConnected, 3)
+                        : 0.0,
+                    coalescedTicks = _broadcast.DroppedPriceTicks
+                }
             }
         });
     }
