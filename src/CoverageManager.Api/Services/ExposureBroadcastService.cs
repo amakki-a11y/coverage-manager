@@ -20,8 +20,18 @@ public class ExposureBroadcastService : IDisposable
     private readonly ConcurrentDictionary<string, WebSocket> _clients = new();
     private readonly ILogger<ExposureBroadcastService> _logger;
     private readonly Timer _broadcastTimer;
+    private readonly Timer _priceTimer;
     private readonly int _maxUpdatesPerSecond;
+    private readonly int _priceUpdatesPerSecond;
     private bool _dirty = true;
+    private bool _priceDirty = false;
+    private long _broadcastCount;
+    private long _priceBroadcastCount;
+    private long _droppedPriceTicks;
+
+    public long BroadcastCount => Interlocked.Read(ref _broadcastCount);
+    public long PriceBroadcastCount => Interlocked.Read(ref _priceBroadcastCount);
+    public long DroppedPriceTicks => Interlocked.Read(ref _droppedPriceTicks);
 
     // Callback to persist new alerts to Supabase
     private Func<IEnumerable<AlertEvent>, Task>? _onNewAlerts;
@@ -45,9 +55,18 @@ public class ExposureBroadcastService : IDisposable
         _alertEngine = alertEngine;
         _logger = logger;
         _maxUpdatesPerSecond = config.GetValue("WebSocket:MaxUpdatesPerSecond", 10);
+        // Price-only fast path is intentionally faster than the full state
+        // broadcast — the price payload is tiny (~symbol+bid+ask+ts per quote)
+        // so we can push at 20 Hz without cooking the browser. Full-state
+        // broadcasts stay at _maxUpdatesPerSecond because they carry the
+        // exposure recompute, deal P&L, alerts, etc.
+        _priceUpdatesPerSecond = config.GetValue("WebSocket:PriceUpdatesPerSecond", 20);
 
         var interval = 1000 / _maxUpdatesPerSecond;
         _broadcastTimer = new Timer(BroadcastIfDirty, null, interval, interval);
+
+        var priceInterval = 1000 / _priceUpdatesPerSecond;
+        _priceTimer = new Timer(BroadcastPricesIfDirty, null, priceInterval, priceInterval);
     }
 
     public void SetAlertPersistCallback(Func<IEnumerable<AlertEvent>, Task> callback)
@@ -70,6 +89,84 @@ public class ExposureBroadcastService : IDisposable
 
     public void MarkDirty() => _dirty = true;
 
+    /// <summary>
+    /// Lightweight signal from the MT5 tick path. Coalesces all ticks that
+    /// arrive between price-broadcast frames into a single send, so a noisy
+    /// symbol can't queue up hundreds of WS messages. Use this instead of
+    /// MarkDirty() for tick events — MarkDirty triggers the heavy
+    /// exposure-recompute broadcast.
+    /// </summary>
+    public void MarkPriceDirty(string? symbol = null)
+    {
+        if (_priceDirty)
+            Interlocked.Increment(ref _droppedPriceTicks);
+        _priceDirty = true;
+    }
+
+    /// <summary>
+    /// Lightweight price-only broadcast. Sends just the latest bid/ask + a
+    /// server timestamp so the dealer UI can flag stale prices. Bypasses the
+    /// exposure recompute that the full-state broadcast pays for, so the
+    /// "price under symbol" cell can update at full tick cadence even when
+    /// the position book is large.
+    /// </summary>
+    private async void BroadcastPricesIfDirty(object? state)
+    {
+        if (!_priceDirty || _clients.IsEmpty) return;
+        _priceDirty = false;
+
+        try
+        {
+            var prices = _priceCache.GetAll();
+            Interlocked.Increment(ref _priceBroadcastCount);
+
+            var message = new
+            {
+                type = "price_update",
+                data = new
+                {
+                    prices,
+                    timestamp = DateTime.UtcNow
+                }
+            };
+
+            var json = JsonSerializer.Serialize(message, JsonOptions);
+            var buffer = Encoding.UTF8.GetBytes(json);
+
+            var deadClients = new List<string>();
+
+            foreach (var (id, socket) in _clients)
+            {
+                try
+                {
+                    if (socket.State == WebSocketState.Open)
+                    {
+                        await socket.SendAsync(
+                            new ArraySegment<byte>(buffer),
+                            WebSocketMessageType.Text,
+                            true,
+                            CancellationToken.None);
+                    }
+                    else
+                    {
+                        deadClients.Add(id);
+                    }
+                }
+                catch
+                {
+                    deadClients.Add(id);
+                }
+            }
+
+            foreach (var id in deadClients)
+                RemoveClient(id);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error broadcasting price update");
+        }
+    }
+
     private async void BroadcastIfDirty(object? state)
     {
         if (!_dirty || _clients.IsEmpty) return;
@@ -77,6 +174,7 @@ public class ExposureBroadcastService : IDisposable
 
         try
         {
+            Interlocked.Increment(ref _broadcastCount);
             var exposure = _exposureEngine.CalculateExposure();
             var prices = _priceCache.GetAll();
             var pnl = _dealStore.GetPnLBySymbol();
@@ -146,5 +244,6 @@ public class ExposureBroadcastService : IDisposable
     public void Dispose()
     {
         _broadcastTimer.Dispose();
+        _priceTimer.Dispose();
     }
 }

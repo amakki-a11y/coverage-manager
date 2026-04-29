@@ -74,7 +74,13 @@ try
             async () => await supabase.GetAccountSettingsAsync(),
             () => broadcast.MarkDirty(),
             async accounts => await supabase.UpsertTradingAccountsAsync(accounts),
-            async source => await supabase.GetLastDealTimeAsync(source));
+            async source => await supabase.GetLastDealTimeAsync(source),
+            // Fast path: tick events route through the lightweight price-only
+            // broadcast (20 Hz) instead of the heavy full-state broadcast
+            // (10 Hz, which recomputes exposure across every position). Keeps
+            // the bid price under each symbol fresh even when the position
+            // book is large.
+            onPriceTick: _ => broadcast.MarkPriceDirty());
     });
     builder.Services.AddHostedService(sp => sp.GetRequiredService<MT5ManagerConnection>());
 

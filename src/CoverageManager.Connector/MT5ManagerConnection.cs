@@ -18,6 +18,7 @@ public sealed class MT5ManagerConnection : BackgroundService
     private readonly DealStore _dealStore;
     private readonly Func<Task<List<AccountSettings>>> _getAccounts;
     private readonly Action _onUpdate;
+    private readonly Action<string>? _onPriceTick;
     private readonly Func<IEnumerable<TradingAccount>, Task>? _syncAccounts;
     private readonly Func<string, Task<DateTime?>>? _getLastDealTime;
 
@@ -39,6 +40,7 @@ public sealed class MT5ManagerConnection : BackgroundService
     private long _driftPollCount;
     private DateTime _lastPositionEventAt = DateTime.MinValue;
     private DateTime _lastUserEventAt = DateTime.MinValue;
+    private DateTime _lastTickAt = DateTime.MinValue;
     private DateTime _lastSnapshotAt = DateTime.MinValue;
     private DateTime _lastDriftAt = DateTime.MinValue;
 
@@ -46,11 +48,13 @@ public sealed class MT5ManagerConnection : BackgroundService
     public long PositionUpdateCount => Interlocked.Read(ref _positionUpdateCount);
     public long PositionDeleteCount => Interlocked.Read(ref _positionDeleteCount);
     public long UserUpdateCount => Interlocked.Read(ref _userUpdateCount);
+    public long TickCount => Interlocked.Read(ref _tickCount);
     public long SnapshotCount => Interlocked.Read(ref _snapshotCount);
     public long DriftCount => Interlocked.Read(ref _driftCount);
     public long DriftPollCount => Interlocked.Read(ref _driftPollCount);
     public DateTime LastPositionEventAt => _lastPositionEventAt;
     public DateTime LastUserEventAt => _lastUserEventAt;
+    public DateTime LastTickAt => _lastTickAt;
     public DateTime LastSnapshotAt => _lastSnapshotAt;
     public DateTime LastDriftAt => _lastDriftAt;
 
@@ -115,7 +119,8 @@ public sealed class MT5ManagerConnection : BackgroundService
         Func<Task<List<AccountSettings>>> getAccounts,
         Action onUpdate,
         Func<IEnumerable<TradingAccount>, Task>? syncAccounts = null,
-        Func<string, Task<DateTime?>>? getLastDealTime = null)
+        Func<string, Task<DateTime?>>? getLastDealTime = null,
+        Action<string>? onPriceTick = null)
     {
         _logger = logger;
         _positionManager = positionManager;
@@ -123,6 +128,7 @@ public sealed class MT5ManagerConnection : BackgroundService
         _dealStore = dealStore;
         _getAccounts = getAccounts;
         _onUpdate = onUpdate;
+        _onPriceTick = onPriceTick;
         _syncAccounts = syncAccounts;
         _getLastDealTime = getLastDealTime;
     }
@@ -514,6 +520,7 @@ public sealed class MT5ManagerConnection : BackgroundService
     private void OnTickReceived(RawTick raw)
     {
         var count = Interlocked.Increment(ref _tickCount);
+        _lastTickAt = DateTime.UtcNow;
         if (count <= 5 || count % 10000 == 0)
         {
             _logger.LogInformation("Tick #{Count}: {Symbol} bid={Bid} ask={Ask}",
@@ -521,7 +528,16 @@ public sealed class MT5ManagerConnection : BackgroundService
         }
 
         _priceCache.Update(raw.Symbol, raw.Bid, raw.Ask);
-        _onUpdate();
+
+        // Fast-path: ticks arrive at high frequency for active symbols. Routing
+        // them through the heavy MarkDirty/full-state broadcast means each tick
+        // pays the cost of recomputing exposure across every position. Instead,
+        // poke the lightweight price-only broadcaster (when present) and only
+        // mark the full state dirty if no price-only fast path is wired.
+        if (_onPriceTick is not null)
+            _onPriceTick(raw.Symbol);
+        else
+            _onUpdate();
     }
 
     private void OnDealReceived(RawDeal raw)
