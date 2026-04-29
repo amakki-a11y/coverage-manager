@@ -47,15 +47,40 @@ function reducer(state: State, action: Action): State {
         newAlerts: action.payload.alerts ?? [],
         alertCount: action.payload.alertCount ?? 0,
       };
-    case 'PRICE_UPDATE':
-      // Price-only frames update just the prices array. The bid price under
-      // each symbol uses this for fresh ticks; everything else (exposure,
-      // P&L) sticks with the last EXPOSURE_UPDATE so we don't recompute the
-      // table on every tick.
+    case 'PRICE_UPDATE': {
+      // Phase 2.16: prices array updated at full tick cadence (~20 Hz).
+      // Phase 2.17: floatingPnls (when present) overlays per-symbol B-Book /
+      // Coverage / Net P&L onto exposureSummaries so the Exposure open-row
+      // P&L cells, Net P&L tab "Current Floating", and Topbar "Net P&L
+      // Today" tile all tick at the same 20 Hz cadence as the bid price.
+      // Volumes / avg prices / hedge ratio stay frozen between exposure_update
+      // frames — they only change when positions change, not when prices tick.
+      const floating = action.payload.floatingPnls;
+      if (!floating || floating.length === 0) {
+        return { ...state, prices: action.payload.prices };
+      }
+      const liveBySymbol = new Map<string, { bBook: number; coverage: number }>();
+      for (const f of floating) {
+        const k = (f.canonicalSymbol || '').toUpperCase();
+        if (k) liveBySymbol.set(k, { bBook: f.bBook ?? 0, coverage: f.coverage ?? 0 });
+      }
+      const overlaid = state.exposureSummaries.map(s => {
+        const live = liveBySymbol.get((s.canonicalSymbol || '').toUpperCase());
+        if (!live) return s;
+        const bBookPnL = live.bBook;
+        const coveragePnL = live.coverage;
+        // netPnL convention: broker's edge on currently-open positions.
+        // ExposureEngine ships this as `−bBookPnL + coveragePnL`. Mirror it
+        // here so the Topbar tile + Exposure summary column tick correctly.
+        const netPnL = -bBookPnL + coveragePnL;
+        return { ...s, bBookPnL, coveragePnL, netPnL };
+      });
       return {
         ...state,
         prices: action.payload.prices,
+        exposureSummaries: overlaid,
       };
+    }
     case 'CLEAR_NEW_ALERTS':
       return { ...state, newAlerts: [] };
     default:

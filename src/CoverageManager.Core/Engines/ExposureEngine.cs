@@ -127,4 +127,68 @@ public class ExposureEngine
         if (totalVolume == 0) return 0;
         return positions.Sum(p => p.OpenPrice * p.VolumeNormalized) / totalVolume;
     }
+
+    /// <summary>
+    /// "Skinny" floating P&amp;L computation used by the price-only fast path
+    /// (Phase 2.17). Walks all positions once, computes <see cref="LivePnL"/>
+    /// per position, and returns the per-canonical-symbol B-Book / Coverage
+    /// sums. Includes <c>Swap</c> so it matches what
+    /// <see cref="CalculateExposure"/> puts in <c>ExposureSummary.BBookPnL</c>
+    /// / <c>CoveragePnL</c>.
+    ///
+    /// <para>~10× cheaper than <see cref="CalculateExposure"/> on a busy book —
+    /// no canonical grouping, no weighted-avg-price recomputation, no hedge
+    /// ratio. Lets <see cref="ExposureBroadcastService.BroadcastPricesIfDirty"/>
+    /// push fresh floating P&amp;L on every tick (~20 Hz) without paying the
+    /// full aggregation cost the heavy <c>exposure_update</c> frame already
+    /// pays at ~7 Hz.</para>
+    /// </summary>
+    public IReadOnlyList<FloatingPnL> GetFloatingPnLPerSymbol()
+    {
+        var positions = _positionManager.GetAllPositions();
+        // Two dictionaries instead of grouping — cheaper and produces the
+        // exact per-side split the frontend overlays onto ExposureSummary.
+        var bbook    = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+        var coverage = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var p in positions)
+        {
+            var contribution = LivePnL(p) + p.Swap;
+            var bucket = p.Source == "bbook" ? bbook : coverage;
+            bucket[p.CanonicalSymbol] = (bucket.TryGetValue(p.CanonicalSymbol, out var sum) ? sum : 0m)
+                                       + contribution;
+        }
+
+        // Union the keys so a symbol with only one side (e.g. coverage but no
+        // open clients yet) still gets a row with the other side defaulted to 0.
+        var symbols = new HashSet<string>(bbook.Keys, StringComparer.OrdinalIgnoreCase);
+        foreach (var k in coverage.Keys) symbols.Add(k);
+
+        var result = new List<FloatingPnL>(symbols.Count);
+        foreach (var sym in symbols)
+        {
+            result.Add(new FloatingPnL
+            {
+                CanonicalSymbol = sym,
+                BBook    = bbook.TryGetValue(sym,    out var b) ? b : 0m,
+                Coverage = coverage.TryGetValue(sym, out var c) ? c : 0m,
+            });
+        }
+        return result;
+    }
+}
+
+/// <summary>
+/// Per-canonical-symbol floating P&amp;L decomposition shipped on the
+/// <c>price_update</c> WebSocket frame (Phase 2.17). Frontend
+/// <c>useExposureSocket</c> reducer overlays <c>BBook</c>/<c>Coverage</c>
+/// onto <c>ExposureSummary.bBookPnL</c>/<c>coveragePnL</c> and recomputes
+/// <c>netPnL = −bBook + Coverage</c> so the Exposure open row, Net P&amp;L
+/// tab "Current Floating", and Topbar tile all tick at full price cadence.
+/// </summary>
+public class FloatingPnL
+{
+    public string CanonicalSymbol { get; set; } = string.Empty;
+    public decimal BBook { get; set; }
+    public decimal Coverage { get; set; }
 }

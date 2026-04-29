@@ -5,6 +5,12 @@ Format: [Conventional Changelog](https://conventionalcommits.org)
 
 ## [Unreleased]
 ### Added
+- **Live floating P&L on the fast path (Phase 2.17)** — Phase 2.16 only fixed the bid-price ticker; floating-P&L cells (Exposure open-row B-Book/Coverage/Net P&L, Net P&L tab "Current Floating", Topbar "Net P&L Today" tile) still rode the slower full-state broadcast (~7 Hz, position-event-gated), so prices ticked while P&L cells froze on a quiet book.
+  - New `ExposureEngine.GetFloatingPnLPerSymbol()` walks positions once, computes `LivePnL(p)` per position, and returns per-canonical-symbol B-Book / Coverage sums (incl. Swap to match `CalculateExposure` output). ~10× cheaper than the full aggregation — no canonical grouping, no weighted avg, no hedge ratio.
+  - `ExposureBroadcastService.BroadcastPricesIfDirty` now ships `floatingPnls: [{canonicalSymbol, bBook, coverage}]` on every `price_update` frame.
+  - Frontend `useExposureSocket` reducer's `PRICE_UPDATE` action overlays these onto `state.exposureSummaries` and recomputes `netPnL = −bBook + coverage` so all three surfaces tick at full 20 Hz.
+  - Volumes / avg prices / hedge ratio stay frozen between `exposure_update` frames — they only change when positions change, not when prices tick. Correct behavior.
+  - Verified live on dev: `price_update` frame ships 11 `floatingPnls` rows alongside 939 prices; XAUUSD bBook = -36,599.09 / coverage = -16,057.26 → frontend computes netPnL = +20,541.83.
 - **Live-price fast path (Phase 2.16)** — split `/ws/exposure` into two message types so bid prices update at full MT5 tick cadence without paying the per-position exposure recompute on every frame.
   - New `MarkPriceDirty()` on `ExposureBroadcastService` is idempotent so tick bursts (typical session = ~500/sec) coalesce into one ~50 ms WS frame.
   - Separate 50 ms timer ships a lightweight `{type:"price_update",data:{prices,timestamp}}` message at ~20 Hz; the existing `{type:"exposure_update",...}` keeps its 100 ms / position-event-gated cadence.
