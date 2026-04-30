@@ -104,11 +104,19 @@ public class ExposureBroadcastService : IDisposable
     }
 
     /// <summary>
-    /// Lightweight price-only broadcast. Sends just the latest bid/ask + a
-    /// server timestamp so the dealer UI can flag stale prices. Bypasses the
-    /// exposure recompute that the full-state broadcast pays for, so the
-    /// "price under symbol" cell can update at full tick cadence even when
-    /// the position book is large.
+    /// Lightweight price-only broadcast. Sends the latest bid/ask, a per-symbol
+    /// floating P&amp;L decomposition (B-Book + Coverage sums), and a server
+    /// timestamp so the dealer UI can flag stale prices.
+    ///
+    /// <para>Phase 2.16 (price_update v1) shipped only the bid/ask. That fixed
+    /// the "price under symbol" cell freeze but left every floating-P&amp;L
+    /// surface (Exposure open-row P&amp;L, Net P&amp;L tab "Current", Topbar
+    /// "Net P&amp;L Today" tile) gated on the slower full-state broadcast
+    /// (~7 Hz, position-event-driven). Phase 2.17 adds the per-canonical-symbol
+    /// floating sum from <see cref="ExposureEngine.GetFloatingPnLPerSymbol"/>
+    /// (~10× cheaper than the full <c>CalculateExposure</c>) so the frontend
+    /// overlay updates all three surfaces at full tick cadence (~20 Hz)
+    /// without paying the heavy aggregation cost on every frame.</para>
     /// </summary>
     private async void BroadcastPricesIfDirty(object? state)
     {
@@ -118,6 +126,11 @@ public class ExposureBroadcastService : IDisposable
         try
         {
             var prices = _priceCache.GetAll();
+            // Phase 2.17: skinny per-symbol floating P&L. Cheap relative to
+            // the full ExposureEngine.CalculateExposure() — no canonical
+            // grouping, no weighted avg, no hedge ratio. Frontend overlays
+            // these onto exposureSummaries[].
+            var floatingPnls = _exposureEngine.GetFloatingPnLPerSymbol();
             Interlocked.Increment(ref _priceBroadcastCount);
 
             var message = new
@@ -126,6 +139,7 @@ public class ExposureBroadcastService : IDisposable
                 data = new
                 {
                     prices,
+                    floatingPnls,
                     timestamp = DateTime.UtcNow
                 }
             };

@@ -51,7 +51,7 @@ web/src/                         — React + TypeScript + Vite dashboard
 - **Event-driven B-Book**: MT5 Manager API deal callbacks, no polling — instant updates
 - **Polling Coverage**: Python collector polls MT5 terminal every 100ms, POSTs to backend
 - **In-memory state**: ConcurrentDictionary for thread-safe position store, Supabase for persistence
-- **WebSocket push**: Two channels on the same `/ws/exposure` socket — `exposure_update` at 10 Hz (full state, gated by position/deal events) and `price_update` at 20 Hz (price-only, gated by MT5 ticks, idempotent so bursts coalesce). Tracked via `/api/exposure/diagnostics` (`broadcasts.{fullState,priceOnly}.{total,perMinute}` + `priceOnly.coalescedTicks`).
+- **WebSocket push**: Two channels on the same `/ws/exposure` socket — `exposure_update` at 10 Hz (full state, gated by position/deal events) and `price_update` at 20 Hz (prices + per-symbol floating P&L, gated by MT5 ticks, idempotent so bursts coalesce). Phase 2.17 adds `floatingPnls` to `price_update` so the frontend overlays live B-Book/Coverage/Net P&L onto `exposureSummaries` and the Exposure open-row P&L cells, Net P&L tab "Current Floating", and Topbar "Net P&L Today" tile all tick at 20 Hz. Tracked via `/api/exposure/diagnostics` (`broadcasts.{fullState,priceOnly}.{total,perMinute}` + `priceOnly.coalescedTicks`).
 - **Symbol normalization**: Contract size conversion (e.g., 1500 GOLD lots = 15 XAUUSD B-Book lots)
 - **Net Exposure**: `BBookNet - CoverageNet` (not addition, since coverage mirrors client direction)
 - **Net P&L**: `-ClientPnL + CoveragePnL` (invert client P&L for broker perspective)
