@@ -139,12 +139,19 @@ export function ExpandedTable({ symbols, selectedSymbol, onSelect }: ExpandedTab
         if (covRes?.ok && mapRes.ok) {
           const cov = await covRes.json();
           const mappings: { canonical_name: string; coverage_symbol: string }[] = await mapRes.json();
+          // Case-insensitive symbol lookup. MT5 mixes case across servers
+          // (e.g. "UT100-" from one source, "Ut100-" from a manual mapping
+          // entry); without normalizing, a single mis-cased mappings row
+          // hides real coverage P&L behind "—" placeholders. Mirror the
+          // ExposureTable + PnLPanel approach: index mapping by uppercase
+          // key, normalize lookup input to uppercase.
           const covToCanonical: Record<string, string> = {};
           for (const m of mappings) {
-            if (m.coverage_symbol) covToCanonical[m.coverage_symbol] = m.canonical_name;
+            if (m.coverage_symbol) covToCanonical[m.coverage_symbol.toUpperCase()] = m.canonical_name.toUpperCase();
           }
           const toCanonical = (sym: string): string => {
-            return (covToCanonical[sym] || sym.replace(/[-.].*$/, '') || sym).toUpperCase();
+            const k = sym.toUpperCase();
+            return (covToCanonical[k] || k.replace(/[-.].*$/, '') || k);
           };
           const remapped: Record<string, ClosedSymbol> = {};
           for (const s of (cov.symbols ?? []) as ClosedSymbol[]) {
