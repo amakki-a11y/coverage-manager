@@ -589,10 +589,31 @@ export function ExposureTable({ summaries, prices, onNavigate }: ExposureTablePr
                       const price = findPrice(s.canonicalSymbol);
                       if (!price) return null;
                       const dir = priceDir.current[price.symbol] || 'flat';
-                      const dirColor = dir === 'up' ? THEME.green : dir === 'down' ? THEME.red : THEME.t3;
+                      // Staleness check — if the last tick is older than 3s
+                      // the price is dimmed to grey + a small dot is shown.
+                      // This separates "MT5 isn't sending us ticks for this
+                      // symbol right now" from "we have a fresh price". The
+                      // backend stamps timestamp on every priceCache.Update
+                      // (UTC), so subtract from the client's current time.
+                      const ageMs = price.timestamp
+                        ? Date.now() - new Date(price.timestamp).getTime()
+                        : 0;
+                      const isStale = ageMs > 3000;
+                      const isVeryStale = ageMs > 10000;
+                      const dirColor = isVeryStale
+                        ? THEME.red
+                        : isStale
+                          ? THEME.t3
+                          : (dir === 'up' ? THEME.green : dir === 'down' ? THEME.red : THEME.t3);
                       return (
-                        <div style={{ fontSize: 11, fontWeight: 700, fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace", color: dirColor, marginTop: 2 }}>
+                        <div
+                          title={isStale ? `Price last updated ${Math.round(ageMs / 1000)}s ago — MT5 may not be delivering ticks for this symbol` : undefined}
+                          style={{ fontSize: 11, fontWeight: 700, fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace", color: dirColor, marginTop: 2, opacity: isVeryStale ? 0.5 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}
+                        >
                           {fmtPrice(s.canonicalSymbol, price.bid)}
+                          {isStale && (
+                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: isVeryStale ? THEME.red : THEME.amber, display: 'inline-block' }} />
+                          )}
                         </div>
                       );
                     })()}

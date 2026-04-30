@@ -1,5 +1,5 @@
 import { useEffect, useReducer, useCallback, useRef } from 'react';
-import type { ExposureSummary, PriceQuote, AlertEvent, ExposureMessage } from '../types';
+import type { ExposureSummary, PriceQuote, AlertEvent, WsMessage } from '../types';
 import { WS_BASE } from '../config';
 
 /**
@@ -29,7 +29,8 @@ interface State {
 type Action =
   | { type: 'CONNECTED' }
   | { type: 'DISCONNECTED' }
-  | { type: 'EXPOSURE_UPDATE'; payload: ExposureMessage['data'] }
+  | { type: 'EXPOSURE_UPDATE'; payload: Extract<WsMessage, { type: 'exposure_update' }>['data'] }
+  | { type: 'PRICE_UPDATE'; payload: Extract<WsMessage, { type: 'price_update' }>['data'] }
   | { type: 'CLEAR_NEW_ALERTS' };
 
 function reducer(state: State, action: Action): State {
@@ -45,6 +46,15 @@ function reducer(state: State, action: Action): State {
         prices: action.payload.prices,
         newAlerts: action.payload.alerts ?? [],
         alertCount: action.payload.alertCount ?? 0,
+      };
+    case 'PRICE_UPDATE':
+      // Price-only frames update just the prices array. The bid price under
+      // each symbol uses this for fresh ticks; everything else (exposure,
+      // P&L) sticks with the last EXPOSURE_UPDATE so we don't recompute the
+      // table on every tick.
+      return {
+        ...state,
+        prices: action.payload.prices,
       };
     case 'CLEAR_NEW_ALERTS':
       return { ...state, newAlerts: [] };
@@ -83,9 +93,11 @@ export function useExposureSocket() {
 
     ws.onmessage = (event) => {
       try {
-        const message = JSON.parse(event.data) as ExposureMessage;
+        const message = JSON.parse(event.data) as WsMessage;
         if (message.type === 'exposure_update') {
           dispatch({ type: 'EXPOSURE_UPDATE', payload: message.data });
+        } else if (message.type === 'price_update') {
+          dispatch({ type: 'PRICE_UPDATE', payload: message.data });
         }
       } catch (err) {
         // Upstream protocol break: log the first bytes so the backend team sees it
