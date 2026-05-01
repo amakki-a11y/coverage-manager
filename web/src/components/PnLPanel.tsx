@@ -175,14 +175,27 @@ export function PnLPanel() {
 
       // Helper: find B-Book P&L symbol for a canonical name (case-insensitive
       // match against the actual B-Book P&L symbol list from the server).
+      //
+      // Bug previously: `s.startsWith(canonical)` matched the FIRST symbol
+      // whose name starts with the canonical, which broke whenever the
+      // canonical was a strict prefix of another B-Book symbol — e.g.
+      // canonical "USOIL" matched "USOILK6-" or "USOILM6-" if those came
+      // first in `bbookSymbols`. The USOIL coverage P&L then got routed to
+      // the wrong row and the USOIL- row rendered "—".
+      //
+      // Fix: prefer EXACT match (after stripping trailing -/.). Only fall
+      // back to prefix matching when no exact bare match exists.
       const bbookSymbols = (data?.symbols ?? []).map(s => s.symbol);
+      const stripTail = (s: string) => s.replace(/[-.]+$/, '');
       const findBBookSymbol = (canonical: string): string => {
         const cUC = ucKey(canonical);
-        const match = bbookSymbols.find(s => {
-          const sUC = ucKey(s);
-          return sUC === cUC || sUC.startsWith(cUC);
-        });
-        return match || canonical;
+        const cBare = stripTail(cUC);
+        // 1) Exact match after stripping trailing punctuation
+        const exact = bbookSymbols.find(s => stripTail(ucKey(s)) === cBare);
+        if (exact) return exact;
+        // 2) Fallback: prefix match (for unusual cases with no bare exact)
+        const prefix = bbookSymbols.find(s => ucKey(s).startsWith(cUC));
+        return prefix || canonical;
       };
 
       // Map coverage deals → B-Book symbol names via canonical. Result is keyed
