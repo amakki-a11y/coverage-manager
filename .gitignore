@@ -34,6 +34,8 @@ secrets.json
 
 # Claude Code scheduled-task runtime lock
 .claude/scheduled_tasks.lock
+# Claude Code per-machine permission allowlist — leaks dev curls + their headers
+.claude/settings.local.json
 
 # Task Master
 .taskmaster/templates/
