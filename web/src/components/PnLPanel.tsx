@@ -145,33 +145,49 @@ export function PnLPanel() {
       const mappings: SymbolMappingEntry[] = await mapRes.json();
       const cov = await dealRes.json();
 
-      // Build coverage_symbol → canonical lookup
+      // ALL symbol comparisons here are CASE-INSENSITIVE. MT5 returns symbols
+      // in mixed case (e.g. "UT100-" from one server vs "Ut100-" from a manual
+      // mappings entry), and trailing dash/dot variants are common ("Ut100-",
+      // "UT100.c"). We normalize EVERYTHING to uppercase before comparison so
+      // a single mis-cased mappings row doesn't cause silent "—" placeholders
+      // in the Cov P&L column. The original casing is preserved as the value
+      // in `result[]` so what the user sees on screen still matches the raw
+      // MT5 symbol from /api/exposure/pnl.
+      const ucKey = (s: string) => (s || '').toUpperCase();
+
+      // Build coverage_symbol → canonical lookup (uppercase keys + values).
       const covToCanonical: Record<string, string> = {};
       const bbookToCanonical: Record<string, string> = {};
       for (const m of mappings) {
-        if (m.coverage_symbol) covToCanonical[m.coverage_symbol] = m.canonical_name;
-        if (m.bbook_symbol) bbookToCanonical[m.bbook_symbol] = m.canonical_name;
+        if (m.coverage_symbol) covToCanonical[ucKey(m.coverage_symbol)] = ucKey(m.canonical_name);
+        if (m.bbook_symbol) bbookToCanonical[ucKey(m.bbook_symbol)] = ucKey(m.canonical_name);
       }
 
-      // Helper: find canonical name for a coverage deal symbol
+      // Helper: find canonical name for a coverage deal symbol (case-insensitive).
       const findCanonical = (sym: string): string => {
-        if (covToCanonical[sym]) return covToCanonical[sym];
+        const k = ucKey(sym);
+        if (covToCanonical[k]) return covToCanonical[k];
         // Try stripping common suffixes: XAUUSD- → XAUUSD, US30.c → US30
-        const stripped = sym.replace(/[-.].*$/, '');
+        const stripped = ucKey(sym.replace(/[-.].*$/, ''));
         if (covToCanonical[stripped]) return covToCanonical[stripped];
-        return sym; // fallback: use as-is
+        return k; // fallback: use the uppercase symbol as-is
       };
 
-      // Helper: find B-Book P&L symbol for a canonical name
-      // B-Book deals use symbols like "XAUUSD-" — find best match
+      // Helper: find B-Book P&L symbol for a canonical name (case-insensitive
+      // match against the actual B-Book P&L symbol list from the server).
       const bbookSymbols = (data?.symbols ?? []).map(s => s.symbol);
       const findBBookSymbol = (canonical: string): string => {
-        // Check if any B-Book P&L symbol starts with the canonical name
-        const match = bbookSymbols.find(s => s === canonical || s.startsWith(canonical));
+        const cUC = ucKey(canonical);
+        const match = bbookSymbols.find(s => {
+          const sUC = ucKey(s);
+          return sUC === cUC || sUC.startsWith(cUC);
+        });
         return match || canonical;
       };
 
-      // Map coverage deals → B-Book symbol names via canonical
+      // Map coverage deals → B-Book symbol names via canonical. Result is keyed
+      // by the original B-Book symbol (preserves case), so the table render
+      // below can look it up by `s.symbol` directly.
       const result: Record<string, CoverageSymbolPnL> = {};
       for (const s of (cov.symbols ?? []) as CoverageSymbolPnL[]) {
         const canonical = findCanonical(s.symbol);

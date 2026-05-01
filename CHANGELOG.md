@@ -4,6 +4,9 @@ All notable changes documented here.
 Format: [Conventional Changelog](https://conventionalcommits.org)
 
 ## [Unreleased]
+### Fixed
+- **Symbol lookup is now case-insensitive in `PnLPanel` and Compare-tab `ExpandedTable`** — a single mis-cased `symbol_mappings` row (e.g. canonical `Ut100-` lowercase t while the B-Book P&L data uses `UT100-` uppercase T) used to silently render the Cov P&L cell as `—` and hide tens of thousands of dollars of real coverage activity. Both consumers now uppercase mapping keys + lookup inputs before comparing, mirroring the case-insensitive approach `ExposureTable` already used. No backend change — symbol_mappings rows can keep their existing casing.
+
 ### Added
 - **WebSocket compression / `permessage-deflate` (Phase 2.18)** — enabled the standard RFC 7692 WebSocket frame compression on `/ws/exposure` and `/ws/bridge`. Frames go out roughly 1/4 the size on the wire (~78% savings measured locally). Critical for dealers accessing the dashboard over WAN where the live VPS uplink is the bottleneck. Same `floatingPnls`/`prices` payload, just compressed at the transport layer — no protocol changes, no client work needed (browsers negotiate the extension automatically). Verified locally: 5-frame sample = 110,624 bytes decompressed → ~24,769 bytes on the wire (77.6% savings). `DangerousEnableCompression = true` in ASP.NET Core; the "Dangerous" prefix flags CRIME-style attacks when mixing compressed and secret data in one channel — doesn't apply here since the WS payload is public market data with no auth tokens.
 - **Live floating P&L on the fast path (Phase 2.17)** — Phase 2.16 only fixed the bid-price ticker; floating-P&L cells (Exposure open-row B-Book/Coverage/Net P&L, Net P&L tab "Current Floating", Topbar "Net P&L Today" tile) still rode the slower full-state broadcast (~7 Hz, position-event-gated), so prices ticked while P&L cells froze on a quiet book.
