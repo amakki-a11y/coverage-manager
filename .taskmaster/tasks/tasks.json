@@ -78,7 +78,7 @@
     },
     {
       "id": 5,
-      "title": "Notification Channels \u00e2\u20ac\u201d Email, Slack, Telegram",
+      "title": "Notification Channels â€” Email, Slack, Telegram",
       "description": "Build pluggable notification channel system. Each user configures which channels they want per alert type. Support Email, Slack webhook, and Telegram bot. Store channel config in Supabase.",
       "phase": 3,
       "priority": "medium",
@@ -99,7 +99,7 @@
     },
     {
       "id": 6,
-      "title": "Hedge Execution \u00e2\u20ac\u201d Order Sending",
+      "title": "Hedge Execution â€” Order Sending",
       "description": "Implement one-click hedge execution via the Python collector's mt5.order_send(). Dealer clicks 'To Cover' on a symbol, system pre-fills the order, and sends to LP account after confirmation.",
       "phase": 4,
       "priority": "high",
@@ -108,7 +108,7 @@
       "subtasks": [
         "Add POST /execute endpoint to Python collector (mt5.order_send)",
         "Create HedgeExecutionController in C# backend (proxy to collector)",
-        "Build HedgeDialog component \u00e2\u20ac\u201d pre-filled volume, LP account, confirm/cancel",
+        "Build HedgeDialog component â€” pre-filled volume, LP account, confirm/cancel",
         "Add 'Hedge' button to To Cover column in ExposureTable",
         "Support partial hedging (percentage slider or manual volume)",
         "Handle execution errors and display fill report"
@@ -253,7 +253,7 @@
         13
       ],
       "subtasks": [
-        "Report builder UI \u00e2\u20ac\u201d drag-and-drop columns, filter rows",
+        "Report builder UI â€” drag-and-drop columns, filter rows",
         "Data source selection (deals, positions, exposure, accounts)",
         "Save/load report templates to Supabase",
         "Schedule report delivery (cron + email)",
@@ -294,7 +294,7 @@
         "Protect all API endpoints with role checks",
         "User management UI for admins (invite, edit roles, disable)"
       ],
-      "details": "**Design notes (added 2026-04-28 from session discussion):**\n\nProvider \u2014 **Supabase Auth** (already on Supabase; free at this scale; email+password + JWT + role claims out of the box). Alternatives ranked: ASP.NET Identity (1 wk, more code), OAuth Google/MS (3-5 days, needs SSO admin), Custom JWT (avoid).\n\nRole model \u2014 start with **2 roles only**: `admin`, `dealer` (admin = everything, dealer = read-only on Settings + Mappings). Add `viewer` later if needed.\n\nScoping \u2014 see-everything by default. Multi-tenancy / per-account scoping deferred to task #15 (which is currently a hard dependency, but the auth layer can ship standalone; if you want to ship just auth without multi-tenancy, drop the dep).\n\nBootstrap \u2014 first admin created via SQL insert in Supabase Auth + a row in `user_roles` table.\n\n**Estimated scope: ~2-3 days focused work.** File-level breakdown:\n\n- `src/CoverageManager.Api/Program.cs` \u2014 JWT middleware reading Supabase JWKs (~30 min)\n- `src/CoverageManager.Api/Controllers/*` \u2014 `[Authorize]` / `[Authorize(Roles=\"admin\")]` attrs (~1 hr)\n- `web/src/pages/Login.tsx` (new) \u2014 email+password form, calls Supabase Auth, stores JWT (~4 hr)\n- `web/src/App.tsx` \u2014 `<RequireAuth>` wrapper around routes; show login when unauthed (~2 hr)\n- `web/src/hooks/useAuth.ts` (new) \u2014 read JWT from localStorage, decode role claim (~2 hr)\n- `web/src/config.ts` \u2014 `fetch` wrapper that adds `Authorization: Bearer <jwt>` (~1 hr)\n- Settings tab visibility \u2014 hide Mappings / Settings / Reconciliation cards from non-admins (~2 hr)\n- `supabase/migrations/...sql` \u2014 `user_roles(user_id uuid, role text)` table + RLS (~30 min)\n- `docs/DEPLOYMENT.md` \u2014 bootstrap-first-admin SQL snippet (~15 min)\n- `CLAUDE.md` \u2014 auth section (~30 min)\n\n**Open question to settle before starting:** does ship-without-multi-tenancy make sense for the dealer's actual workflow, or do they need per-broker / per-login scoping from day one? If the latter, ship #15 first or together."
+      "details": "**Design notes (added 2026-04-28 from session discussion):**\n\nProvider — **Supabase Auth** (already on Supabase; free at this scale; email+password + JWT + role claims out of the box). Alternatives ranked: ASP.NET Identity (1 wk, more code), OAuth Google/MS (3-5 days, needs SSO admin), Custom JWT (avoid).\n\nRole model — start with **2 roles only**: `admin`, `dealer` (admin = everything, dealer = read-only on Settings + Mappings). Add `viewer` later if needed.\n\nScoping — see-everything by default. Multi-tenancy / per-account scoping deferred to task #15 (which is currently a hard dependency, but the auth layer can ship standalone; if you want to ship just auth without multi-tenancy, drop the dep).\n\nBootstrap — first admin created via SQL insert in Supabase Auth + a row in `user_roles` table.\n\n**Estimated scope: ~2-3 days focused work.** File-level breakdown:\n\n- `src/CoverageManager.Api/Program.cs` — JWT middleware reading Supabase JWKs (~30 min)\n- `src/CoverageManager.Api/Controllers/*` — `[Authorize]` / `[Authorize(Roles=\"admin\")]` attrs (~1 hr)\n- `web/src/pages/Login.tsx` (new) — email+password form, calls Supabase Auth, stores JWT (~4 hr)\n- `web/src/App.tsx` — `<RequireAuth>` wrapper around routes; show login when unauthed (~2 hr)\n- `web/src/hooks/useAuth.ts` (new) — read JWT from localStorage, decode role claim (~2 hr)\n- `web/src/config.ts` — `fetch` wrapper that adds `Authorization: Bearer <jwt>` (~1 hr)\n- Settings tab visibility — hide Mappings / Settings / Reconciliation cards from non-admins (~2 hr)\n- `supabase/migrations/...sql` — `user_roles(user_id uuid, role text)` table + RLS (~30 min)\n- `docs/DEPLOYMENT.md` — bootstrap-first-admin SQL snippet (~15 min)\n- `CLAUDE.md` — auth section (~30 min)\n\n**Open question to settle before starting:** does ship-without-multi-tenancy make sense for the dealer's actual workflow, or do they need per-broker / per-login scoping from day one? If the latter, ship #15 first or together."
     },
     {
       "id": 17,
@@ -414,7 +414,7 @@
     {
       "id": 23,
       "title": "Mobile-Responsive Dashboard",
-      "description": "Make the React dashboard responsive for tablet and mobile. Priority: exposure table, P&L panel, alerts. Not a separate app \u00e2\u20ac\u201d responsive CSS.",
+      "description": "Make the React dashboard responsive for tablet and mobile. Priority: exposure table, P&L panel, alerts. Not a separate app â€” responsive CSS.",
       "phase": 8,
       "priority": "medium",
       "status": "pending",
@@ -481,8 +481,8 @@
     },
     {
       "id": 27,
-      "title": "[CRITICAL] MT5 deal subscription race \u00e2\u20ac\u201d snapshot + backfill before OnDealAdd",
-      "description": "MT5ManagerConnection.cs:122 subscribes to the deal callback before the position snapshot and backfill, so deals arriving in that window are lost or double-counted. Reorder: GetPositions() \u00e2\u2020\u2019 BackfillDeals() \u00e2\u2020\u2019 OnDealAdd += handler.",
+      "title": "[CRITICAL] MT5 deal subscription race â€” snapshot + backfill before OnDealAdd",
+      "description": "MT5ManagerConnection.cs:122 subscribes to the deal callback before the position snapshot and backfill, so deals arriving in that window are lost or double-counted. Reorder: GetPositions() â†’ BackfillDeals() â†’ OnDealAdd += handler.",
       "phase": 2.9,
       "priority": "high",
       "status": "done",
@@ -496,7 +496,7 @@
     },
     {
       "id": 28,
-      "title": "[CRITICAL] BridgePipResolver.Overrides \u00e2\u20ac\u201d thread-safe dictionary",
+      "title": "[CRITICAL] BridgePipResolver.Overrides â€” thread-safe dictionary",
       "description": "BridgePipResolver.cs:13 holds a plain Dictionary<string, decimal> loaded by PositionManager.LoadMappings and read concurrently from the Bridge worker + controller threads. Torn reads / missing entries possible. Switch to ConcurrentDictionary or swap the reference atomically on reload.",
       "phase": 2.9,
       "priority": "high",
@@ -519,8 +519,8 @@
       "dependencies": [],
       "subtasks": [
         "Change RawDeal/RawPosition/RawAccount money fields to decimal",
-        "Update MT5ApiReal conversions (native returns double \u00e2\u20ac\u201d cast at the edge)",
-        "Add a test that exercises tiny/price-sensitive cases (EURUSD 1.08547 \u00c3\u2014 100000)"
+        "Update MT5ApiReal conversions (native returns double â€” cast at the edge)",
+        "Add a test that exercises tiny/price-sensitive cases (EURUSD 1.08547 Ã— 100000)"
       ],
       "notes": "RawDeal/Position/Tick/Account money fields now decimal. Native->decimal cast happens once in MT5ApiReal. Downstream (decimal)raw.X casts removed. Runtime verified: ticks streaming with clean decimal values, /api/exposure/summary returns sane P&L. Commit b8a667b."
     },
@@ -603,7 +603,7 @@
     },
     {
       "id": 35,
-      "title": "[HIGH] DataSyncService \u00e2\u20ac\u201d map CanonicalSymbol before upsert",
+      "title": "[HIGH] DataSyncService â€” map CanonicalSymbol before upsert",
       "description": "DataSyncService.cs:135 TODO. CanonicalSymbol = d.Symbol writes raw MT5 names. Any downstream consumer that doesn't re-normalize fragments on 'US30-' vs 'US30'. Resolve via _positionManager.FindMapping before upsert.",
       "phase": 2.9,
       "priority": "high",
@@ -617,7 +617,7 @@
     },
     {
       "id": 36,
-      "title": "[HIGH] Python collector \u00e2\u20ac\u201d env-source BACKEND_URL",
+      "title": "[HIGH] Python collector â€” env-source BACKEND_URL",
       "description": "collector/main.py:14 hardcodes BACKEND_URL = 'http://localhost:5000'. Switch to os.getenv with that as default; document in .env.example.",
       "phase": 2.9,
       "priority": "high",
@@ -630,7 +630,7 @@
     },
     {
       "id": 37,
-      "title": "[HIGH] Python collector \u00e2\u20ac\u201d reconnect on MT5 drop",
+      "title": "[HIGH] Python collector â€” reconnect on MT5 drop",
       "description": "position_loop catches generic Exception and retries the POST forever without reconnecting MT5. Coverage goes silently stale. Catch MT5 errors distinctly, call mt5.shutdown()+initialize() with exponential backoff, expose last_position_update on /health.",
       "phase": 2.9,
       "priority": "high",
@@ -638,7 +638,7 @@
       "dependencies": [],
       "subtasks": [
         "Distinguish mt5 errors from HTTP errors",
-        "Exponential backoff on reconnect (1s \u00e2\u2020\u2019 60s cap)",
+        "Exponential backoff on reconnect (1s â†’ 60s cap)",
         "/health returns last_position_update_utc",
         "Backend alerts if stale > 5s"
       ]
@@ -659,7 +659,7 @@
     },
     {
       "id": 39,
-      "title": "[HIGH] BridgePairingEngine \u00e2\u20ac\u201d prune stale COV_OUT on ingest",
+      "title": "[HIGH] BridgePairingEngine â€” prune stale COV_OUT on ingest",
       "description": "Pairing window is enforced inside the greedy loop; stale COV_OUT rows older than PairingWindowMs linger in _buffer and keep competing for matches. Prune on each publish, or reject on Observe().",
       "phase": 2.9,
       "priority": "high",
@@ -682,12 +682,12 @@
       "subtasks": [
         "Add assertion in BridgeExecutionStore.Observe()",
         "Apply mapping in RestCentroidBridgeService ingest",
-        "Test: unmapped symbol \u00e2\u2020\u2019 loud rejection, not silent pairing miss"
+        "Test: unmapped symbol â†’ loud rejection, not silent pairing miss"
       ]
     },
     {
       "id": 41,
-      "title": "[HIGH] React \u00e2\u20ac\u201d positions tab polling cadence",
+      "title": "[HIGH] React â€” positions tab polling cadence",
       "description": "App.tsx:61 polls /api/exposure/positions every 1s continuously. Overkill for a view that doesn't need 1 Hz refresh. Switch to 5s or WS-driven.",
       "phase": 2.9,
       "priority": "high",
@@ -700,7 +700,7 @@
     },
     {
       "id": 42,
-      "title": "[HIGH] WebSocket hook \u00e2\u20ac\u201d log malformed JSON",
+      "title": "[HIGH] WebSocket hook â€” log malformed JSON",
       "description": "useExposureSocket.ts:73 swallows JSON parse errors silently. Upstream protocol breaks become invisible. Log with a truncated payload and surface via a hook state.",
       "phase": 2.9,
       "priority": "high",
@@ -713,7 +713,7 @@
     },
     {
       "id": 43,
-      "title": "[HIGH] AccountModal \u00e2\u20ac\u201d formatBeirut for all timestamps",
+      "title": "[HIGH] AccountModal â€” formatBeirut for all timestamps",
       "description": "web/src/pages/PositionsCompare/RightPanel/AccountModal.tsx:60-62 uses raw .toLocaleString('en-GB'). Regresses the Beirut alignment done elsewhere. Use formatBeirut / formatBeirutDate.",
       "phase": 2.9,
       "priority": "high",
@@ -740,7 +740,7 @@
     },
     {
       "id": 45,
-      "title": "MT5ApiReal \u00e2\u20ac\u201d queue tick/deal callbacks off the native thread",
+      "title": "MT5ApiReal â€” queue tick/deal callbacks off the native thread",
       "description": "FireTick / FireDealAdd invoke handlers synchronously inside native MT5 callbacks. A slow handler (Supa write, disk log) stalls the feed thread. Queue to a bounded Channel<T> drained on a dedicated task.",
       "phase": 2.9,
       "priority": "medium",
@@ -749,13 +749,13 @@
       "subtasks": [
         "Introduce Channel<Tick> + Channel<Deal>",
         "Native callback does TryWrite only",
-        "Document \u00e2\u2030\u00a4 1ms handler budget"
+        "Document â‰¤ 1ms handler budget"
       ]
     },
     {
       "id": 46,
-      "title": "SupabaseService \u00e2\u20ac\u201d centralize PostgREST DateTime UTC normalization",
-      "description": "PostgREST timestamptz \u00e2\u2020\u2019 DateTime Kind=Local is a recurring bug (already cost us the minute-firing scheduler). Centralize a ReadUtc helper and use everywhere timestamps are parsed.",
+      "title": "SupabaseService â€” centralize PostgREST DateTime UTC normalization",
+      "description": "PostgREST timestamptz â†’ DateTime Kind=Local is a recurring bug (already cost us the minute-firing scheduler). Centralize a ReadUtc helper and use everywhere timestamps are parsed.",
       "phase": 2.9,
       "priority": "medium",
       "status": "pending",
@@ -775,15 +775,15 @@
       "status": "pending",
       "dependencies": [],
       "subtasks": [
-        "SupabaseService \u00e2\u2020\u2019 DealsRepository / SnapshotsRepository / AccountsRepository / BridgeRepository / ReconciliationRepository",
-        "ExposureController \u00e2\u2020\u2019 PnLCalculationService",
-        "SettingsPanel \u00e2\u2020\u2019 AccountsCard / VerifyCard / MovedAccountsTable / SnapshotSchedulesCard / ReconciliationCard (already partially split)",
-        "ExposureTable \u00e2\u2020\u2019 ExposureToolbar + ExposureRow"
+        "SupabaseService â†’ DealsRepository / SnapshotsRepository / AccountsRepository / BridgeRepository / ReconciliationRepository",
+        "ExposureController â†’ PnLCalculationService",
+        "SettingsPanel â†’ AccountsCard / VerifyCard / MovedAccountsTable / SnapshotSchedulesCard / ReconciliationCard (already partially split)",
+        "ExposureTable â†’ ExposureToolbar + ExposureRow"
       ]
     },
     {
       "id": 48,
-      "title": "Supabase \u00e2\u20ac\u201d drop duplicate index + index FK + audit unused",
+      "title": "Supabase â€” drop duplicate index + index FK + audit unused",
       "description": "Duplicate idx_deals_deal_time + idx_deals_time (advisor WARN). Unindexed FK alert_events.threshold_id. 18 unused indexes flagged. Audit and prune.",
       "phase": 2.9,
       "priority": "medium",
@@ -797,7 +797,7 @@
     },
     {
       "id": 49,
-      "title": "Supabase \u00e2\u20ac\u201d partition / archive deals table",
+      "title": "Supabase â€” partition / archive deals table",
       "description": "deals has 287K+ rows with no partitioning or archival. Sync jobs and reconciliation scan ever-larger tables. Partition by month on deal_time or archive > 90 days into deals_historical.",
       "phase": 2.9,
       "priority": "medium",
@@ -825,7 +825,7 @@
     },
     {
       "id": 51,
-      "title": "Python /health \u00e2\u20ac\u201d report position_loop liveness",
+      "title": "Python /health â€” report position_loop liveness",
       "description": "Current /health checks terminal_info only. Doesn't detect a stalled position loop. Track last_position_update_utc and mark unhealthy if > 5s.",
       "phase": 2.9,
       "priority": "medium",
@@ -839,7 +839,7 @@
     },
     {
       "id": 52,
-      "title": "PositionsGrid \u00e2\u20ac\u201d source badge uses theme tokens, not hex",
+      "title": "PositionsGrid â€” source badge uses theme tokens, not hex",
       "description": "PositionsGrid.tsx:65-66 hardcodes rgba(91,158,255,0.15) + #FF8A80. Replace with THEME.blue / THEME.red + an opacity helper.",
       "phase": 2.9,
       "priority": "medium",
@@ -852,7 +852,7 @@
     },
     {
       "id": 53,
-      "title": "CompareTable \u00e2\u20ac\u201d sign prefix on Net P&L total",
+      "title": "CompareTable â€” sign prefix on Net P&L total",
       "description": "CompareTable.tsx ~:112 renders the Net P&L total without a +/- prefix. Inconsistent with every other P&L cell.",
       "phase": 2.9,
       "priority": "medium",
@@ -864,8 +864,8 @@
     },
     {
       "id": 54,
-      "title": "PnLPanel \u00e2\u20ac\u201d formatDate uses Beirut weekday, not UTC",
-      "description": "PnLPanel.tsx formatDate uses d.getUTCDay() for the weekday \u00e2\u20ac\u201d ignores Beirut TZ convention. Rename + route through formatBeirutDate + weekday derivation on a Beirut-normalized date.",
+      "title": "PnLPanel â€” formatDate uses Beirut weekday, not UTC",
+      "description": "PnLPanel.tsx formatDate uses d.getUTCDay() for the weekday â€” ignores Beirut TZ convention. Rename + route through formatBeirutDate + weekday derivation on a Beirut-normalized date.",
       "phase": 2.9,
       "priority": "medium",
       "status": "done",
@@ -877,7 +877,7 @@
     },
     {
       "id": 55,
-      "title": "AlertEngine \u00e2\u20ac\u201d thread-safe threshold list",
+      "title": "AlertEngine â€” thread-safe threshold list",
       "description": "AlertEngine._thresholds plain List<T>. Hot-read while admin reloads. Torn reads possible. Interlocked.Exchange on the ref, or ReaderWriterLockSlim.",
       "phase": 2.9,
       "priority": "medium",
@@ -902,7 +902,7 @@
     },
     {
       "id": 57,
-      "title": "DataSyncService \u00e2\u20ac\u201d pagination for large deal ranges",
+      "title": "DataSyncService â€” pagination for large deal ranges",
       "description": "DataSyncService.cs:32 30s tick scans all deals. 280K rows today; will timeout eventually. Paginate or use a bulk-diff RPC.",
       "phase": 2.9,
       "priority": "low",
@@ -915,7 +915,7 @@
     },
     {
       "id": 58,
-      "title": "Python collector \u00e2\u20ac\u201d pin exact dependency versions",
+      "title": "Python collector â€” pin exact dependency versions",
       "description": "requirements.txt uses >= minimum bounds. Pin exact for reproducible prod builds.",
       "phase": 2.9,
       "priority": "low",
@@ -928,7 +928,7 @@
     },
     {
       "id": 59,
-      "title": "useDateRange \u00e2\u20ac\u201d migrate to BroadcastChannel API",
+      "title": "useDateRange â€” migrate to BroadcastChannel API",
       "description": "Current cross-tab sync uses manual StorageEvent dispatch. BroadcastChannel is the modern idiom and avoids the storage-event footgun.",
       "phase": 2.9,
       "priority": "low",
@@ -941,7 +941,7 @@
     },
     {
       "id": 60,
-      "title": "AlertToast \u00e2\u20ac\u201d type-safe audio handler",
+      "title": "AlertToast â€” type-safe audio handler",
       "description": "AlertToast.tsx:49 uses `as any` cast. Define an AudioHandler interface instead.",
       "phase": 2.9,
       "priority": "low",
@@ -954,7 +954,7 @@
     },
     {
       "id": 61,
-      "title": "TotalBar \u00e2\u20ac\u201d remove tautological ternary",
+      "title": "TotalBar â€” remove tautological ternary",
       "description": "TotalBar.tsx:60 `color: highlight ? color : color` is a no-op. Clean up.",
       "phase": 2.9,
       "priority": "low",
@@ -966,7 +966,7 @@
     },
     {
       "id": 62,
-      "title": "Program.cs \u00e2\u20ac\u201d simplify HttpClient registration",
+      "title": "Program.cs â€” simplify HttpClient registration",
       "description": "Program.cs:48-53 calls AddHttpClient<T>() then overrides with AddSingleton<T>. Works but confusing; drop the typed client and use IHttpClientFactory.CreateClient(name) explicitly.",
       "phase": 2.9,
       "priority": "low",
@@ -986,15 +986,15 @@
       "status": "done",
       "dependencies": [],
       "subtasks": [
-        "Test case: client wins + coverage wins \u00e2\u2020\u2019 broker zero",
-        "Test case: client loss + coverage loss \u00e2\u2020\u2019 broker neutral",
+        "Test case: client wins + coverage wins â†’ broker zero",
+        "Test case: client loss + coverage loss â†’ broker neutral",
         "Test case: sign asymmetry"
       ]
     },
     {
       "id": 64,
-      "title": "MT5 reconnect backoff \u00e2\u20ac\u201d implementation + integration test",
-      "description": "Rule says 1s \u00e2\u2020\u2019 60s exponential backoff on MT5 drop. Verify the code does this and add a test that simulates disconnect.",
+      "title": "MT5 reconnect backoff â€” implementation + integration test",
+      "description": "Rule says 1s â†’ 60s exponential backoff on MT5 drop. Verify the code does this and add a test that simulates disconnect.",
       "phase": 2.9,
       "priority": "high",
       "status": "done",
@@ -1020,7 +1020,7 @@
         "Replace every `fontFamily: 'inherit'` in numeric cells with MONO",
         "Single helper fmtSigned(v): always prefixes U+2212 or + and uses tabular-nums",
         "Search-replace ASCII `-` in number-formatting call sites (ExposureTable, TotalBar, PnLPanel, Markup, Bridge)",
-        "Raise header fontSize from 9 to 10\u00e2\u20ac\u201c11 per review M2"
+        "Raise header fontSize from 9 to 10â€“11 per review M2"
       ],
       "uiuxReviewDoc": ".taskmaster/docs/ui-ux-review-2026-04-17.md",
       "tag": "phase: UI/UX review (2026-04-17)"
@@ -1046,7 +1046,7 @@
     {
       "id": 67,
       "title": "UI/UX: Exposure risk banner + hedge-% bar visualization",
-      "description": "Make 'is my book OK?' readable in <2 seconds with zero clicks. Add a red top banner on the Exposure tab listing symbols whose |netVolume| exceeds risk_thresholds.max_net_exposure. Replace the bare hedge-% number with a horizontal bar (0\u00e2\u20ac\u201c100%, colored at 50/80 bands, overhedge >100% shown with fill over 100). Applies to ExposureTable rows AND Compare SymbolRow. Covers review finding C2.",
+      "description": "Make 'is my book OK?' readable in <2 seconds with zero clicks. Add a red top banner on the Exposure tab listing symbols whose |netVolume| exceeds risk_thresholds.max_net_exposure. Replace the bare hedge-% number with a horizontal bar (0â€“100%, colored at 50/80 bands, overhedge >100% shown with fill over 100). Applies to ExposureTable rows AND Compare SymbolRow. Covers review finding C2.",
       "phase": 3,
       "priority": "high",
       "status": "done",
@@ -1058,7 +1058,7 @@
         "Build HedgeBar component (SVG, 80px wide)",
         "Red banner above ExposureTable; clickable row scroll into view",
         "Replace hedge chip in Compare/SymbolRow with HedgeBar",
-        "Same colors across Exposure and Compare \u00e2\u20ac\u201d single riskBand(pct) helper"
+        "Same colors across Exposure and Compare â€” single riskBand(pct) helper"
       ],
       "uiuxReviewDoc": ".taskmaster/docs/ui-ux-review-2026-04-17.md",
       "tag": "phase: UI/UX review (2026-04-17)"
@@ -1066,13 +1066,13 @@
     {
       "id": 68,
       "title": "UI/UX: Bridge table enum coercion + backfill legacy pairs",
-      "description": "Fix C3 \u00e2\u20ac\u201d SIDE column renders '0' / '1' in red on old persisted rows because pre-JsonStringEnumConverter records store side as int. Add defensive frontend coercion (number \u00e2\u2020\u2019 'BUY'/'SELL'). Fix C4 \u00e2\u20ac\u201d run the maker_orders poller once on startup with 24h window to backfill cov legs on rows whose cov_volume = 0. Hide 'No coverage legs within pairing window' for pairs older than the cutoff timestamp we set when the poller first ran.",
+      "description": "Fix C3 â€” SIDE column renders '0' / '1' in red on old persisted rows because pre-JsonStringEnumConverter records store side as int. Add defensive frontend coercion (number â†’ 'BUY'/'SELL'). Fix C4 â€” run the maker_orders poller once on startup with 24h window to backfill cov legs on rows whose cov_volume = 0. Hide 'No coverage legs within pairing window' for pairs older than the cutoff timestamp we set when the poller first ran.",
       "phase": 2.5,
       "priority": "high",
       "status": "done",
       "dependencies": [],
       "subtasks": [
-        "Frontend: normalize side in BridgeTable \u00e2\u20ac\u201d if typeof number, map to 'BUY'/'SELL'",
+        "Frontend: normalize side in BridgeTable â€” if typeof number, map to 'BUY'/'SELL'",
         "Backend: one-shot backfill job in BridgeExecutionWorker startup path",
         "Persist `bridgeBackfillFromUtc` in bridge_settings so UI can hide stale no-cov messaging",
         "Verify 21 Bridge tests still pass"
@@ -1100,7 +1100,7 @@
     {
       "id": 70,
       "title": "UI/UX: Unmapped-symbol surface + destructive-action confirmations + contract-size validation",
-      "description": "Covers H8, H9, M9. A symbol in coverage without a symbol_mappings row silently disappears from Exposure \u00e2\u20ac\u201d must become loud (red chip list + banner). Deleting a mapping must require confirmation showing deal count that references it. Contract-size field needs per-symbol-class validation and a normalization preview before save.",
+      "description": "Covers H8, H9, M9. A symbol in coverage without a symbol_mappings row silently disappears from Exposure â€” must become loud (red chip list + banner). Deleting a mapping must require confirmation showing deal count that references it. Contract-size field needs per-symbol-class validation and a normalization preview before save.",
       "phase": 2.5,
       "priority": "high",
       "status": "done",
@@ -1136,13 +1136,13 @@
     {
       "id": 72,
       "title": "UI/UX: Bridge table polish (density, LP column split, edge/pips hide, anomaly threshold)",
-      "description": "Covers H5, H6, H12, M10. Reduce Bridge row padding for \u00e2\u2030\u00a550 rows visible at 1080p. Split LOGIN column: show client MT5 login on CLIENT rows, LP name on COV OUT rows (or rename to LOGIN / LP with tooltip). Auto-hide PRICE EDGE and PIPS columns when the visible slice is all zeros (netting-only broker today). Make anomaly pip threshold configurable per symbol.",
+      "description": "Covers H5, H6, H12, M10. Reduce Bridge row padding for â‰¥50 rows visible at 1080p. Split LOGIN column: show client MT5 login on CLIENT rows, LP name on COV OUT rows (or rename to LOGIN / LP with tooltip). Auto-hide PRICE EDGE and PIPS columns when the visible slice is all zeros (netting-only broker today). Make anomaly pip threshold configurable per symbol.",
       "phase": 2.5,
       "priority": "medium",
       "status": "pending",
       "dependencies": [],
       "subtasks": [
-        "Drop padding to 4\u00e2\u20ac\u201c6px vertical in BridgeTable rows",
+        "Drop padding to 4â€“6px vertical in BridgeTable rows",
         "Column header `LOGIN / LP` with conditional content per row type",
         "Auto-hide edge/pips when slice sum == 0, show a small 'no markup' chip",
         "Anomaly threshold input next to the toggle; default 10, instrument-aware via pip_size"
@@ -1153,14 +1153,14 @@
     {
       "id": 73,
       "title": "UI/UX: Password echo fix on /api/settings/accounts",
-      "description": "Covers H7. MT5 AccountSettings.Password is returned raw in the JSON response. Visible in DevTools Network. Strip it from reads and expose a passwordSet flag like the Bridge card already does. Frontend shows `\u00e2\u20ac\u00a2 set` chip when present.",
+      "description": "Covers H7. MT5 AccountSettings.Password is returned raw in the JSON response. Visible in DevTools Network. Strip it from reads and expose a passwordSet flag like the Bridge card already does. Frontend shows `â€¢ set` chip when present.",
       "phase": 2.5,
       "priority": "high",
       "status": "done",
       "dependencies": [],
       "subtasks": [
-        "Backend: SettingsController.GetAccounts strips Password \u00e2\u2020\u2019 passwordSet bool",
-        "Frontend: SettingsPanel renders `\u00e2\u20ac\u00a2 set` chip when passwordSet && !editing",
+        "Backend: SettingsController.GetAccounts strips Password â†’ passwordSet bool",
+        "Frontend: SettingsPanel renders `â€¢ set` chip when passwordSet && !editing",
         "Leave UpdateAccount accepting password:null semantics (don't touch existing)"
       ],
       "uiuxReviewDoc": ".taskmaster/docs/ui-ux-review-2026-04-17.md",
@@ -1186,7 +1186,7 @@
     {
       "id": 75,
       "title": "UI/UX: Cell-level flash-on-change across Exposure / Compare / Bridge",
-      "description": "Replace the 1500ms row-level price flash with a 200\u00e2\u20ac\u201c300ms cell-level flash. Build useFlashOnChange(value) returning { background, transition } that the consumer applies inline. Apply to P&L, volume, and price cells in Exposure, Compare, Bridge. Covers M3 and part of the real-time audit.",
+      "description": "Replace the 1500ms row-level price flash with a 200â€“300ms cell-level flash. Build useFlashOnChange(value) returning { background, transition } that the consumer applies inline. Apply to P&L, volume, and price cells in Exposure, Compare, Bridge. Covers M3 and part of the real-time audit.",
       "phase": 3,
       "priority": "medium",
       "status": "done",
@@ -1205,8 +1205,8 @@
     },
     {
       "id": 76,
-      "title": "UI/UX: Color semantics audit \u00e2\u20ac\u201d green=positive, red=negative, blue=info-only",
-      "description": "SymbolRow uses blue for positive net \u00e2\u20ac\u201d inconsistent with rubric. Compare tab's blue-when-positive is wrong. Fix SymbolRow + TotalBar + any other blue-for-value usage. Inline hex colors ('#FF8A80', '#000', '#fff' in SettingsPanel) must migrate to THEME tokens. Covers rubric failures.",
+      "title": "UI/UX: Color semantics audit â€” green=positive, red=negative, blue=info-only",
+      "description": "SymbolRow uses blue for positive net â€” inconsistent with rubric. Compare tab's blue-when-positive is wrong. Fix SymbolRow + TotalBar + any other blue-for-value usage. Inline hex colors ('#FF8A80', '#000', '#fff' in SettingsPanel) must migrate to THEME tokens. Covers rubric failures.",
       "phase": 3,
       "priority": "medium",
       "status": "done",
@@ -1240,7 +1240,7 @@
     {
       "id": 78,
       "title": "UI/UX: Phase 3 advisor card + Phase 3.5 hedge-confirmation modal design",
-      "description": "Design + build the UI pieces needed before Phase 3/3.5 can ship. Advisor card with confidence, 6-signal breakdown, approve/reject buttons \u00e2\u20ac\u201d sketch in the review doc. Confirmation modal is keyboard-first: Enter approves, Esc rejects. Audit trail chip rendered on the symbol row after decision.",
+      "description": "Design + build the UI pieces needed before Phase 3/3.5 can ship. Advisor card with confidence, 6-signal breakdown, approve/reject buttons â€” sketch in the review doc. Confirmation modal is keyboard-first: Enter approves, Esc rejects. Audit trail chip rendered on the symbol row after decision.",
       "phase": 3.5,
       "priority": "medium",
       "status": "pending",
@@ -1248,7 +1248,7 @@
         1
       ],
       "subtasks": [
-        "Low-fi wireframe of AdvisorCard (see docs review \u00e2\u20ac\u201d signals as bar meters)",
+        "Low-fi wireframe of AdvisorCard (see docs review â€” signals as bar meters)",
         "Build AdvisorCard React component",
         "Build HedgeConfirmModal (keyboard-first)",
         "Audit-trail chip on SymbolRow post-decision",
@@ -1259,15 +1259,15 @@
     },
     {
       "id": 79,
-      "title": "UI/UX: Polish batch \u00e2\u20ac\u201d SVG icons, theme toggle decision, radius tokens, price flash duration, L-series items",
-      "description": "Batched polish from the review's LOW tier and remaining MEDIUM items: replace emoji bell/speaker/sun/moon with SVG icons (lucide or phosphor); decide on light mode (ship or delete \u00e2\u20ac\u201d it's half-finished); radius tier tokens (4/8/12); drop card radius from 8 \u00e2\u2020\u2019 4 for a sharper terminal look; cleanup dead Cell import in SymbolRow; UNHEDGED value should be signed; collapse alert banner to inline chip after dismiss; shorten brand text; Bridge settings primary/secondary button weight correction.",
+      "title": "UI/UX: Polish batch â€” SVG icons, theme toggle decision, radius tokens, price flash duration, L-series items",
+      "description": "Batched polish from the review's LOW tier and remaining MEDIUM items: replace emoji bell/speaker/sun/moon with SVG icons (lucide or phosphor); decide on light mode (ship or delete â€” it's half-finished); radius tier tokens (4/8/12); drop card radius from 8 â†’ 4 for a sharper terminal look; cleanup dead Cell import in SymbolRow; UNHEDGED value should be signed; collapse alert banner to inline chip after dismiss; shorten brand text; Bridge settings primary/secondary button weight correction.",
       "phase": 3,
       "priority": "low",
       "status": "pending",
       "dependencies": [],
       "subtasks": [
         "Replace emoji icons with lucide-react or inline SVGs",
-        "Decide on LIGHT_THEME \u00e2\u20ac\u201d polish or delete",
+        "Decide on LIGHT_THEME â€” polish or delete",
         "Radius tier tokens in theme.ts; migrate hard-coded values",
         "Drop Compare price flash from 1500ms to 250ms",
         "Remove unused Cell component in PositionsCompare/LeftPanel/SymbolRow",
@@ -1276,6 +1276,115 @@
       ],
       "uiuxReviewDoc": ".taskmaster/docs/ui-ux-review-2026-04-17.md",
       "tag": "phase: UI/UX review (2026-04-17)"
+    },
+    {
+      "id": 80,
+      "title": "P0 - Rotate leaked Supabase anon JWT and stop tracking it in git",
+      "description": "The Supabase anon JWT for project svhmhcqopkdgccnzgvzp is committed to git in two places (appsettings.json:31 and .claude/settings.local.json:17) and exists in history with a full ready-to-run POST curl. Token expires 2036 - a decade of exposure. Rotate the key in Supabase dashboard, move it out of tracked files, gitignore the offending paths. Optional: rewrite git history if the repo will ever be public.",
+      "phase": "security",
+      "priority": "high",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Supabase dashboard - Settings - API - Reset anon key (HUMAN-ONLY step, 30s)",
+        "Set new key in env var Supabase__Key on dev + live + any other env",
+        "Edit appsettings.json:31 - replace inline JWT with empty string",
+        "Add .claude/settings.local.json to .gitignore",
+        "Commit + push the strip on a fresh branch + ship to live (same workflow as PR #21/#23)",
+        "Optional: git filter-repo --replace-text to scrub JWT from all history; force-push to all branches; coordinate with collaborators"
+      ],
+      "tag": "security audit (2026-04-30) - P0 #1"
+    },
+    {
+      "id": 81,
+      "title": "P1 stage 2a - Lock down public API endpoints behind reverse proxy + IP allow-list",
+      "description": "Kestrel currently binds 0.0.0.0:80 on the live VPS. Every controller including SettingsController (POST/PUT/DELETE /accounts, PUT /bridge) is unauthenticated. An attacker with network reach can inject MT5 Manager credentials. Quick mitigation: bind Kestrel to 127.0.0.1, put nginx/IIS in front with HTTP basic auth or IP allow-list. Zero code change, ~1 hour.",
+      "phase": "security",
+      "priority": "high",
+      "status": "pending",
+      "dependencies": [
+        80
+      ],
+      "subtasks": [
+        "Change Kestrel__Endpoints__Http__Url env var on live VPS to http://127.0.0.1:5000",
+        "Install nginx (or use existing IIS) on the live VPS",
+        "Configure reverse proxy: :80 - 127.0.0.1:5000 with HTTP basic auth credentials in env",
+        "Add WebSocket upgrade headers (Connection: upgrade, Upgrade: $http_upgrade) for /ws/exposure and /ws/bridge",
+        "Restart nssm coverage-api service",
+        "Verify dashboard works through proxy + WS still negotiates permessage-deflate"
+      ],
+      "tag": "security audit (2026-04-30) - P1 stage 2a"
+    },
+    {
+      "id": 82,
+      "title": "P1 stage 2b - Add app-layer auth middleware (API key or Supabase Auth JWT)",
+      "description": "Long-term replacement for the reverse-proxy band-aid in task 81. Real auth at the ASP.NET Core layer. Two options: (a) static X-API-Key middleware reading from env var (fastest, rotate by env var change) or (b) Supabase Auth JWT validation (matches CLAUDE.md Phase 2 plan, multi-user-ready). Apply [Authorize] globally + opt-out for read-only browser-facing GETs.",
+      "phase": "security",
+      "priority": "medium",
+      "status": "pending",
+      "dependencies": [
+        81
+      ],
+      "subtasks": [
+        "Decide: static API key (1 day) vs Supabase Auth JWT (1 week, sets up Phase 2)",
+        "Add app.UseAuthentication() / app.UseAuthorization() to Program.cs",
+        "Implement chosen middleware (ApiKeyAuthHandler or JwtBearer with Supabase issuer)",
+        "Decorate every write controller with [Authorize] (SettingsController, SymbolMappingController, EquityPnLConfigController, LoginGroupsController, SnapshotSchedulesController, ReconciliationController, BridgeController, plus exposure/snapshot, exposure/pnl/reload, equity-pnl/backfill-cash-movements)",
+        "Frontend: store key/JWT, attach to every fetch + WebSocket connect URL",
+        "Test that a missing/wrong key returns 401 from each protected endpoint"
+      ],
+      "tag": "security audit (2026-04-30) - P1 stage 2b"
+    },
+    {
+      "id": 83,
+      "title": "P2 - Make UpdateCoveragePositions atomic (eliminate empty-coverage flicker window)",
+      "description": "PositionManager.UpdateCoveragePositions (lines 72-101) does 'remove all coverage keys, then add new ones' - non-atomic on ConcurrentDictionary. Concurrent broadcasts (10 Hz full state + 20 Hz price-only) can read in the gap and ship ExposureSummary frames with coverage volumes/PnL = 0 for every symbol. Causes UI flicker + spurious unhedged-alert risk. Fix: mirror the SnapshotBBookPositions diff pattern - only remove keys NOT in the new snapshot, then upsert.",
+      "phase": "correctness",
+      "priority": "medium",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Edit src/CoverageManager.Core/Engines/PositionManager.cs:72-101",
+        "Replace 'clear all coverage' with diff-based removal (mirror SnapshotBBookPositions at line 106)",
+        "Add unit test: spawn N reader threads while doing UpdateCoveragePositions in a loop; assert no reader ever sees fewer coverage positions than min(before, after)",
+        "Ship as a small PR (~10 lines + test)"
+      ],
+      "tag": "security audit (2026-04-30) - P2 #1"
+    },
+    {
+      "id": 84,
+      "title": "P2 - Serialise WebSocket SendAsync calls per socket (eliminate concurrent-send disconnects)",
+      "description": "ExposureBroadcastService runs two timers (10 Hz full state, 20 Hz price-only) that each loop over _clients and call await socket.SendAsync(). .NET WebSocket disallows concurrent SendAsync per socket - overlap throws InvalidOperationException, caught silently in the catch block, and the client is removed from _clients (RemoveClient at line 175/249). Manifests as random dashboard disconnects. Fix: per-socket SemaphoreSlim around SendAsync. Apply same to BridgeBroadcastService.",
+      "phase": "correctness",
+      "priority": "medium",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "Add ConcurrentDictionary<string, SemaphoreSlim> _sendLocks to ExposureBroadcastService",
+        "Create the semaphore in AddClient(id, socket); dispose in RemoveClient(id)",
+        "Wrap each SendAsync call in BroadcastIfDirty + BroadcastPricesIfDirty with sem.WaitAsync() / Release",
+        "Apply identical pattern to BridgeBroadcastService",
+        "Add integration test: stub WebSocket; fire both timers concurrently; assert no InvalidOperationException; assert no spurious RemoveClient calls"
+      ],
+      "tag": "security audit (2026-04-30) - P2 #2"
+    },
+    {
+      "id": 85,
+      "title": "Deploy PR #21 + PR #23 to live VPS (PnL Cov-cell empty fix)",
+      "description": "Two PRs are already squash-merged on the live branch (f67dbe9 case-insensitive symbol lookup, 2e8d13c exact-match findBBookSymbol) but the live VPS has not pulled them. The dashboard at 37.148.206.228 still serves index-DNyRh_6L.js (Phase 2.17 era). Run the standard live-server deploy: git pull, npm run build, dotnet publish, atomic swap, nssm restart, verify new bundle hash + USOIL/UT100 rows populate. Same workflow as the previous 5 deploys.",
+      "phase": "ops",
+      "priority": "high",
+      "status": "pending",
+      "dependencies": [],
+      "subtasks": [
+        "On live VPS: git fetch + git pull --ff-only origin live (brings in 2e8d13c)",
+        "Run reusable deploy script (npm run build + dotnet publish to publish/api-staging)",
+        "Verify new index-XXXX.js hash differs from index-DNyRh_6L",
+        "Atomic swap (elevated PowerShell): nssm stop coverage-api, Rename-Item, nssm start coverage-api",
+        "Post-swap: hard-refresh dashboard, P&L tab, confirm USOIL- and UT100- show real Cov P&L (not '-')",
+        "5-min stability watch on /api/exposure/diagnostics"
+      ],
+      "tag": "ops - pending live deploy"
     }
   ]
 }
