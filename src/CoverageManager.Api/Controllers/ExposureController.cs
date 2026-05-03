@@ -716,11 +716,19 @@ public class ExposureController : ControllerBase
     // midnight Asia/Beirut of fromDate → UTC (21:00 DST, 22:00 standard).
     // =========================================================================
 
-    /// <summary>GET /api/exposure/pnl/period?from=&amp;to=</summary>
+    /// <summary>GET /api/exposure/pnl/period?from=&amp;to=&amp;anchorOverrideUtc=
+    ///
+    /// <para><c>anchorOverrideUtc</c> (optional) — explicit UTC datetime to use as
+    /// the Begin anchor instead of the auto-derived <c>fromDate</c>-midnight-Beirut
+    /// value. Lets the dealer pick a specific snapshot instant from the snapshot
+    /// picker UI without having to shift the FROM date itself. The settled-deal
+    /// window is still bounded by <c>fromDate</c>/<c>toDate</c>.</para>
+    /// </summary>
     [HttpGet("pnl/period")]
     public async Task<IActionResult> GetPeriodPnL(
         [FromQuery] DateTime? from = null,
         [FromQuery] DateTime? to = null,
+        [FromQuery] DateTime? anchorOverrideUtc = null,
         CancellationToken ct = default)
     {
         var fromDate = (from ?? DateTime.UtcNow.Date).Date;
@@ -745,7 +753,13 @@ public class ExposureController : ControllerBase
         var supabaseTo   = LocalMidnightToUtc(toDate.AddDays(1),   beirut);
 
         // Begin anchor = fromDate 00:00 in Asia/Beirut → UTC (same function).
-        var beginAnchorUtc = supabaseFrom;
+        // If `anchorOverrideUtc` is supplied (snapshot picker UI), use it verbatim
+        // — lets the dealer anchor BEGIN to a specific historical snapshot instant
+        // without having to shift the picker FROM date.
+        var autoBeginAnchorUtc = supabaseFrom;
+        var beginAnchorUtc = anchorOverrideUtc.HasValue
+            ? DateTime.SpecifyKind(anchorOverrideUtc.Value, DateTimeKind.Utc)
+            : autoBeginAnchorUtc;
 
         // 2. Begin snapshots (per-symbol, latest ≤ anchor). Split by source —
         //    the row carries both bbook_pnl and coverage_pnl.
