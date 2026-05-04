@@ -181,6 +181,16 @@ export function PeriodPnLPanel() {
     } catch { /* ignore */ }
   }, [anchorOverrideUtc]);
 
+  // Live overlay — the same WebSocket feed that drives the Exposure tab.
+  // ExposureSummary[] carries per-canonical-symbol bBookPnL / coveragePnL
+  // (live floating, calibrated-delta from PR#6). We splice these into the
+  // last REST snapshot to make the Current / ΔFloat / Net columns tick on
+  // every WS frame instead of waiting for the 30 s REST refresh.
+  // Phase 2.19 also adds `pendingSettled` — per-deal settled deltas pushed
+  // via `deal_settled` WS frames (50 ms latency) that overlay onto the cached
+  // REST settled value and reset on each REST refresh.
+  const { exposureSummaries, pendingSettled, clearSettledDeltas } = useExposureSocket();
+
   // Silent refresh (used by interval polling) does NOT toggle the loading badge
   // so it doesn't flash every 10s. Only date-changed fetches show the badge.
   const fetchPeriod = useCallback(async (showLoading: boolean) => {
@@ -194,7 +204,13 @@ export function PeriodPnLPanel() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json: PeriodPnLResponse = await res.json();
       periodCache.set(cacheKey(fromDate, toDate, anchorOverrideUtc), json);
-      if (ticket === loadSeq.current) setData(json);
+      if (ticket === loadSeq.current) {
+        setData(json);
+        // REST result is now authoritative — drop the live deltas accumulated
+        // since the last refresh. New `deal_settled` frames after this point
+        // start a fresh accumulator.
+        clearSettledDeltas();
+      }
     } catch (e) {
       if (ticket === loadSeq.current && showLoading) setErr(e instanceof Error ? e.message : 'fetch failed');
     } finally {
@@ -204,7 +220,7 @@ export function PeriodPnLPanel() {
         setTimeout(() => { if (ticket === loadSeq.current) setLoading(false); }, remaining);
       }
     }
-  }, [fromDate, toDate, anchorOverrideUtc]);
+  }, [fromDate, toDate, anchorOverrideUtc, clearSettledDeltas]);
 
   useEffect(() => {
     // Show the loading badge only when we don't already have cached data for this
@@ -221,78 +237,104 @@ export function PeriodPnLPanel() {
     return () => clearInterval(interval);
   }, [fetchPeriod, fromDate, toDate, anchorOverrideUtc]);
 
-  // Live overlay — the same WebSocket feed that drives the Exposure tab.
-  // ExposureSummary[] carries per-canonical-symbol bBookPnL / coveragePnL
-  // (live floating, calibrated-delta from PR#6). We splice these into the
-  // last REST snapshot to make the Current / ΔFloat / Net columns tick on
-  // every WS frame instead of waiting for the 30 s REST refresh.
-  const { exposureSummaries } = useExposureSocket();
   const displayData = useMemo<PeriodPnLResponse | null>(() => {
     if (!data) return null;
-    if (!exposureSummaries || exposureSummaries.length === 0) return data;
+    const hasFloating = exposureSummaries && exposureSummaries.length > 0;
+    const hasSettledDelta = pendingSettled.size > 0;
+    if (!hasFloating && !hasSettledDelta) return data;
 
     const liveByKey = new Map<string, { bbook: number; coverage: number }>();
-    for (const s of exposureSummaries) {
-      const k = (s.canonicalSymbol || '').toUpperCase();
-      if (k) liveByKey.set(k, { bbook: s.bBookPnL ?? 0, coverage: s.coveragePnL ?? 0 });
+    if (hasFloating) {
+      for (const s of exposureSummaries) {
+        const k = (s.canonicalSymbol || '').toUpperCase();
+        if (k) liveByKey.set(k, { bbook: s.bBookPnL ?? 0, coverage: s.coveragePnL ?? 0 });
+      }
     }
 
     let totalBBookDelta = 0;
     let totalCovDelta   = 0;
+    let totalSettledBBookDelta = 0;
+    let totalSettledCovDelta   = 0;
 
     const overlayRow = (r: PeriodPnLRow): PeriodPnLRow => {
-      const live = liveByKey.get((r.canonicalSymbol || '').toUpperCase());
-      if (!live) return r;
-      const bBookDelta = live.bbook    - r.bBook.currentFloating;
-      const covDelta   = live.coverage - r.coverage.currentFloating;
-      totalBBookDelta += bBookDelta;
-      totalCovDelta   += covDelta;
+      const k = (r.canonicalSymbol || '').toUpperCase();
+      const live = liveByKey.get(k);
+      const settled = pendingSettled.get(k);
+      if (!live && !settled) return r;
+
+      const bBookFloatDelta = live ? live.bbook    - r.bBook.currentFloating : 0;
+      const covFloatDelta   = live ? live.coverage - r.coverage.currentFloating : 0;
+      const bBookSettledDelta = settled?.bbook    ?? 0;
+      const covSettledDelta   = settled?.coverage ?? 0;
+      totalBBookDelta += bBookFloatDelta;
+      totalCovDelta   += covFloatDelta;
+      totalSettledBBookDelta += bBookSettledDelta;
+      totalSettledCovDelta   += covSettledDelta;
+
       return {
         canonicalSymbol: r.canonicalSymbol,
         bBook: {
           ...r.bBook,
-          currentFloating: live.bbook,
-          floatingDelta:   r.bBook.floatingDelta + bBookDelta,
-          net:             r.bBook.net           + bBookDelta,
+          currentFloating: live ? live.bbook : r.bBook.currentFloating,
+          floatingDelta:   r.bBook.floatingDelta + bBookFloatDelta,
+          settled:         r.bBook.settled       + bBookSettledDelta,
+          net:             r.bBook.net           + bBookFloatDelta + bBookSettledDelta,
         },
         coverage: {
           ...r.coverage,
-          currentFloating: live.coverage,
-          floatingDelta:   r.coverage.floatingDelta + covDelta,
-          net:             r.coverage.net           + covDelta,
+          currentFloating: live ? live.coverage : r.coverage.currentFloating,
+          floatingDelta:   r.coverage.floatingDelta + covFloatDelta,
+          settled:         r.coverage.settled       + covSettledDelta,
+          net:             r.coverage.net           + covFloatDelta + covSettledDelta,
         },
         edge: {
-          floating: r.edge.floating + (covDelta - bBookDelta),
-          settled:  r.edge.settled,
-          net:      r.edge.net      + (covDelta - bBookDelta),
+          floating: r.edge.floating + (covFloatDelta   - bBookFloatDelta),
+          settled:  r.edge.settled  + (covSettledDelta - bBookSettledDelta),
+          net:      r.edge.net      + (covFloatDelta   - bBookFloatDelta)
+                                    + (covSettledDelta - bBookSettledDelta),
         },
       };
     };
 
     const overlayedRows = data.rows.map(overlayRow);
+
+    // Sum any deal_settled frames whose canonical key didn't match an existing
+    // row (e.g. a brand-new symbol we haven't seen since the REST refresh).
+    // These contribute to TOTAL only — we don't synthesize phantom row entries.
+    const seenKeys = new Set(data.rows.map(r => (r.canonicalSymbol || '').toUpperCase()));
+    for (const [k, d] of pendingSettled.entries()) {
+      if (!seenKeys.has(k)) {
+        totalSettledBBookDelta += d.bbook;
+        totalSettledCovDelta   += d.coverage;
+      }
+    }
+
     const totals: PeriodPnLRow = {
       ...data.totals,
       bBook: {
         ...data.totals.bBook,
         currentFloating: data.totals.bBook.currentFloating + totalBBookDelta,
         floatingDelta:   data.totals.bBook.floatingDelta   + totalBBookDelta,
-        net:             data.totals.bBook.net             + totalBBookDelta,
+        settled:         data.totals.bBook.settled         + totalSettledBBookDelta,
+        net:             data.totals.bBook.net             + totalBBookDelta + totalSettledBBookDelta,
       },
       coverage: {
         ...data.totals.coverage,
         currentFloating: data.totals.coverage.currentFloating + totalCovDelta,
         floatingDelta:   data.totals.coverage.floatingDelta   + totalCovDelta,
-        net:             data.totals.coverage.net             + totalCovDelta,
+        settled:         data.totals.coverage.settled         + totalSettledCovDelta,
+        net:             data.totals.coverage.net             + totalCovDelta + totalSettledCovDelta,
       },
       edge: {
-        floating: data.totals.edge.floating + (totalCovDelta - totalBBookDelta),
-        settled:  data.totals.edge.settled,
-        net:      data.totals.edge.net      + (totalCovDelta - totalBBookDelta),
+        floating: data.totals.edge.floating + (totalCovDelta         - totalBBookDelta),
+        settled:  data.totals.edge.settled  + (totalSettledCovDelta  - totalSettledBBookDelta),
+        net:      data.totals.edge.net      + (totalCovDelta         - totalBBookDelta)
+                                            + (totalSettledCovDelta  - totalSettledBBookDelta),
       },
     };
 
     return { ...data, rows: overlayedRows, totals };
-  }, [data, exposureSummaries]);
+  }, [data, exposureSummaries, pendingSettled]);
 
   const captureNow = async () => {
     setCapturing(true);

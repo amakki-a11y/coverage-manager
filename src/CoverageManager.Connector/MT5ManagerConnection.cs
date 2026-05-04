@@ -19,6 +19,7 @@ public sealed class MT5ManagerConnection : BackgroundService
     private readonly Func<Task<List<AccountSettings>>> _getAccounts;
     private readonly Action _onUpdate;
     private readonly Action<string>? _onPriceTick;
+    private readonly Action<ClosedDeal>? _onDealSettled;
     private readonly Func<IEnumerable<TradingAccount>, Task>? _syncAccounts;
     private readonly Func<string, Task<DateTime?>>? _getLastDealTime;
 
@@ -120,7 +121,8 @@ public sealed class MT5ManagerConnection : BackgroundService
         Action onUpdate,
         Func<IEnumerable<TradingAccount>, Task>? syncAccounts = null,
         Func<string, Task<DateTime?>>? getLastDealTime = null,
-        Action<string>? onPriceTick = null)
+        Action<string>? onPriceTick = null,
+        Action<ClosedDeal>? onDealSettled = null)
     {
         _logger = logger;
         _positionManager = positionManager;
@@ -129,6 +131,7 @@ public sealed class MT5ManagerConnection : BackgroundService
         _getAccounts = getAccounts;
         _onUpdate = onUpdate;
         _onPriceTick = onPriceTick;
+        _onDealSettled = onDealSettled;
         _syncAccounts = syncAccounts;
         _getLastDealTime = getLastDealTime;
     }
@@ -550,6 +553,17 @@ public sealed class MT5ManagerConnection : BackgroundService
         var deal = ConvertDeal(raw);
         _dealStore.AddDeal(deal);
         _onUpdate(); // Trigger WebSocket push so closed row updates in real-time
+
+        // Phase 2.19: fast-path settled-delta push. Lets the Net P&L tab's
+        // SETTLED column tick within ~50 ms of a deal close instead of waiting
+        // for the next 30 s REST poll + DataSyncService's 30 s Supabase write
+        // cycle (worst-case 60 s lag). Skip BALANCE/CREDIT/CORRECTION admin
+        // deals (action >= 2) — they don't contribute to settled trade P&L.
+        // Frontend overlay clears on the next REST refresh so deltas don't
+        // double-count once Supabase catches up.
+        if (deal.Action <= 1)
+            _onDealSettled?.Invoke(deal);
+
         _logger.LogDebug("Deal received: #{DealId} Action={Action} {Symbol} {Entry} P&L={Profit}",
             raw.DealId, raw.Action, raw.Symbol, raw.Entry, raw.Profit);
     }
