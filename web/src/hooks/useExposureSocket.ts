@@ -18,12 +18,33 @@ import { WS_BASE } from '../config';
  *
  * @returns State snapshot plus `acknowledgeAlert(id)` for clearing a toast.
  */
+/**
+ * Per-canonical-symbol settled-P&L delta accumulator. Each entry tracks the sum
+ * of `settledDelta` from all `deal_settled` WS frames received since the last
+ * REST refresh, plus the set of `dealId`s included so a hard refresh can prove
+ * which deals are already in the REST snapshot.
+ *
+ * <p>Phase 2.19. Frontend overlays this onto cached `PeriodPnLResponse.rows[*].
+ * bBook.settled` so the Net P&L tab's SETTLED column ticks within ~50 ms of a
+ * deal close. Cleared by `clearSettledDeltas()` after each REST refresh.</p>
+ */
+export interface SettledDelta {
+  bbook: number;
+  coverage: number;
+  dealIds: Set<string>;
+}
+
 interface State {
   exposureSummaries: ExposureSummary[];
   prices: PriceQuote[];
   connected: boolean;
   newAlerts: AlertEvent[];
   alertCount: number;
+  // Map<canonicalKey, SettledDelta> — accumulated deal_settled deltas waiting
+  // to be reconciled by the next REST refresh. Each entry is one canonical
+  // symbol; the dealIds set guards against double-counting if the same deal
+  // event arrives twice (rare but possible across reconnect).
+  pendingSettled: Map<string, SettledDelta>;
 }
 
 type Action =
@@ -31,6 +52,8 @@ type Action =
   | { type: 'DISCONNECTED' }
   | { type: 'EXPOSURE_UPDATE'; payload: Extract<WsMessage, { type: 'exposure_update' }>['data'] }
   | { type: 'PRICE_UPDATE'; payload: Extract<WsMessage, { type: 'price_update' }>['data'] }
+  | { type: 'DEAL_SETTLED'; payload: Extract<WsMessage, { type: 'deal_settled' }>['data'] }
+  | { type: 'CLEAR_SETTLED_DELTAS' }
   | { type: 'CLEAR_NEW_ALERTS' };
 
 function reducer(state: State, action: Action): State {
@@ -81,6 +104,29 @@ function reducer(state: State, action: Action): State {
         exposureSummaries: overlaid,
       };
     }
+    case 'DEAL_SETTLED': {
+      // Accumulate per-canonical-symbol settled delta. Same dealId arriving
+      // twice is a no-op (guards against duplicate emit on reconnect).
+      const k = (action.payload.canonicalKey || '').toUpperCase();
+      if (!k) return state;
+      const next = new Map(state.pendingSettled);
+      const cur = next.get(k) ?? { bbook: 0, coverage: 0, dealIds: new Set<string>() };
+      if (cur.dealIds.has(action.payload.dealId)) return state;
+      const deltaDealIds = new Set(cur.dealIds);
+      deltaDealIds.add(action.payload.dealId);
+      const isCov = action.payload.source === 'coverage';
+      next.set(k, {
+        bbook:    isCov ? cur.bbook    : cur.bbook    + (action.payload.settledDelta ?? 0),
+        coverage: isCov ? cur.coverage + (action.payload.settledDelta ?? 0) : cur.coverage,
+        dealIds:  deltaDealIds,
+      });
+      return { ...state, pendingSettled: next };
+    }
+    case 'CLEAR_SETTLED_DELTAS':
+      // Called by panel after each REST refresh — REST result is now authoritative
+      // for everything in Supabase, so reset the live overlay. New deal_settled
+      // frames arriving after this point start a fresh accumulator.
+      return state.pendingSettled.size === 0 ? state : { ...state, pendingSettled: new Map() };
     case 'CLEAR_NEW_ALERTS':
       return { ...state, newAlerts: [] };
     default:
@@ -94,6 +140,7 @@ const initialState: State = {
   connected: false,
   newAlerts: [],
   alertCount: 0,
+  pendingSettled: new Map(),
 };
 
 const WS_URL = `${WS_BASE}/ws/exposure`;
@@ -123,6 +170,8 @@ export function useExposureSocket() {
           dispatch({ type: 'EXPOSURE_UPDATE', payload: message.data });
         } else if (message.type === 'price_update') {
           dispatch({ type: 'PRICE_UPDATE', payload: message.data });
+        } else if (message.type === 'deal_settled') {
+          dispatch({ type: 'DEAL_SETTLED', payload: message.data });
         }
       } catch (err) {
         // Upstream protocol break: log the first bytes so the backend team sees it
@@ -156,5 +205,13 @@ export function useExposureSocket() {
     dispatch({ type: 'CLEAR_NEW_ALERTS' });
   }, []);
 
-  return { ...state, clearNewAlerts };
+  // Phase 2.19: panel calls this after each REST refresh resolves so the live
+  // settled-delta overlay resets — REST result is authoritative for whatever
+  // has been ingested into Supabase, and new deal_settled frames after this
+  // point feed a fresh accumulator.
+  const clearSettledDeltas = useCallback(() => {
+    dispatch({ type: 'CLEAR_SETTLED_DELTAS' });
+  }, []);
+
+  return { ...state, clearNewAlerts, clearSettledDeltas };
 }

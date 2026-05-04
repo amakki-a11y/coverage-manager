@@ -255,6 +255,72 @@ public class ExposureBroadcastService : IDisposable
         }
     }
 
+    /// <summary>
+    /// Fire a per-deal <c>deal_settled</c> WS frame the moment a closed B-Book deal
+    /// arrives via <c>OnDealReceived</c>. Lets the Net P&amp;L tab's SETTLED column
+    /// update within ~50 ms instead of waiting for the next 30 s REST poll +
+    /// DataSyncService's 30 s Supabase write cycle (worst-case 60 s lag pre-fix).
+    ///
+    /// <para>The frontend overlays this delta on top of the cached REST settled
+    /// value and clears the overlay on the next REST refresh — so deltas don't
+    /// double-count once the deal has been ingested into Supabase.</para>
+    ///
+    /// <para>No throttling: deal arrivals are sparse compared to ticks (typical
+    /// session = a few per second peak). One frame per deal is fine.</para>
+    /// </summary>
+    public void BroadcastDealSettled(string canonicalKey, decimal settledDelta, DateTime dealTimeUtc, ulong dealId, string source)
+    {
+        if (_clients.IsEmpty) return;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var message = new
+                {
+                    type = "deal_settled",
+                    data = new
+                    {
+                        canonicalKey,
+                        source,
+                        dealId = dealId.ToString(),
+                        settledDelta,
+                        dealTimeUtc,
+                    },
+                };
+                var json = JsonSerializer.Serialize(message, JsonOptions);
+                var buffer = Encoding.UTF8.GetBytes(json);
+                var deadClients = new List<string>();
+                foreach (var (id, socket) in _clients)
+                {
+                    try
+                    {
+                        if (socket.State == WebSocketState.Open)
+                        {
+                            await socket.SendAsync(
+                                new ArraySegment<byte>(buffer),
+                                WebSocketMessageType.Text,
+                                true,
+                                CancellationToken.None);
+                        }
+                        else
+                        {
+                            deadClients.Add(id);
+                        }
+                    }
+                    catch
+                    {
+                        deadClients.Add(id);
+                    }
+                }
+                foreach (var id in deadClients) RemoveClient(id);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error broadcasting deal_settled");
+            }
+        });
+    }
+
     public void Dispose()
     {
         _broadcastTimer.Dispose();

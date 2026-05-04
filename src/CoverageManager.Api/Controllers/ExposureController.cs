@@ -761,9 +761,18 @@ public class ExposureController : ControllerBase
             ? DateTime.SpecifyKind(anchorOverrideUtc.Value, DateTimeKind.Utc)
             : autoBeginAnchorUtc;
 
-        // 2. Begin snapshots (per-symbol, latest ≤ anchor). Split by source —
-        //    the row carries both bbook_pnl and coverage_pnl.
-        var nearest = await _supabase.GetNearestSnapshotsBeforeAsync(beginAnchorUtc);
+        // 2. Begin snapshots. Two modes:
+        //    - Auto anchor (no override): per-symbol, latest snapshot ≤ anchor. Lets symbols
+        //      that didn't appear in the most recent capture fall back to whatever was last
+        //      recorded for them (e.g. zero-rows from "today reset" captures).
+        //    - Explicit override (dealer picked a snapshot in the picker): use ONLY rows at
+        //      that exact snapshot_time. Symbols not in the picked capture get BEGIN = 0.
+        //      Sentinel rows (BEGIN_SEED_TOTAL etc.) only contribute if they were captured
+        //      at exactly the picked instant — otherwise they don't pollute the TOTAL. This
+        //      makes the panel's BEGIN totals match the snapshot's own totals 1:1.
+        var nearest = anchorOverrideUtc.HasValue
+            ? await _supabase.GetSnapshotsAtAsync(beginAnchorUtc)
+            : await _supabase.GetNearestSnapshotsBeforeAsync(beginAnchorUtc);
 
         // Normalize every canonical symbol coming from mappings/live/snapshots/deals to a
         // single key so we don't end up with two rows for "GCM6" vs "GCM6-" or "Ut100-" vs "UT100".
