@@ -4,6 +4,7 @@ import type { PeriodPnLResponse, PeriodPnLRow, PeriodPnLSide } from '../types';
 import { useDateRange } from '../hooks/useDateRange';
 import { useExposureSocket } from '../hooks/useExposureSocket';
 import { API_BASE } from '../config';
+import { SnapshotPickerModal } from './SnapshotPickerModal';
 
 /**
  * Net P&L tab — period P&L decomposition.
@@ -147,20 +148,38 @@ function SideCells({ side, bg, divider }: { side: PeriodPnLSide; bg?: string; di
   );
 }
 
-// Module-level cache keyed by date range. Survives tab switches (which unmount the
-// component) so the user doesn't see a blank "Loading" flash every time they come
-// back — we render cached data immediately, then a background fetch refreshes it.
+// Module-level cache keyed by date range + anchor override. Survives tab switches
+// (which unmount the component) so the user doesn't see a blank "Loading" flash
+// every time they come back — we render cached data immediately, then a background
+// fetch refreshes it. Anchor override is part of the key so picking a different
+// snapshot doesn't return stale cached data.
 const periodCache = new Map<string, PeriodPnLResponse>();
-const cacheKey = (from: string, to: string) => `${from}|${to}`;
+const cacheKey = (from: string, to: string, anchorOverride: string | null) =>
+  `${from}|${to}|${anchorOverride ?? ''}`;
 
 export function PeriodPnLPanel() {
   // Shared date range — persisted to localStorage and mirrored to Exposure + P&L tabs.
   const [fromDate, toDate, setFromDate, setToDate] = useDateRange();
-  const [data, setData] = useState<PeriodPnLResponse | null>(() => periodCache.get(cacheKey(fromDate, toDate)) ?? null);
+  // Optional Begin anchor override — when set, sent as `anchorOverrideUtc` query param.
+  // Cleared (null) means "use the auto-derived from-date 00:00 Beirut → UTC anchor".
+  // Persisted across tab unmounts via localStorage so the dealer's pick survives reloads.
+  const [anchorOverrideUtc, setAnchorOverrideUtc] = useState<string | null>(() => {
+    try { return localStorage.getItem('netpnl.anchorOverrideUtc') || null; } catch { return null; }
+  });
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [data, setData] = useState<PeriodPnLResponse | null>(() => periodCache.get(cacheKey(fromDate, toDate, anchorOverrideUtc)) ?? null);
   const [loading, setLoading] = useState(false);
   const [capturing, setCapturing] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const loadSeq = useRef(0);
+
+  // Persist override pick across reloads.
+  useEffect(() => {
+    try {
+      if (anchorOverrideUtc) localStorage.setItem('netpnl.anchorOverrideUtc', anchorOverrideUtc);
+      else localStorage.removeItem('netpnl.anchorOverrideUtc');
+    } catch { /* ignore */ }
+  }, [anchorOverrideUtc]);
 
   // Silent refresh (used by interval polling) does NOT toggle the loading badge
   // so it doesn't flash every 10s. Only date-changed fetches show the badge.
@@ -169,10 +188,12 @@ export function PeriodPnLPanel() {
     const shownAt = Date.now();
     if (showLoading) { setLoading(true); setErr(null); }
     try {
-      const res = await fetch(`${API_BASE}/api/exposure/pnl/period?from=${fromDate}&to=${toDate}`);
+      const params = new URLSearchParams({ from: fromDate, to: toDate });
+      if (anchorOverrideUtc) params.set('anchorOverrideUtc', anchorOverrideUtc);
+      const res = await fetch(`${API_BASE}/api/exposure/pnl/period?${params}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json: PeriodPnLResponse = await res.json();
-      periodCache.set(cacheKey(fromDate, toDate), json);
+      periodCache.set(cacheKey(fromDate, toDate, anchorOverrideUtc), json);
       if (ticket === loadSeq.current) setData(json);
     } catch (e) {
       if (ticket === loadSeq.current && showLoading) setErr(e instanceof Error ? e.message : 'fetch failed');
@@ -183,12 +204,13 @@ export function PeriodPnLPanel() {
         setTimeout(() => { if (ticket === loadSeq.current) setLoading(false); }, remaining);
       }
     }
-  }, [fromDate, toDate]);
+  }, [fromDate, toDate, anchorOverrideUtc]);
 
   useEffect(() => {
     // Show the loading badge only when we don't already have cached data for this
-    // range — re-mounting (tab revisit) with a warm cache triggers a silent refresh.
-    const hasCached = periodCache.has(cacheKey(fromDate, toDate));
+    // range + anchor override — re-mounting (tab revisit) with a warm cache triggers
+    // a silent refresh.
+    const hasCached = periodCache.has(cacheKey(fromDate, toDate, anchorOverrideUtc));
     fetchPeriod(!hasCached);
     // Periodic silent refresh for slow-changing fields (Begin Floating from
     // snapshots, Settled from realized P&L). The "Current Floating" column
@@ -197,7 +219,7 @@ export function PeriodPnLPanel() {
     // snapshot tick or a newly settled deal.
     const interval = setInterval(() => fetchPeriod(false), 30_000);
     return () => clearInterval(interval);
-  }, [fetchPeriod, fromDate, toDate]);
+  }, [fetchPeriod, fromDate, toDate, anchorOverrideUtc]);
 
   // Live overlay — the same WebSocket feed that drives the Exposure tab.
   // ExposureSummary[] carries per-canonical-symbol bBookPnL / coveragePnL
@@ -330,11 +352,52 @@ export function PeriodPnLPanel() {
         )}
 
         {data && (
-          <span style={{ color: THEME.t3, fontSize: 11, marginLeft: 'auto' }} title={`Begin anchor (UTC): ${data.beginAnchorUtc}`}>
-            Begin anchor: <code style={{ color: THEME.t2 }}>{data.beginAnchorUtc.replace('T', ' ').replace(/\.\d+Z?$/, 'Z')}</code>
+          <span
+            onClick={() => setPickerOpen(true)}
+            title={anchorOverrideUtc
+              ? `Click to change. Currently overriding the auto from-date anchor.\nUTC: ${data.beginAnchorUtc}`
+              : `Click to pick a specific snapshot.\nAuto-derived from FROM date 00:00 Asia/Beirut.\nUTC: ${data.beginAnchorUtc}`}
+            style={{
+              color: anchorOverrideUtc ? THEME.amber : THEME.t3,
+              fontSize: 11,
+              marginLeft: 'auto',
+              cursor: 'pointer',
+              padding: '4px 8px',
+              borderRadius: 6,
+              border: `1px solid ${anchorOverrideUtc ? THEME.amber : 'transparent'}`,
+              background: anchorOverrideUtc ? 'rgba(255,167,38,0.08)' : 'transparent',
+              userSelect: 'none',
+            }}
+            onMouseEnter={e => { if (!anchorOverrideUtc) e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; }}
+            onMouseLeave={e => { if (!anchorOverrideUtc) e.currentTarget.style.background = 'transparent'; }}
+          >
+            {anchorOverrideUtc ? '⚓ ' : ''}Begin anchor: <code style={{ color: anchorOverrideUtc ? THEME.amber : THEME.t2 }}>{data.beginAnchorUtc.replace('T', ' ').replace(/\.\d+Z?$/, 'Z')}</code>
           </span>
         )}
+        {anchorOverrideUtc && (
+          <button
+            onClick={() => setAnchorOverrideUtc(null)}
+            title="Reset to auto anchor (from-date 00:00 Asia/Beirut)"
+            style={{
+              ...btnStyle,
+              padding: '3px 8px',
+              fontSize: 11,
+              background: 'transparent',
+              color: THEME.amber,
+              border: `1px solid ${THEME.amber}`,
+            }}
+          >
+            ↩ Reset
+          </button>
+        )}
       </div>
+
+      <SnapshotPickerModal
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        currentAnchorUtcIso={anchorOverrideUtc ?? data?.beginAnchorUtc ?? null}
+        onPick={(iso) => setAnchorOverrideUtc(iso)}
+      />
 
       <style>{`@keyframes cm-spin { to { transform: rotate(360deg); } }`}</style>
 
