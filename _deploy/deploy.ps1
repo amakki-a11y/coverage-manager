@@ -1,4 +1,4 @@
-# Coverage Manager — production deploy script (Windows VPS).
+# Coverage Manager -- production deploy script (Windows VPS).
 #
 # Purpose: rebuild the C# API + React frontend, then atomically swap the running
 # `publish\api` directory in place. The naive "publish straight to publish\api"
@@ -7,7 +7,7 @@
 # by building into `publish\api-staging` first and using a rename-based swap
 # while the service is briefly stopped.
 #
-# Usage (run from the repo root, NORMAL PowerShell — no elevation needed for
+# Usage (run from the repo root, NORMAL PowerShell -- no elevation needed for
 # the build steps; nssm stop/start near the end requires elevated PS, so the
 # script pauses for you to do that part by hand):
 #
@@ -15,6 +15,12 @@
 #
 # Idempotent: on rebuild failure, the live `publish\api` is untouched.
 # Rollback: rename the latest `publish\api-old-<timestamp>` back to `publish\api`.
+#
+# Encoding note: this file is intentionally ASCII-only (no em-dashes, no arrows,
+# no smart quotes) so it parses correctly under Windows PowerShell 5.1, which
+# reads files as cp1252 by default and will misparse multi-byte UTF-8 sequences
+# inside string literals if a BOM is missing. Don't introduce non-ASCII chars
+# inside throw "..." or Write-Host "..." strings without also adding a UTF-8 BOM.
 
 param(
     [string]$RepoRoot = (Resolve-Path "$PSScriptRoot\.."),
@@ -37,7 +43,7 @@ $stagingDir   = Join-Path $RepoRoot "publish\api-staging"
 $rollbackDir  = Join-Path $RepoRoot "publish\api-old-$timestamp"
 
 # ---------------------------------------------------------------------------
-# 1. Backend rebuild → publish\api-staging
+# 1. Backend rebuild -> publish\api-staging
 # ---------------------------------------------------------------------------
 if (-not $SkipBackend) {
     Step "Backend: dotnet publish -> $stagingDir"
@@ -57,13 +63,13 @@ if (-not $SkipBackend) {
             Copy-Item -Force $libDll $nativeDll
             Write-Host "    Copied MT5APIManager64.dll from Libs\ to publish root" -ForegroundColor Yellow
         } else {
-            throw "MT5APIManager64.dll not found in $stagingDir or Libs\ — backend will P/Invoke-fail at runtime"
+            throw "MT5APIManager64.dll not found in $stagingDir or Libs\ -- backend will P/Invoke-fail at runtime"
         }
     }
 }
 
 # ---------------------------------------------------------------------------
-# 2. Frontend rebuild → web\dist (then copied into staging\wwwroot)
+# 2. Frontend rebuild -> web\dist (then copied into staging\wwwroot)
 # ---------------------------------------------------------------------------
 if (-not $SkipFrontend) {
     Step "Frontend: npm ci + npm run build (fallback to vite build on tsc errors)"
@@ -74,10 +80,10 @@ if (-not $SkipFrontend) {
 
         # `npm run build` runs `tsc -b && vite build`. tsc -b sometimes trips on
         # TS6133 "declared but never read" warnings as errors; if it does, fall
-        # back to vite build alone — the runtime bundle is produced by vite anyway.
+        # back to vite build alone -- the runtime bundle is produced by vite anyway.
         npm run build
         if ($LASTEXITCODE -ne 0) {
-            Write-Host "    npm run build failed (likely tsc -b) — retrying with `npx vite build`" -ForegroundColor Yellow
+            Write-Host "    npm run build failed (likely tsc -b) -- retrying with npx vite build" -ForegroundColor Yellow
             npx vite build
             if ($LASTEXITCODE -ne 0) { throw "vite build failed (exit $LASTEXITCODE)" }
         }
