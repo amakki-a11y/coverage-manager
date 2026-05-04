@@ -277,37 +277,73 @@ In the UI:
 
 ## 12. Updating later
 
-When you have a new commit on `live`:
+When `origin/live` has new commits, update via the **staging-then-swap** pattern.
+The naive in-place `dotnet publish -o publish\api` fails with **MSB3027** because
+the running NSSM service holds file locks on `CoverageManager.Api.dll`. The
+[`_deploy\deploy.ps1`](../_deploy/deploy.ps1) script handles this by building
+into `publish\api-staging`, then handing off the atomic swap to elevated PS.
+
+### Standard update (backend + frontend, no collector change)
+
 ```powershell
 cd C:\apps\coverage-manager
 git pull origin live
 
-# Rebuild the C# backend. The native MT5APIManager64.dll is auto-emitted at
-# the publish root now — no manual copy step needed.
-dotnet publish src\CoverageManager.Api\CoverageManager.Api.csproj -c Release -o C:\apps\coverage-manager\publish\api
+# Builds the C# API into publish\api-staging and the frontend into
+# publish\api-staging\wwwroot. Skips touching the running publish\api.
+# Native MT5APIManager64.dll is verified at the publish root (P/Invoke
+# requires it there, not just under Libs\).
+.\_deploy\deploy.ps1
+```
 
-# Rebuild the frontend. If `npm run build` fails with 23 TS6133 "declared
-# but never read" errors, fall back to `npx vite build` — the runtime
-# bundle is produced by vite anyway; `tsc -b` is a strict typecheck gate.
-cd web
-npm ci
-npm run build
-Copy-Item -Recurse -Force dist\* ..\publish\api\wwwroot
-cd ..
+The script ends by printing the swap commands. Open an **elevated PowerShell**
+(right-click → "Run as administrator") and paste them — NSSM service control
+needs admin even though the build did not:
 
-# Python collector — only if collector/ changed. Always restart it after a
-# collector commit since the MetaTrader5 library loads at import time.
-cd collector
+```powershell
+nssm stop coverage-api
+Rename-Item C:\apps\coverage-manager\publish\api "api-old-<timestamp>"
+Rename-Item C:\apps\coverage-manager\publish\api-staging api
+nssm start coverage-api
+```
+
+The `api-old-<timestamp>` directory is your rollback target — keep the most
+recent one or two, prune the older ones once you're confident in the new build.
+
+### Verify after restart
+
+```powershell
+Invoke-WebRequest http://localhost:5000/api/exposure/status -UseBasicParsing | Select-Object StatusCode
+Get-Content C:\apps\coverage-manager\logs\coverage-manager-*.log -Tail 60
+```
+
+Expect HTTP 200 and a startup banner with no unhandled-exception lines.
+
+### Rollback
+
+If verification fails, restore the previous build (in elevated PS):
+
+```powershell
+nssm stop coverage-api
+Rename-Item C:\apps\coverage-manager\publish\api "api-FAILED-<timestamp>"
+Rename-Item C:\apps\coverage-manager\publish\api-old-<timestamp> api
+nssm start coverage-api
+```
+
+### Collector-only updates
+
+Only run these when `collector/` changed (Python deps, MT5 timeouts, etc.).
+The MetaTrader5 library loads at import time, so a restart is mandatory:
+
+```powershell
+cd C:\apps\coverage-manager\collector
 .\venv\Scripts\activate
 pip install -r requirements.txt
 deactivate
-cd ..
-
-# Restart both services. coverage-collector IS needed even for backend-only
-# changes if you bumped MT5 timeouts, polling intervals, or env vars.
-nssm restart coverage-api
-nssm restart coverage-collector
+nssm restart coverage-collector   # elevated PS
 ```
+
+Backend-only updates do NOT need to restart the collector.
 
 ---
 

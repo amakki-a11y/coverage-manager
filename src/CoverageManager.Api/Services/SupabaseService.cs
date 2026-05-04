@@ -997,6 +997,45 @@ public class SupabaseService
         }
     }
 
+    /// <summary>
+    /// Fetch all snapshot rows at exactly <paramref name="exactSnapshotTimeUtc"/>.
+    ///
+    /// <para>Used by the snapshot picker override path: when the dealer explicitly chooses a
+    /// snapshot capture event as the BEGIN anchor, only rows at that exact instant should
+    /// contribute — never the latest-before fallback. This keeps the panel's BEGIN totals
+    /// equal to the snapshot's totals (no sentinel pollution, no zero-row leakage from
+    /// older "today reset" captures).</para>
+    /// </summary>
+    public async Task<Dictionary<string, ExposureSnapshot>> GetSnapshotsAtAsync(DateTime exactSnapshotTimeUtc)
+    {
+        try
+        {
+            var sb = new StringBuilder($"{_url}/rest/v1/exposure_snapshots?select=*");
+            sb.Append($"&snapshot_time=eq.{Uri.EscapeDataString(exactSnapshotTimeUtc.ToUniversalTime().ToString("o"))}");
+            sb.Append("&limit=2000");
+            var res = await _http.GetAsync(sb.ToString()).ConfigureAwait(false);
+            if (!res.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("GetSnapshotsAtAsync failed {Status} for ts={Ts}", res.StatusCode, exactSnapshotTimeUtc);
+                return new();
+            }
+            var json = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
+            var rows = JsonSerializer.Deserialize<List<ExposureSnapshot>>(json, JsonOptions) ?? new();
+            var result = new Dictionary<string, ExposureSnapshot>(StringComparer.OrdinalIgnoreCase);
+            foreach (var r in rows)
+            {
+                var key = r.CanonicalSymbol.ToUpperInvariant();
+                result[key] = r;
+            }
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "GetSnapshotsAtAsync failed for ts={Ts}", exactSnapshotTimeUtc);
+            return new();
+        }
+    }
+
     /// <summary>List raw snapshots in a window (for history UI / debugging).</summary>
     public async Task<List<ExposureSnapshot>> ListExposureSnapshotsAsync(DateTime fromUtc, DateTime toUtc, string? canonicalSymbol = null)
     {

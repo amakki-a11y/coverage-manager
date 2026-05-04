@@ -122,7 +122,32 @@ export interface PriceUpdateMessage {
   };
 }
 
-export type WsMessage = ExposureMessage | PriceUpdateMessage;
+/**
+ * Per-deal settled-P&L delta. Pushed the moment a closed B-Book deal arrives via
+ * `OnDealReceived` (Phase 2.19). Lets the Net P&L tab's SETTLED column tick within
+ * ~50 ms instead of waiting for the next 30 s REST poll + DataSyncService's 30 s
+ * Supabase write cycle (worst case 60 s lag).
+ *
+ * <p>Frontend overlays this delta on top of the cached REST settled value and
+ * clears the overlay on the next REST refresh — so deltas don't double-count
+ * once the deal has been ingested into Supabase.</p>
+ *
+ * <p>Coverage deals are NOT pushed (collector polls MT5 every 100ms but doesn't
+ * have an event-driven hook into the C# backend). Coverage settled remains REST-
+ * driven (30s).</p>
+ */
+export interface DealSettledMessage {
+  type: 'deal_settled';
+  data: {
+    canonicalKey: string; // upper-cased, trailing '.xxx' / '-' stripped
+    source: 'bbook' | 'coverage';
+    dealId: string;
+    settledDelta: number;
+    dealTimeUtc: string; // ISO 8601
+  };
+}
+
+export type WsMessage = ExposureMessage | PriceUpdateMessage | DealSettledMessage;
 
 // ---- Period P&L (Net P&L tab) ----
 
