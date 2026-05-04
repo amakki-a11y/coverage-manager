@@ -80,7 +80,22 @@ try
             // (10 Hz, which recomputes exposure across every position). Keeps
             // the bid price under each symbol fresh even when the position
             // book is large.
-            onPriceTick: _ => broadcast.MarkPriceDirty());
+            onPriceTick: _ => broadcast.MarkPriceDirty(),
+            // Phase 2.19: per-deal settled-delta push. Mirrors the formula
+            // the `aggregate_bbook_settled_pnl` SQL function uses so the live
+            // overlay matches what the next REST refresh will see in Supabase:
+            //   delta = (entry IN (1,2,3) ? profit + swap : 0) + commission + fee
+            // Canonical key matches the SQL's normalization
+            // (UPPER(strip trailing '.xxx' or trailing dashes)) so the
+            // frontend overlay lands on the right row.
+            onDealSettled: deal =>
+            {
+                var key = NormalizeCanonicalKey(deal.Symbol);
+                if (string.IsNullOrEmpty(key)) return;
+                var delta = (deal.Entry >= 1 && deal.Entry <= 3 ? deal.Profit + deal.Swap : 0m)
+                          + deal.Commission + deal.Fee;
+                broadcast.BroadcastDealSettled(key, delta, deal.Time, deal.DealId, "bbook");
+            });
     });
     builder.Services.AddHostedService(sp => sp.GetRequiredService<MT5ManagerConnection>());
 
@@ -358,4 +373,25 @@ catch (Exception ex)
 finally
 {
     Log.CloseAndFlush();
+}
+
+// Mirrors the canonical-key normalization the `aggregate_bbook_settled_pnl`
+// SQL function uses (UPPER + strip trailing '.xxx' lowercase suffix or trailing
+// dashes). Used by the deal_settled WS broadcast so the live overlay lands on
+// the same row the next REST refresh will see.
+static string NormalizeCanonicalKey(string? raw)
+{
+    if (string.IsNullOrEmpty(raw)) return string.Empty;
+    var s = raw.Trim();
+    var dot = s.LastIndexOf('.');
+    if (dot >= 0 && s.Length - dot >= 2 && s.Length - dot <= 4)
+    {
+        var suffix = s[(dot + 1)..];
+        bool allLetters = suffix.Length > 0;
+        for (int i = 0; i < suffix.Length; i++)
+            if (!char.IsLetter(suffix[i])) { allLetters = false; break; }
+        if (allLetters) s = s[..dot];
+    }
+    while (s.EndsWith('-')) s = s[..^1];
+    return s.ToUpperInvariant();
 }
