@@ -39,7 +39,7 @@ function AppContent() {
   const { mode, toggleTheme } = useTheme();
   const [tab, setTab] = useState<SidebarTab>('exposure');
   const [collapsed, setCollapsed] = useState<boolean>(() => localStorage.getItem('sidebar.collapsed') === 'true');
-  const { exposureSummaries, prices, connected, newAlerts, alertCount } = useExposureSocket();
+  const { exposureSummaries, prices, connected, lagging, newAlerts, alertCount } = useExposureSocket();
   const [positions, setPositions] = useState<Position[]>([]);
   const [showAlertHistory, setShowAlertHistory] = useState(false);
   const [showUserGuide, setShowUserGuide] = useState(false);
@@ -157,7 +157,7 @@ function AppContent() {
         <AlertBanner alertCount={alertCount} onShowHistory={() => setShowAlertHistory(true)} />
         <RiskBanner summaries={exposureSummaries} />
 
-        <StaleWrapper isStale={!connected} style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+        <StaleWrapper isStale={!connected || lagging} style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
           <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
             {tab === 'exposure'   && <ExposureTable summaries={exposureSummaries} prices={prices} onNavigate={setTab} />}
             {tab === 'positions'  && <PositionsGrid positions={positions} />}
