@@ -29,7 +29,11 @@ param(
     [switch]$SkipBackend = $false
 )
 
-$ErrorActionPreference = "Stop"
+# PowerShell escalates native-command stderr to terminating errors when
+# ErrorActionPreference=Stop. Vite prints chunk-size warnings to stderr
+# on every build (harmless), which would kill the script. Use Continue
+# and rely on $LASTEXITCODE checks below to catch actual failures.
+$ErrorActionPreference = "Continue"
 Set-Location $RepoRoot
 
 function Step($msg) {
@@ -75,8 +79,18 @@ if (-not $SkipFrontend) {
     Step "Frontend: npm ci + npm run build (fallback to vite build on tsc errors)"
     Push-Location (Join-Path $RepoRoot "web")
     try {
-        npm ci
-        if ($LASTEXITCODE -ne 0) { throw "npm ci failed (exit $LASTEXITCODE)" }
+        # `npm ci` requires package.json and package-lock.json to be in sync.
+        # The lock can drift across platforms (e.g. Windows-only @emnapi/*
+        # entries when the lock was generated on macOS/Linux), causing EUSAGE
+        # "lock file out of sync". Fall back to `npm install` which regenerates
+        # the lock from package.json. This is the documented recovery from
+        # CLAUDE.md "Operational Learnings".
+        npm ci --no-audit --no-fund
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "    npm ci failed (likely platform-specific lockfile mismatch) -- retrying with npm install" -ForegroundColor Yellow
+            npm install --no-audit --no-fund
+            if ($LASTEXITCODE -ne 0) { throw "npm install failed (exit $LASTEXITCODE)" }
+        }
 
         # `npm run build` runs `tsc -b && vite build`. tsc -b sometimes trips on
         # TS6133 "declared but never read" warnings as errors; if it does, fall
