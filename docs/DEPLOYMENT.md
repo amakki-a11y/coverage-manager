@@ -67,7 +67,7 @@ git clone -b live https://github.com/amakki-a11y/coverage-manager.git
 cd coverage-manager
 ```
 
-> Production always runs `live`. `main` is staging, `dev` is integration. Never deploy from `main` or `dev`.
+> Production always runs `live` — and `live` is the default branch since 2026-05-05. `main` and `dev` are forward-sync snapshots of `live` (no separate staging/integration tier in the current workflow); they exist for any tooling that watches them. Never deploy from `main` or `dev`. Default-clone (no `-b`) lands on `live` automatically; no need to specify `-b live`.
 
 ---
 
