@@ -494,6 +494,14 @@ The Python collector uses the synchronous `MetaTrader5` C wrapper on the asyncio
 
 **Stopgap until then:** a Windows Scheduled Task probing `/health` every 30s with a 3-sec timeout, triggering `nssm restart` after 3 consecutive failures. Bounds outage to ~90s.
 
+### WebSocket frame-lag silent staleness (Phase 2.20)
+
+A WebSocket can stay in `readyState === OPEN` while the ISP / NAT / proxy silently stops forwarding frames — `ws.onclose` never fires, so the previous `connected: false` stale-data signal was useless. The dashboard rendered whatever was last received with no visual cue.
+
+**Production reproducer (2026-05-04):** dealer's laptop browser showed XAUUSD net 22.65 lots while the server-side Chrome (RDP'd into the VPS, on localhost) and backend ground truth were both ~21 lots; alert-bell badge showed 16 unack vs the server-side 34 — Device 1 had silently missed 18 alert frames.
+
+**Fix shipped (Phase 2.20, PR #31):** `useExposureSocket` tracks the last-frame timestamp; a 1 Hz watchdog dispatches `LAGGING: true` after 5 s without a frame (drives the existing `StaleWrapper` amber-hatch overlay) and force-closes the WebSocket after 15 s so the existing reconnect path fires.
+
 ### Equity P&L NetDepW race
 `NetDepW = (CurrentBalance − BeginBalance) − Σ(trade-flow)`:
 - `CurrentBalance` is live from MT5 Manager (sub-second).
@@ -522,7 +530,7 @@ MT5 Manager admin ops that move value between Balance and Credit buckets produce
 ```
 This copies to `publish\api\Libs\MT5APIManager64.dll`. But Windows P/Invoke only searches the .exe's directory for native DLLs by default — **you must also copy the native DLL to `publish\api\` (root)**. Without this, the service fails at runtime with a native-lib load error the moment it touches the Manager API.
 
-**Fix candidate:** add `<Link>MT5APIManager64.dll</Link>` to the csproj `<None>` entry to flatten the copy path. Until then, every deploy must manually copy.
+**Auto-handled by `_deploy/deploy.ps1`** (the post-`dotnet publish` verification step): the script checks for `MT5APIManager64.dll` at the staging publish root and copies it from `Libs\` with a yellow warning if absent. Manual intervention is only needed if the verification step is ever bypassed (or if the script itself fails to parse — see the em-dash entry below). Long-term cleanup is still to add `<Link>MT5APIManager64.dll</Link>` to the `CoverageManager.Connector.csproj` `<None>` entry.
 
 ### `ASPNETCORE_URLS` is silently overridden by Kestrel:Endpoints config
 When `appsettings.json` has a `"Kestrel": { "Endpoints": { "Http": { "Url": ... } } }` section (which this repo does), Kestrel picks that URL and ignores `ASPNETCORE_URLS`. Startup log prints a WARNING ("Overriding address(es) 'http://...'. Binding to endpoints defined via IConfiguration...") but the service still binds the Kestrel-config URL, not the env var.
@@ -533,6 +541,48 @@ When `appsettings.json` has a `"Kestrel": { "Endpoints": { "Http": { "Url": ... 
 Providers (GoDaddy, Hetzner, AWS, OVH, DigitalOcean, …) have a firewall layer **above** the Windows firewall you configure via `netsh`. By default most only allow RDP/SSH. Binding to non-standard ports (e.g. :5000) may pass Windows firewall but still get blocked at the provider's perimeter. Bind to :80 or :443 for zero-config external reachability.
 
 **Diagnostic:** if `Test-NetConnection <public-IP> -Port <port>` from the server itself succeeds but external clients get "connection refused" or timeout, the provider firewall is the culprit.
+
+### npm ci platform-lockfile drift (`@emnapi/*` mismatch)
+
+`web/package-lock.json` includes platform-specific transitive entries — most commonly `@emnapi/core` and `@emnapi/runtime` which only appear when the lock was last touched on Windows. If the lock was last regenerated on macOS/Linux and you run `npm ci` on Windows (or vice versa), `npm ci` fails with `EUSAGE` "lock file out of sync" because it requires exact reproducibility — it will not regenerate the lock.
+
+**Fix shipped (PR #33):** `_deploy/deploy.ps1` now falls back from `npm ci` to `npm install` on EUSAGE failure. Same shape as the existing `tsc -b` → `vite build` fallback. `npm install` regenerates the lock from `package.json` and proceeds. The fallback emits a yellow `npm ci failed (likely platform-specific lockfile mismatch) -- retrying with npm install` so the cause is obvious in deploy logs.
+
+### PowerShell `ErrorActionPreference=Stop` escalates native-command stderr
+
+Windows PowerShell 5.1 with `$ErrorActionPreference = "Stop"` escalates ANY native-command stderr write into a terminating error — even when `$LASTEXITCODE` is 0. Vite prints chunk-size warnings to stderr on every successful build (`(!) Some chunks are larger than 500 kB after minification`), which would kill the deploy script despite the build succeeding.
+
+**Fix shipped (PR #33):** `_deploy/deploy.ps1` uses `$ErrorActionPreference = "Continue"` and relies on explicit `$LASTEXITCODE -ne 0` checks (which were already there) to detect actual failures. No false-positives on benign stderr.
+
+### Em-dash characters in PowerShell scripts under cp1252 readers
+
+When a `.ps1` file is saved as UTF-8 **without** a BOM, Windows PowerShell 5.1 reads it as cp1252. UTF-8 em-dashes (`—`, U+2014, bytes `E2 80 94`) become the 3-character sequence `â€"` — and the trailing `"` (cp1252 view of byte `0x94`) closes any surrounding double-quoted string mid-byte. The script then fails to parse with `Unexpected token` at the next bare word.
+
+**Reproducer:** PR #29 shipped a `_deploy/deploy.ps1` with em-dashes in `throw "..."` and `Write-Host "..."` string literals. WinPS 5.1 on the production VPS refused to parse it. PowerShell 7 (`pwsh`) on the dev box parsed it fine because pwsh defaults to UTF-8.
+
+**Fix shipped (PR #30):** `_deploy/deploy.ps1` is now pure ASCII. Audit any future edits with `([System.IO.File]::ReadAllBytes("_deploy\deploy.ps1") | Where-Object { $_ -gt 127 } | Measure-Object).Count` — must return 0. Apply the same audit to any other `.ps1` files we ship for production.
+
+## Branch model
+
+Three long-running branches on origin, kept aligned at the same SHA after every PR:
+
+- **`live`** — production. Default branch since 2026-05-05 so `git clone` (no `-b`) lands on production code. Branch protection requires 1 approving review with `enforce_admins: true`; admin merges via the temporarily-disable-`Require approvals` dance.
+- **`main`** — forward-sync snapshot of `live`. No branch protection.
+- **`dev`** — same role as `main`. No protection.
+
+`main` and `dev` are NOT staging or integration tiers in the GitFlow sense — they are just snapshots, kept current for any tooling that may watch them. New feature branches cut from `live`.
+
+After every PR merge to `live`, run the post-merge sync from a machine with `gh` CLI:
+
+```bash
+LIVE_SHA=$(gh api repos/amakki-a11y/coverage-manager/branches/live --jq '.commit.sha')
+gh api -X PATCH repos/amakki-a11y/coverage-manager/git/refs/heads/main \
+  -f sha=$LIVE_SHA -F force=true
+gh api -X PATCH repos/amakki-a11y/coverage-manager/git/refs/heads/dev \
+  -f sha=$LIVE_SHA -F force=true
+```
+
+(Could be automated via a GitHub Action triggered on push to `live`; not done yet.)
 
 ## Phase Status
 - [x] Phase 1: Live Exposure View (complete)
