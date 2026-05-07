@@ -579,7 +579,7 @@ Observed once on 2026-05-07 17:57 UTC: the Supabase HTTPS connection failed with
 
 Three long-running branches on origin, kept aligned at the same SHA after every PR:
 
-- **`live`** — production. Default branch since 2026-05-05 so `git clone` (no `-b`) lands on production code. Branch protection requires 1 approving review with `enforce_admins: true`; admin merges via the temporarily-disable-`Require approvals` dance.
+- **`live`** — production. Default branch since 2026-05-05 so `git clone` (no `-b`) lands on production code. Branch protection: `enforce_admins: true` + `required_linear_history: true` + `allow_force_pushes: false` block direct pushes, force-pushes, and non-linear merges. `required_approvals: 0` (relaxed from 1 at some point — appropriate for the solo-dev workflow), so `gh pr merge --admin --squash` works in one shot from the dev box. The "temporarily-disable-Require approvals dance" referenced in older session logs is no longer needed.
 - **`main`** — forward-sync snapshot of `live`. No branch protection.
 - **`dev`** — same role as `main`. No protection.
 
