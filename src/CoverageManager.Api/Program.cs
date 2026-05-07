@@ -178,6 +178,14 @@ try
     // missing transfers land in Supabase fast enough that the Equity P&L
     // tab's Net Dep/W and Net Cred columns stay aligned with MT5 Manager.
     builder.Services.AddHostedService<CashMovementSyncService>();
+
+    // Resilient mapping cache — auto-heals when the cold-start Supabase
+    // fetch hits a transient TLS reset (observed 2026-05-07). 60s tick
+    // re-fetches and atomically replaces the in-memory cache; counters
+    // surface in /api/exposure/diagnostics.mappings. Singleton + hosted so
+    // the controller resolves the same instance for the diagnostics block.
+    builder.Services.AddSingleton<MappingRefreshService>();
+    builder.Services.AddHostedService(sp => sp.GetRequiredService<MappingRefreshService>());
     // -----------------------------------------------------------------------
 
     builder.Services.AddControllers()
@@ -213,13 +221,20 @@ try
             await supabaseForAlerts.InsertAlertEventsAsync(alerts));
     }
 
-    // Load symbol mappings from Supabase on startup
+    // Load symbol mappings from Supabase on startup. Routed through
+    // MappingRefreshService so the same retry path + counter state is
+    // shared between startup and the 60s background refresh tick.
+    // GetMappingsAsync now retries 3x on transient TLS resets (Phase 2.21);
+    // if all retries fail, the cache stays empty here and the background
+    // service auto-heals within 60s.
     using (var scope = app.Services.CreateScope())
     {
         var supabase = scope.ServiceProvider.GetRequiredService<SupabaseService>();
-        var mappings = await supabase.GetMappingsAsync();
-        positionManager.LoadMappings(mappings);
-        Log.Information("Loaded {Count} symbol mappings from Supabase", mappings.Count);
+        var mappingRefresh = app.Services.GetRequiredService<MappingRefreshService>();
+        var ok = await mappingRefresh.RefreshOnceAsync();
+        Log.Information(
+            "Startup mapping load: ok={Ok}, count={Count}, consecutiveFailures={Failures}",
+            ok, mappingRefresh.LastFetchCount, mappingRefresh.ConsecutiveFailures);
 
         var alertRules = await supabase.GetAlertRulesAsync();
         alertEngine.LoadThresholds(alertRules);

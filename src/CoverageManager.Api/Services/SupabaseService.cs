@@ -49,20 +49,72 @@ public class SupabaseService
         _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _key);
     }
 
+    /// <summary>
+    /// Fetches the active symbol mappings from Supabase.
+    /// <para>Wrapped in a 3-attempt retry with 500ms / 1500ms / 4500ms backoff
+    /// because we observed (2026-05-07) a transient TLS-layer reset
+    /// (<c>SocketException 10054</c>) during cold-start that left every symbol
+    /// flagged UNMAPPED on the dashboard until a downstream CRUD reload happened.
+    /// See "Operational Learnings — Supabase TLS reset during cold start".</para>
+    /// <para>If all retries fail, returns an empty list (the prior behavior) —
+    /// callers (Program.cs startup load, MappingRefreshService) detect the empty
+    /// result and avoid clobbering a populated cache.</para>
+    /// </summary>
     public async Task<List<SymbolMapping>> GetMappingsAsync()
     {
-        try
+        return await RetryAsync(
+            async () =>
+            {
+                var response = await _http.GetAsync($"{_url}/rest/v1/symbol_mappings?is_active=eq.true&select=*").ConfigureAwait(false);
+                response.EnsureSuccessStatusCode();
+                var json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                return JsonSerializer.Deserialize<List<SymbolMapping>>(json, JsonOptions) ?? new List<SymbolMapping>();
+            },
+            maxAttempts: 3,
+            baseDelayMs: 500,
+            opName: "GetMappings",
+            fallback: new List<SymbolMapping>()).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Generic retry-with-exponential-backoff helper for transient HTTP failures
+    /// against Supabase. Logs each retry attempt at WARNING; logs final failure
+    /// at ERROR. Returns <paramref name="fallback"/> if all attempts fail —
+    /// matches the existing "return empty on failure" convention so callers
+    /// don't have to learn a new error model.
+    /// <para>Backoff: <c>baseDelayMs * 3^(attempt-1)</c>. With defaults (500ms,
+    /// 3 attempts) total worst-case wait is ~6 seconds.</para>
+    /// </summary>
+    private async Task<T> RetryAsync<T>(
+        Func<Task<T>> op,
+        int maxAttempts,
+        int baseDelayMs,
+        string opName,
+        T fallback)
+    {
+        Exception? last = null;
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
         {
-            var response = await _http.GetAsync($"{_url}/rest/v1/symbol_mappings?is_active=eq.true&select=*").ConfigureAwait(false);
-            response.EnsureSuccessStatusCode();
-            var json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-            return JsonSerializer.Deserialize<List<SymbolMapping>>(json, JsonOptions) ?? [];
+            try
+            {
+                return await op().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                last = ex;
+                if (attempt < maxAttempts)
+                {
+                    var delay = baseDelayMs * (int)Math.Pow(3, attempt - 1);
+                    _logger.LogWarning(
+                        "{Op} attempt {Attempt}/{Max} failed ({Type}: {Message}); retrying in {Delay}ms",
+                        opName, attempt, maxAttempts, ex.GetType().Name, ex.Message, delay);
+                    try { await Task.Delay(delay).ConfigureAwait(false); }
+                    catch { /* shutdown — fall through */ }
+                }
+            }
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to fetch symbol mappings from Supabase");
-            return [];
-        }
+        _logger.LogError(last, "{Op} failed after {Max} attempts; returning fallback", opName, maxAttempts);
+        return fallback;
     }
 
     public async Task<SymbolMapping?> UpsertMappingAsync(SymbolMapping mapping)

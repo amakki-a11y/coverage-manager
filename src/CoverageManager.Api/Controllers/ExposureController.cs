@@ -43,6 +43,7 @@ public class ExposureController : ControllerBase
     private readonly SupabaseService _supabase;
     private readonly ExposureSnapshotService _snapshotService;
     private readonly ExposureBroadcastService _broadcast;
+    private readonly MappingRefreshService _mappingRefresh;
     private readonly IHttpClientFactory _httpFactory;
     private readonly ILogger<ExposureController> _logger;
 
@@ -54,6 +55,7 @@ public class ExposureController : ControllerBase
         SupabaseService supabase,
         ExposureSnapshotService snapshotService,
         ExposureBroadcastService broadcast,
+        MappingRefreshService mappingRefresh,
         IHttpClientFactory httpFactory,
         ILogger<ExposureController> logger)
     {
@@ -64,6 +66,7 @@ public class ExposureController : ControllerBase
         _supabase = supabase;
         _snapshotService = snapshotService;
         _broadcast = broadcast;
+        _mappingRefresh = mappingRefresh;
         _httpFactory = httpFactory;
         _logger = logger;
     }
@@ -196,6 +199,18 @@ public class ExposureController : ControllerBase
                         : 0.0,
                     coalescedTicks = _broadcast.DroppedPriceTicks
                 }
+            },
+            // Mapping cache health (Phase 2.21). Watch this on cold start —
+            // count should be > 0 within 60 s of startup. If it stays at 0
+            // with consecutiveFailures > 0, Supabase is unreachable from the
+            // VPS and the dashboard will be showing UNMAPPED badges for
+            // every symbol until the next successful refresh.
+            mappings = new
+            {
+                lastFetchCount = _mappingRefresh.LastFetchCount,
+                lastFetchAtUtc = _mappingRefresh.LastFetchAtUtc,
+                lastFetchOk = _mappingRefresh.LastFetchOk,
+                consecutiveFailures = _mappingRefresh.ConsecutiveFailures
             }
         });
     }
