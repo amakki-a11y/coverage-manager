@@ -34,6 +34,7 @@ coverage-manager/
 ├── src/
 │   ├── CoverageManager.Core/           # Domain models + engines
 │   │   ├── Models/                     # Position, SymbolMapping, ExposureSummary, SymbolPnL, ClosedDeal, TradingAccount, DealRecord, TradeAuditEntry, PriceQuote, SymbolExposure, TradeRecord
+│   │   │   └── Bridge/                 # BridgeDeal, CovFill, ExecutionPair, BridgeSettings (57), ClientOrderDetail (38)
 │   │   └── Engines/                    # PositionManager, ExposureEngine, PriceCache, DealStore
 │   ├── CoverageManager.Connector/      # MT5 Manager API connection
 │   │   ├── IMT5Api.cs                  # Interface (Initialize, Connect, OnTick, OnDealAdd, GetPositions, GetUserLogins, GetUserAccount, RequestDeals)
@@ -43,14 +44,17 @@ coverage-manager/
 │   │   ├── RawTypes.cs                 # RawDeal, RawPosition, RawTick, RawAccount
 │   │   └── Libs/                       # MetaQuotes native DLLs
 │   ├── CoverageManager.Api/            # ASP.NET Core host
-│   │   ├── Controllers/                # Coverage, Exposure, Compare, SymbolMapping, Accounts, Settings
-│   │   └── Services/                   # SupabaseService, ExposureBroadcastService, DataSyncService
-│   └── CoverageManager.Tests/          # MSTest unit tests (27 tests)
+│   │   ├── Controllers/                # Coverage, Exposure, Compare, SymbolMapping, Accounts, Settings, Bridge, Markup (369), Alerts, Reconciliation, EquityPnLConfig, LoginGroups, SnapshotSchedules
+│   │   ├── Services/                   # SupabaseService, ExposureBroadcastService, DataSyncService, CashMovementSyncService, ExposureSnapshotService, ReconciliationService, MappingRefreshService, CoverageAccountSyncService (122), CoverageDealIndex (158), BridgeExecutionStore, BridgeSupabaseWriter, BridgeBroadcastService, BridgeFeedHost (159), BridgeFeedHostAdapter (26), ICentroidBridgeService (57), RestCentroidBridgeService (920), StubCentroidBridgeService (190)
+│   │   └── Workers/                    # BridgeExecutionWorker
+│   └── CoverageManager.Tests/          # MSTest unit tests
 │       ├── ExposureEngineTests.cs
 │       ├── PositionManagerTests.cs
 │       ├── PriceCacheTests.cs
 │       ├── SymbolMappingTests.cs
-│       └── UnitTest1.cs
+│       ├── BridgePairingTests.cs
+│       ├── BridgeEdgeCalculationTests.cs
+│       └── MT5ReconnectBackoffTests.cs (56)
 ├── collector/                           # Python FastAPI collector (MT5 Terminal connection)
 │   └── main.py                         # FastAPI app with /positions, /deals, /health endpoints
 ├── web/                                 # React + TypeScript + Vite dashboard
@@ -61,15 +65,22 @@ coverage-manager/
 │       ├── types/compare.ts            # SymbolExposure, TradeRecord types for Compare tab
 │       ├── hooks/useExposureSocket.ts  # WebSocket hook for real-time exposure data
 │       ├── hooks/usePositionsCompare.ts # Polling hook for Compare tab (500ms exposure, 5s trades)
+│       ├── hooks/useSymbolDigits.ts    # Per-symbol price decimals (112 lines)
 │       ├── components/
 │       │   ├── ExposureTable.tsx        # Main exposure grid (open + closed rows, date picker, sort, drag)
 │       │   ├── PnLPanel.tsx            # P&L summary panel
 │       │   ├── PositionsGrid.tsx       # Raw positions view (with open time column)
 │       │   ├── TotalBar.tsx            # Footer totals bar (locale-formatted numbers)
 │       │   ├── SettingsPanel.tsx       # Account settings UI
-│       │   └── SymbolMappingAdmin.tsx  # Symbol mapping management
+│       │   ├── SymbolMappingAdmin.tsx  # Symbol mapping management
+│       │   ├── SnapshotPickerModal.tsx # Pick a specific snapshot as Net P&L Begin (364 lines)
+│       │   ├── AlertBanner.tsx         # Top-of-page alert banner (46 lines)
+│       │   ├── AlertHistory.tsx        # Alert history list (207 lines)
+│       │   └── AlertToast.tsx          # Per-alert toast (186 lines)
 │       └── pages/
-│           └── PositionsCompare/        # Compare tab — side-by-side client vs coverage analysis
+│           ├── PositionsCompare/        # Compare tab — side-by-side client vs coverage analysis
+│           ├── Bridge/                  # CLIENT ↔ COV_OUT pairing tab (hidden from dealer nav)
+│           └── Markup/                  # index.tsx — client-vs-coverage VWAP edge analysis (518 lines)
 │               ├── index.tsx            # Tab entry, layout shell (left panel + right panel)
 │               ├── LeftPanel/
 │               │   ├── index.tsx        # Compact list + expand/collapse + resizable drag handle
@@ -89,7 +100,7 @@ coverage-manager/
 ## Supabase Tables (18)
 1. `symbol_mappings` — B-Book ↔ LP symbol mapping + contract sizes (also holds `pip_size` override for Bridge)
 2. `positions` — Open positions snapshot
-3. `deals` — Deal history with dedup on (source, deal_id), includes direction/fee/entry/**order_id**. 280K+ deals persisted.
+3. `deals` — Deal history with dedup on (source, deal_id), includes direction/fee/entry/**order_id**. 446K+ deals persisted (grows ~10K/week).
 4. `trading_accounts` — Mirror of all MT5 accounts (B-Book + Coverage), unique on (source, login). Auto-synced every 5min.
 5. `trade_audit_log` — Tracks deal modifications (price, volume, profit changes) with old/new values
 6. `exposure_snapshots` — Periodic exposure captures (floating P&L per symbol). Unique on `(canonical_symbol, snapshot_time)`, carries `trigger_type` (scheduled/manual/daily/weekly/monthly) and `label`. Feeds the Net P&L tab's "Begin" anchor.
@@ -445,14 +456,14 @@ MT5's `DealRequest` interprets the request window as **server-local time**, not 
 CLIENT fills paired with COV OUT coverage legs from the Centroid CS 360 Dropcopy feed (FIX 4.4, see `/docs/centroid/`).
 
 ### Centroid facts
-- CS 360 exposes **no REST API**. Post-trade data comes via **FIX 4.4 Dropcopy** Execution Reports, or via a paid Postgres DB replica.
-- The Bridge tab consumes the Dropcopy feed via a single persistent FIX session.
+- CS 360 exposes **REST + WebSocket** APIs (see `docs/centroid/cs360-rest-openapi.json` + `cs360-realtime-asyncapi.json` + `rest-and-websocket.md`) and a **FIX 4.4 Dropcopy** Execution Reports stream. A paid Postgres DB replica is also available.
+- The Bridge tab consumes the REST + WebSocket feed via [`RestCentroidBridgeService.cs`](src/CoverageManager.Api/Services/RestCentroidBridgeService.cs) (920 lines), wired through [`BridgeFeedHost.cs`](src/CoverageManager.Api/Services/BridgeFeedHost.cs). FIX Dropcopy + the Postgres replica remain available alternative ingest paths.
 - Connecting requires IP whitelisting plus credentials issued by Centroid support.
 - All times UTC, μs precision. Correlation between CLIENT and COV OUT legs is by FIX tag 37 (OrderID) = "Cen Ord ID".
 
 ### Runtime modes (`Centroid:Mode` in `appsettings.json`)
-- **Stub** (default today) — synthetic `BridgeDeal` stream so UI/pairing can run without real creds.
-- **Live** — QuickFIX/n-backed session. NOT implemented until the dependency is approved and creds arrive.
+- **Live** (production) — REST + WebSocket session via [`RestCentroidBridgeService.cs`](src/CoverageManager.Api/Services/RestCentroidBridgeService.cs) (920 lines). 4,364+ ExecutionPairs persisted to date.
+- **Stub** (dev fallback) — synthetic `BridgeDeal` stream via [`StubCentroidBridgeService.cs`](src/CoverageManager.Api/Services/StubCentroidBridgeService.cs) so UI/pairing can run without real creds.
 - **Replay** — file-based playback for integration tests. NOT implemented yet.
 
 ### File inventory
@@ -618,5 +629,7 @@ gh api -X PATCH repos/amakki-a11y/coverage-manager/git/refs/heads/dev \
 - [x] Phase 2.19a: Picker exact-match anchor — `SnapshotPickerModal` (PR #26) lets the dealer pick a specific snapshot capture as the BEGIN anchor in Net P&L. Original implementation routed through `latest_snapshots_before(anchor)` which returned the latest snapshot per symbol ≤ the picked instant — meaning extra rows from earlier captures (zero-rows from "today reset" snapshots, the `BEGIN_SEED_TOTAL` sentinel from 2026-01-01) leaked into the TOTAL when picking a specific snapshot, so picking the 2026-05-04 06:04 snapshot gave a TOTAL of `-59,310.62` instead of the snapshot's own total of `-73,058.56` (delta = the +13,747.94 sentinel). Fixed: new `SupabaseService.GetSnapshotsAtAsync(exactSnapshotTimeUtc)` queries `WHERE snapshot_time = anchor`. `ExposureController.GetPeriodPnL` routes through this when `anchorOverrideUtc.HasValue` (auto anchor still uses the latest-before fallback). Symbols not in the picked snapshot get BEGIN = 0 — no fallback, no sentinel pollution. Verified 1:1 against the Snapshot History expanded row.
 - [x] Phase 2.20: WebSocket frame-lag watchdog — `useExposureSocket` tracks the last-frame timestamp; a 1 Hz watchdog dispatches `LAGGING:true` after 5 s without a frame (drives the existing `StaleWrapper` amber-hatch overlay) and force-closes the WebSocket after 15 s so the existing reconnect path fires. Closes the silent-staleness failure mode where a WebSocket can stay in `readyState === OPEN` while the ISP / NAT / proxy stops forwarding frames — `ws.onclose` never fires and the dashboard renders whatever was last received with no visual cue. Production reproducer (2026-05-04): dealer's laptop browser showed XAUUSD net 22.65 lots while the server-side Chrome and backend ground truth were both ~21 lots; alert-bell badge 16 vs 34 (Device 1 had silently missed 18 alert frames). Files: `web/src/hooks/useExposureSocket.ts` (state.lagging, LAGGING action, lastFrameAtRef, watchdog interval, +71 lines), `web/src/App.tsx` (destructure `lagging`, pass `!connected || lagging` to `StaleWrapper`). Trade-off: during fully-quiet weekends the watchdog will fire amber overlay + a force-reconnect every ~15 s; reconnect is fast (Phase 2.18 `permessage-deflate` keeps the handshake cheap). Acceptable noise vs the silent-staleness bug it fixes; can be tuned later by feeding market-hours awareness into the threshold.
 - [x] Phase 2.21: Resilient mapping cache — `SupabaseService.GetMappingsAsync` now retries 3x with 500/1500/4500 ms exponential backoff on transient HTTPS failures (refactored to use a generic `RetryAsync<T>` helper that other Supabase calls can adopt later). New `MappingRefreshService` background tick (60 s, 60 s startup delay) re-fetches active mappings and atomically replaces the in-memory `PositionManager` cache, auto-healing any startup failure within one minute. **Empty-result safety:** refresh never clobbers a populated cache with `[]` (which would surface UNMAPPED badges across the dashboard) — if `GetMappingsAsync` returns 0 rows after exhausting retries, we bump `consecutiveFailures` and leave the cache alone. `/api/exposure/diagnostics.mappings` exposes `{lastFetchCount, lastFetchAtUtc, lastFetchOk, consecutiveFailures}`. Closes the silent-staleness window observed 2026-05-07 17:57 UTC where a TLS-layer reset (`SocketException 10054 — connection forcibly closed by remote host`) during cold start dropped all 35 mappings from the cache; only a downstream CRUD reload or another restart could repopulate. Files: `src/CoverageManager.Api/Services/SupabaseService.cs` (retry helper + `GetMappingsAsync` rewrite), `src/CoverageManager.Api/Services/MappingRefreshService.cs` (new BackgroundService, ~130 lines), `src/CoverageManager.Api/Program.cs` (DI registration + startup load routed through the service so counters are seeded immediately), `src/CoverageManager.Api/Controllers/ExposureController.cs` (mappings block on diagnostics + injected `MappingRefreshService`).
-- [ ] Phase 3: Risk Alerts (news events, threshold warnings)
+- [~] Phase 3: Risk Alerts (in progress)
+  - Shipped: [`AlertEngine.cs`](src/CoverageManager.Core/Engines/AlertEngine.cs) (191 lines) + [`AlertsController.cs`](src/CoverageManager.Api/Controllers/AlertsController.cs) (123 lines); `alert_rules` + `alert_events` tables live (7,121 events fired to date); `AlertBanner` / `AlertHistory` / `AlertToast` UI components.
+  - Still missing: `economic_events` ingest (table empty, no controller, no UI for news-event alerts); `risk_thresholds` server-side persistence (currently localStorage-only via `RiskBanner`).
 - [ ] Phase 4: Hedge Execution (one-click hedging via LP terminal — mt5.order_send() ready)
