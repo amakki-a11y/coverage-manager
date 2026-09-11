@@ -30,6 +30,13 @@ public sealed class LiveBridgeOptions
     public int ReconnectMaxMs { get; set; } = 30000;
 
     /// <summary>
+    /// After this many reconnect attempts in a row fail, the adapter reports itself disconnected so the connection
+    /// service starts a fresh session (which takes a new snapshot). 0 = never give up. With the backoff above the
+    /// default of 20 attempts is about nine minutes.
+    /// </summary>
+    public int ReconnectGiveUpAttempts { get; set; } = 20;
+
+    /// <summary>
     /// No frame for this long = dead line: the socket is dropped and a resume reconnect follows. The contract says 15 s
     /// (the bridge heartbeats every 5 s when nothing else is sent).
     /// </summary>

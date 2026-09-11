@@ -288,10 +288,11 @@ public class LiveBridgeApiTests
         var connection = await server.NextConnectionAsync();
         var subscribe = await connection.Subscribe;
         var resume = subscribe.GetProperty("resume");
-        Assert.AreEqual(100, resume.GetProperty("positions").GetInt64());
+        // A fresh instance holds no state: it asks for snapshots of positions, accounts and ticks and resumes only deals.
+        Assert.AreEqual(JsonValueKind.Null, resume.GetProperty("positions").ValueKind);
         Assert.AreEqual(200, resume.GetProperty("deals").GetInt64());
-        Assert.AreEqual(300, resume.GetProperty("accounts").GetInt64());
-        Assert.AreEqual(400, resume.GetProperty("ticks").GetInt64());
+        Assert.AreEqual(JsonValueKind.Null, resume.GetProperty("accounts").ValueKind);
+        Assert.AreEqual(JsonValueKind.Null, resume.GetProperty("ticks").ValueKind);
 
         await connection.HelloAsync("resume");
         await connection.ReplayAsync("positions",
@@ -336,7 +337,8 @@ public class LiveBridgeApiTests
         await WaitUntilAsync(() => events.Deals.Count == 1, what: "the first deal");
 
         await connection.ByeAsync("too slow: 100000 behind");
-        await WaitUntilAsync(() => !api.IsConnected, what: "the drop");
+        await WaitUntilAsync(() => !api.IsLive, what: "the drop");
+        Assert.IsTrue(api.IsConnected, "still attached while it reconnects on its own: the caller must not tear it down");
 
         var again = await server.NextConnectionAsync();
         var subscribe = await again.Subscribe;
@@ -353,7 +355,7 @@ public class LiveBridgeApiTests
         await again.ReplayAsync("ticks");
         await again.ReplayEndAsync(100, 202, 300, 400);
 
-        await WaitUntilAsync(() => api.IsConnected, what: "the reconnect");
+        await WaitUntilAsync(() => api.IsLive, what: "the reconnect");
         await WaitUntilAsync(() => events.Deals.Count == 2, what: "the replayed deal");
         Assert.AreEqual(802UL, events.Deals.Last().DealId);
         Assert.AreEqual("too slow: 100000 behind", api.LastByeReason);
@@ -436,7 +438,7 @@ public class LiveBridgeApiTests
         // The bridge answers a resume with a snapshot (its store is younger than our sequences): full state, P2 is gone.
         await again.SnapshotHandshakeAsync(Array.Empty<string>(), new[] { Rec("positions", "add", 96, P1) }, Array.Empty<string>(), 500, 600, 700, 800);
 
-        await WaitUntilAsync(() => api.IsConnected && events.Deleted.Count == 1, what: "the reconciliation");
+        await WaitUntilAsync(() => api.IsLive && events.Deleted.Count == 1, what: "the reconciliation");
         Assert.AreEqual(502UL, events.Deleted.Single().PositionId);
         Assert.AreEqual(0, events.Added.Count, "P1 unchanged: no add event");
         CollectionAssert.AreEqual(new ulong[] { 501 }, api.GetPositions(1001).Select(p => p.PositionId).ToArray());
@@ -503,6 +505,27 @@ public class LiveBridgeApiTests
     }
 
     [TestMethod]
+    public async Task Reconnect_GivesUpAfterTheConfiguredFailures_SoTheCallerStartsAfresh()
+    {
+        await using var server = new FakeFeedServer();
+        var options = TestOptions(server, TempStatePath());
+        options.ReconnectGiveUpAttempts = 2;
+        using var api = new LiveBridgeApi(options);
+        var (connection, _) = await ConnectSnapshotAsync(api, server);
+        Assert.IsTrue(api.IsConnected);
+
+        server.RequiredKey = "rotated";   // every reconnect is refused from now on
+        await connection.ByeAsync("key rotated");
+        await WaitUntilAsync(() => !api.IsConnected, timeoutMs: 10_000, what: "the give-up");
+        Assert.AreEqual("disconnected", api.State);
+        Assert.IsTrue(server.Refused >= 2, $"refused {server.Refused}");
+        StringAssert.Contains(api.LastError, "gave up after 2");
+        var diagnostics = api.Diagnostics();
+        Assert.AreEqual(false, diagnostics["attached"]);
+        Assert.AreEqual(2, diagnostics["failedReconnects"]);
+    }
+
+    [TestMethod]
     public async Task DealHistory_IsNoneWithoutDeals_StartsAtTheEarliestHeldDeal_AndRestartsAfterADealsReplayGap()
     {
         await using var server = new FakeFeedServer();
@@ -531,7 +554,7 @@ public class LiveBridgeApiTests
         // A reconnect whose replay reports a deals gap: the stream is incomplete between the drop and the replay end,
         // so the window restarts at the replay end, while the deals received before the gap stay answerable.
         await connection.ByeAsync("maintenance");
-        await WaitUntilAsync(() => !api.IsConnected, what: "the drop");
+        await WaitUntilAsync(() => !api.IsLive, what: "the drop");
         var again = await server.NextConnectionAsync();
         await again.Subscribe;
         var endSeqDeals = (nowSec + 10_800) * 1000;   // the bridge mints sequences as milliseconds of the admission time
@@ -541,7 +564,7 @@ public class LiveBridgeApiTests
         await again.ReplayAsync("accounts");
         await again.ReplayAsync("ticks");
         await again.ReplayEndAsync(100, endSeqDeals, 300, 400);
-        await WaitUntilAsync(() => api.IsConnected, what: "the reconnect");
+        await WaitUntilAsync(() => api.IsLive, what: "the reconnect");
 
         Assert.AreEqual(1, api.DealGaps);
         Assert.AreEqual(DateTimeOffset.FromUnixTimeMilliseconds(endSeqDeals).UtcDateTime, api.DealHistory.FromUtc, "after a deals gap the window restarts at the replay end");

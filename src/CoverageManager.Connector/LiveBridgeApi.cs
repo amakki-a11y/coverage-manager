@@ -63,6 +63,8 @@ public sealed class LiveBridgeApi : IMT5Api, IMT5ApiDiagnostics, IMT5DealHistory
     private volatile bool _disposed;
     private volatile bool _closing;
     private volatile bool _live;
+    private volatile bool _attached;   // a session was established and the adapter keeps it (reconnecting on its own after a drop)
+    private int _failedReconnects;
     private volatile string _state = "disconnected";
     private volatile bool _ticksOn;
     private volatile bool _dealsOn;
@@ -113,7 +115,16 @@ public sealed class LiveBridgeApi : IMT5Api, IMT5ApiDiagnostics, IMT5DealHistory
     public event Action<RawPosition>? OnPositionDelete;
     public event Action<RawAccount>? OnUserUpdate;
 
-    public bool IsConnected => _live && !_disposed;
+    /// <summary>
+    /// Attached: a session was established and the adapter keeps it alive on its own, reconnecting with resume after a
+    /// drop (its book and subscriptions survive). False before the first handshake, after <see cref="Disconnect"/>, and
+    /// after <see cref="LiveBridgeOptions.ReconnectGiveUpAttempts"/> reconnects failed in a row, when the caller should
+    /// start a fresh session. <see cref="IsLive"/> says whether frames are flowing right now.
+    /// </summary>
+    public bool IsConnected => _attached && !_disposed;
+
+    /// <summary>The socket is open and the handshake done; false during the adapter's own reconnect.</summary>
+    public bool IsLive => _live && !_disposed;
     public string LastError { get; private set; } = "";
 
     /// <summary>disconnected, connecting, handshake, live, reconnecting.</summary>
@@ -278,6 +289,7 @@ public sealed class LiveBridgeApi : IMT5Api, IMT5ApiDiagnostics, IMT5DealHistory
         cts.Dispose();
         _closing = false;
         _live = false;
+        _attached = false;
         _state = "disconnected";
         _sequences?.Flush();
     }
@@ -383,7 +395,9 @@ public sealed class LiveBridgeApi : IMT5Api, IMT5ApiDiagnostics, IMT5DealHistory
             ["provider"] = MT5ApiProviders.LiveBridge,
             ["url"] = _options.Url,
             ["state"] = _state,
-            ["live"] = IsConnected,
+            ["live"] = IsLive,
+            ["attached"] = IsConnected,
+            ["failedReconnects"] = _failedReconnects,
             ["mode"] = _mode,
             ["source"] = _source,
             ["sourceConnected"] = SourceConnected,
@@ -448,12 +462,27 @@ public sealed class LiveBridgeApi : IMT5Api, IMT5ApiDiagnostics, IMT5DealHistory
                 lock (_gate) _socket = socket;
 
                 var resume = _sequences!.Resume();
+                if (isFirst)
+                {
+                    // A fresh instance holds no state: ask for snapshots of positions, accounts and ticks (full state,
+                    // cheap) and resume only deals, the one stream a snapshot cannot re-supply. Resuming the state
+                    // streams from a durable sequence would replay their changes onto an empty book (seen 2026-09-11).
+                    resume = new Dictionary<string, long?>(StringComparer.Ordinal)
+                    {
+                        [FeedStreams.Positions] = null,
+                        [FeedStreams.Deals] = resume.TryGetValue(FeedStreams.Deals, out var storedDeals) ? storedDeals : null,
+                        [FeedStreams.Accounts] = null,
+                        [FeedStreams.Ticks] = null,
+                    };
+                }
                 _resumeDealsSeq = resume.TryGetValue(FeedStreams.Deals, out var resumeDeals) ? resumeDeals : null;
                 await socket.SendTextAsync(FeedWire.Subscribe(resume), ct).ConfigureAwait(false);
                 _state = "handshake";
                 await HandshakeAsync(socket, ct).ConfigureAwait(false);
 
                 _live = true;
+                _attached = true;
+                _failedReconnects = 0;
                 wasLive = true;
                 _state = "live";
                 backoff = Math.Max(100, _options.ReconnectMs);
@@ -476,6 +505,10 @@ public sealed class LiveBridgeApi : IMT5Api, IMT5ApiDiagnostics, IMT5DealHistory
                     LastError = "LiveBridgeApi: " + reason;
                     _logger.LogError("Live Bridge: the first connection to {Url} failed: {Reason}", uri, reason);
                 }
+                else if (!wasLive)
+                {
+                    _failedReconnects++;
+                }
             }
 
             _live = false;
@@ -494,6 +527,14 @@ public sealed class LiveBridgeApi : IMT5Api, IMT5ApiDiagnostics, IMT5DealHistory
                 break;
             }
             if (ct.IsCancellationRequested || _closing) break;
+            if (_options.ReconnectGiveUpAttempts > 0 && _failedReconnects >= _options.ReconnectGiveUpAttempts)
+            {
+                _attached = false;
+                LastError = $"LiveBridgeApi: gave up after {_failedReconnects} failed reconnects ({reason})";
+                _logger.LogError("Live Bridge: giving up after {Count} failed reconnects ({Reason}); the connection service will start a fresh session with a snapshot",
+                    _failedReconnects, reason);
+                break;
+            }
 
             Interlocked.Increment(ref _reconnects);
             _state = "reconnecting";
@@ -506,6 +547,7 @@ public sealed class LiveBridgeApi : IMT5Api, IMT5ApiDiagnostics, IMT5DealHistory
             backoff = Math.Min(backoff * 2, Math.Max(backoff, _options.ReconnectMaxMs));
         }
         _live = false;
+        _attached = false;
         _state = "disconnected";
     }
 

@@ -285,7 +285,10 @@ public sealed class MT5ManagerConnection : BackgroundService
                         _logger.LogWarning(ex, "Failed to query last deal time, falling back to today");
                     }
                 }
-                BackfillDeals(logins, backfillFrom, DateTimeOffset.UtcNow);
+                // Deal stamps are the server's clock, hours ahead of UTC here; a window ending at UTC "now" cuts the
+                // newest deals off (the feed's book compares stamps to the bounds, and the Manager API reads them as
+                // server time too), so the window ends a day ahead.
+                BackfillDeals(logins, backfillFrom, DateTimeOffset.UtcNow.AddDays(1));
 
                 // Initial account sync to Supabase
                 await SyncAccountsToSupabaseAsync(logins, "bbook");
