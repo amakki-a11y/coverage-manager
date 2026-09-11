@@ -47,6 +47,7 @@ public class ExposureController : ControllerBase
     private readonly IHttpClientFactory _httpFactory;
     private readonly ILogger<ExposureController> _logger;
     private readonly SupabaseReadOnlyLedger _readOnlyLedger;
+    private readonly DataSyncService _dataSync;
 
     public ExposureController(
         ExposureEngine exposureEngine,
@@ -59,7 +60,8 @@ public class ExposureController : ControllerBase
         MappingRefreshService mappingRefresh,
         IHttpClientFactory httpFactory,
         ILogger<ExposureController> logger,
-        SupabaseReadOnlyLedger readOnlyLedger)
+        SupabaseReadOnlyLedger readOnlyLedger,
+        DataSyncService dataSync)
     {
         _exposureEngine = exposureEngine;
         _positionManager = positionManager;
@@ -72,6 +74,7 @@ public class ExposureController : ControllerBase
         _httpFactory = httpFactory;
         _logger = logger;
         _readOnlyLedger = readOnlyLedger;
+        _dataSync = dataSync;
     }
 
     /// <summary>
@@ -138,6 +141,8 @@ public class ExposureController : ControllerBase
             mt5Provider = _mt5Connection.ApiProvider,
             liveBridge = _mt5Connection.ApiDiagnostics,
             dealHistory = _mt5Connection.DealHistory,
+            dealSync = _dataSync.Status,
+            accountSync = _mt5Connection.AccountSyncStatus,
             supabaseReadOnly = new { enabled = _readOnlyLedger.Enabled, host = _readOnlyLedger.Host, blockedTotal = _readOnlyLedger.Total, blocked = _readOnlyLedger.Blocked },
             pollIntervalMs = 60_000,
             connectedAt,

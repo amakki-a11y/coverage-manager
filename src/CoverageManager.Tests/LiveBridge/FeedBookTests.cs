@@ -77,6 +77,31 @@ public class FeedBookTests
     }
 
     [TestMethod]
+    public void Deals_AreIndexedByLogin_AndTheIndexFollowsPruneAndLoginChanges()
+    {
+        var book = new FeedBook();
+        for (var login = 1UL; login <= 200; login++)
+            for (var k = 0UL; k < 5; k++)
+                book.ApplyDeal(Deal(login * 10 + k, login: login, timeMsc: 1_000 + (long)k));
+        Assert.AreEqual(1000, book.DealCount);
+
+        var login7 = book.Deals(7, 0, long.MaxValue);
+        Assert.AreEqual(5, login7.Count);
+        Assert.IsTrue(login7.All(d => d.Login == 7));
+        Assert.AreEqual(2, book.Deals(7, 1_003, long.MaxValue).Count, "the window applies within the login's deals");
+        Assert.AreEqual(0, book.Deals(9_999, 0, long.MaxValue).Count);
+
+        book.ApplyDeal(Deal(70, login: 8, timeMsc: 1_000));   // the same deal number re-sent under another login moves in the index
+        Assert.AreEqual(4, book.Deals(7, 0, long.MaxValue).Count);
+        Assert.AreEqual(6, book.Deals(8, 0, long.MaxValue).Count);
+
+        Assert.AreEqual(200, book.PruneDeals(1_001), "one deal per login is older than the cut");
+        Assert.AreEqual(4, book.Deals(7, 0, long.MaxValue).Count);
+        Assert.AreEqual(4, book.Deals(8, 0, long.MaxValue).Count);
+        Assert.AreEqual(800, book.DealCount);
+    }
+
+    [TestMethod]
     public void Accounts_AreFullState_AndLoginsFollowTheGroupMask()
     {
         var book = new FeedBook();

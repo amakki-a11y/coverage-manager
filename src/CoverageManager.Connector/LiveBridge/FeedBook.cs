@@ -22,6 +22,8 @@ public sealed class FeedBook
     private readonly Dictionary<ulong, RawAccount> _accounts = new();
     private readonly Dictionary<string, RawTick> _ticks = new(StringComparer.Ordinal);
     private readonly Dictionary<ulong, RawDeal> _deals = new();
+    // login -> deal numbers, so a per-login deal query does not scan every deal held (26,000+ logins ask in turn).
+    private readonly Dictionary<ulong, HashSet<ulong>> _dealsByLogin = new();
     private HashSet<ulong>? _snapshotSeen;
 
     public int PositionCount { get { lock (_gate) return _positions.Count; } }
@@ -57,10 +59,13 @@ public sealed class FeedBook
             if (_deals.TryGetValue(deal.DealId, out var before))
             {
                 if (before == deal) return FeedApply.Unchanged;
+                if (before.Login != deal.Login) Unindex(before);
                 _deals[deal.DealId] = deal;
+                Index(deal);
                 return FeedApply.Updated;
             }
             _deals[deal.DealId] = deal;
+            Index(deal);
             return FeedApply.Added;
         }
     }
@@ -140,10 +145,26 @@ public sealed class FeedBook
     public List<RawDeal> Deals(ulong login, long fromMsc, long toMsc)
     {
         lock (_gate)
-            return _deals.Values
-                .Where(d => d.Login == login && d.TimeMsc >= fromMsc && d.TimeMsc <= toMsc)
-                .OrderBy(d => d.TimeMsc).ThenBy(d => d.DealId)
-                .ToList();
+        {
+            if (!_dealsByLogin.TryGetValue(login, out var ids)) return new List<RawDeal>();
+            var list = new List<RawDeal>();
+            foreach (var id in ids)
+                if (_deals.TryGetValue(id, out var d) && d.TimeMsc >= fromMsc && d.TimeMsc <= toMsc) list.Add(d);
+            list.Sort(static (a, b) => { var c = a.TimeMsc.CompareTo(b.TimeMsc); return c != 0 ? c : a.DealId.CompareTo(b.DealId); });
+            return list;
+        }
+    }
+
+    private void Index(RawDeal deal)
+    {
+        if (!_dealsByLogin.TryGetValue(deal.Login, out var ids)) _dealsByLogin[deal.Login] = ids = new HashSet<ulong>();
+        ids.Add(deal.DealId);
+    }
+
+    private void Unindex(RawDeal deal)
+    {
+        if (_dealsByLogin.TryGetValue(deal.Login, out var ids) && ids.Remove(deal.DealId) && ids.Count == 0)
+            _dealsByLogin.Remove(deal.Login);
     }
 
     /// <summary>Time (source clock, milliseconds) of the oldest deal held, null when none.</summary>
@@ -157,8 +178,8 @@ public sealed class FeedBook
     {
         lock (_gate)
         {
-            var old = _deals.Values.Where(d => d.TimeMsc < olderThanMsc).Select(d => d.DealId).ToList();
-            foreach (var id in old) _deals.Remove(id);
+            var old = _deals.Values.Where(d => d.TimeMsc < olderThanMsc).ToList();
+            foreach (var d in old) { _deals.Remove(d.DealId); Unindex(d); }
             return old.Count;
         }
     }

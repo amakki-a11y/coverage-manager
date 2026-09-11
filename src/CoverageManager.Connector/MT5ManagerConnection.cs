@@ -20,7 +20,12 @@ public sealed class MT5ManagerConnection : BackgroundService
     private readonly Action _onUpdate;
     private readonly Action<string>? _onPriceTick;
     private readonly Action<ClosedDeal>? _onDealSettled;
-    private readonly Func<IEnumerable<TradingAccount>, Task>? _syncAccounts;
+    private readonly Func<IEnumerable<TradingAccount>, Task<int>>? _syncAccounts;
+    // What each account looked like when it was last written: a sync cycle writes only the accounts that changed.
+    private readonly AccountSyncTracker _accountSyncTracker = new();
+    private AccountSyncStatus _accountSyncStatus = new();
+    private const int AccountSyncChunkSize = 500;
+    private const int AccountSyncChunkPauseMs = 200;
     private readonly Func<string, Task<DateTime?>>? _getLastDealTime;
 
     private IMT5Api? _api;
@@ -98,6 +103,9 @@ public sealed class MT5ManagerConnection : BackgroundService
     /// stored deal as a ghost (<see cref="IMT5DealHistory"/>, <see cref="DealReconciler"/>).
     /// </summary>
     public DealHistoryWindow DealHistory => _api is IMT5DealHistory history ? history.DealHistory : DealHistoryWindow.Full;
+
+    /// <summary>The last account sync cycle, for <c>/api/exposure/diagnostics.accountSync</c>.</summary>
+    public AccountSyncStatus AccountSyncStatus => _accountSyncStatus;
     public string? ConnectedServer { get; private set; }
     public DateTime? ConnectedAt { get; private set; }
     public int PositionCount { get; private set; }
@@ -132,7 +140,7 @@ public sealed class MT5ManagerConnection : BackgroundService
         DealStore dealStore,
         Func<Task<List<AccountSettings>>> getAccounts,
         Action onUpdate,
-        Func<IEnumerable<TradingAccount>, Task>? syncAccounts = null,
+        Func<IEnumerable<TradingAccount>, Task<int>>? syncAccounts = null,
         Func<string, Task<DateTime?>>? getLastDealTime = null,
         Action<string>? onPriceTick = null,
         Action<ClosedDeal>? onDealSettled = null,
@@ -379,19 +387,23 @@ public sealed class MT5ManagerConnection : BackgroundService
         _logger.LogInformation("MT5 Manager connection service stopped");
     }
 
+    /// <summary>
+    /// Writes the accounts whose durable-store fields changed since they were last written, in paced chunks. The
+    /// first cycle after a start writes every account; afterwards, with 26,000+ accounts on the feed, a cycle writes
+    /// the few thousand whose balance, credit, equity, margin or roster fields moved.
+    /// </summary>
     private async Task SyncAccountsToSupabaseAsync(ulong[] logins, string source)
     {
         if (_api == null || !_api.IsConnected || _syncAccounts == null) return;
 
         try
         {
-            var accounts = new List<TradingAccount>();
-
+            var now = DateTime.UtcNow;
+            var accounts = new List<TradingAccount>(logins.Length);
             foreach (var login in logins)
             {
                 var raw = _api.GetUserAccount(login);
                 if (raw == null) continue;
-
                 accounts.Add(new TradingAccount
                 {
                     Source = source,
@@ -412,18 +424,50 @@ public sealed class MT5ManagerConnection : BackgroundService
                         ? DateTimeOffset.FromUnixTimeSeconds(raw.LastTradeTime).UtcDateTime
                         : null,
                     Comment = raw.Comment,
-                    SyncedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow
+                    SyncedAt = now,
+                    UpdatedAt = now
                 });
             }
 
-            if (accounts.Count > 0)
+            var changed = _accountSyncTracker.Changed(accounts);
+            var written = 0;
+            var requests = 0;
+            string? error = null;
+            foreach (var chunk in changed.Chunk(AccountSyncChunkSize))
             {
-                await _syncAccounts(accounts);
-                _logger.LogInformation("Synced {Count} {Source} trading accounts to Supabase", accounts.Count, source);
+                if (requests > 0) await Task.Delay(AccountSyncChunkPauseMs);
+                requests++;
+                var accepted = await _syncAccounts(chunk);
+                if (accepted < chunk.Length)
+                {
+                    error = $"request {requests}: {accepted} of {chunk.Length} rows accepted";
+                    break;
+                }
+                _accountSyncTracker.MarkSynced(chunk);
+                written += accepted;
             }
 
             _lastAccountSync = DateTime.UtcNow;
+            var previous = _accountSyncStatus;
+            _accountSyncStatus = new AccountSyncStatus
+            {
+                LastRunUtc = _lastAccountSync,
+                Read = accounts.Count,
+                Changed = changed.Count,
+                Written = written,
+                Requests = requests,
+                LastError = error,
+                RunsTotal = previous.RunsTotal + 1,
+                WrittenTotal = previous.WrittenTotal + written,
+            };
+            if (error is not null)
+                _logger.LogWarning("Account sync: {Written} of {Changed} changed accounts written, then {Error}; the rest are retried next cycle ({Read} read)",
+                    written, changed.Count, error, accounts.Count);
+            else if (changed.Count > 0)
+                _logger.LogInformation("Account sync: {Written} changed {Source} accounts written in {Requests} request(s) ({Read} read, {Unchanged} unchanged)",
+                    written, source, requests, accounts.Count, accounts.Count - changed.Count);
+            else
+                _logger.LogDebug("Account sync: nothing changed among {Read} accounts", accounts.Count);
         }
         catch (Exception ex)
         {

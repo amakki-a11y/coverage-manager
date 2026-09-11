@@ -229,7 +229,10 @@ public class ReconciliationService : BackgroundService
 
             if (commonDeals.Count > 0)
             {
-                run.Modified = await supabase.DetectAndLogDealChangesAsync(commonDeals, "bbook");
+                // The window's stored deals are already in hand: compare against them instead of reading them back.
+                var existing = new Dictionary<long, DealRecord>();
+                foreach (var stored in plan.StoredDeals) existing[stored.DealId] = stored;
+                run.Modified = await supabase.DetectAndLogDealChangesAsync(commonDeals, existing, "bbook");
                 if (run.Modified > 0)
                 {
                     // Patch the rows by re-upserting the MT5 authoritative version.

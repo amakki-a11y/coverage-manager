@@ -140,12 +140,15 @@ try
     builder.Services.AddHostedService(sp => sp.GetRequiredService<MT5CoverageConnection>());
 
     // Data sync service (persists deals to Supabase, detects modifications)
-    builder.Services.AddHostedService<DataSyncService>(sp =>
+    var dataSyncOptions = builder.Configuration.GetSection(DataSyncOptions.SectionName).Get<DataSyncOptions>() ?? new DataSyncOptions();
+    builder.Services.AddSingleton<DataSyncService>(sp =>
         new DataSyncService(
             sp.GetRequiredService<SupabaseService>(),
             dealStore,
             positionManager,
-            sp.GetRequiredService<ILogger<DataSyncService>>()));
+            sp.GetRequiredService<ILogger<DataSyncService>>(),
+            dataSyncOptions));
+    builder.Services.AddHostedService(sp => sp.GetRequiredService<DataSyncService>());
 
     // ---- Phase 2.5: Bridge Execution Analysis (Centroid Dropcopy feed) ----
     // Pairing window and feed mode are read from config; defaults are safe (Stub + 10s).
