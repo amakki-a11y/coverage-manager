@@ -15,6 +15,19 @@ public interface IMT5ApiFactory
     /// </summary>
     string ProviderName { get; }
 
+    /// <summary>
+    /// True when the provider connects with MT5 manager credentials from <c>account_settings</c> (the Manager API).
+    /// False when it is keyed by its own configuration (the Live Bridge feed: URL + bearer key), so the bring-up must
+    /// not read - or wait for - <c>account_settings</c> at all.
+    /// </summary>
+    bool RequiresManagerAccount { get; }
+
+    /// <summary>
+    /// Where the provider connects, for logs and the status endpoint: the feed URL for the Live Bridge, null for the
+    /// Manager API (whose server comes from the manager account).
+    /// </summary>
+    string? Endpoint { get; }
+
     /// <summary>Creates a fresh, not-yet-initialized API instance. The caller owns disposal.</summary>
     IMT5Api Create();
 }

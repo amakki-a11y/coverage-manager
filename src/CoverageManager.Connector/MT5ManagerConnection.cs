@@ -154,16 +154,37 @@ public sealed class MT5ManagerConnection : BackgroundService
         {
             try
             {
-                // Get active manager accounts from Supabase
-                var accounts = await _getAccounts();
-                var managerAccount = accounts
-                    .FirstOrDefault(a => a.AccountType == "manager" && a.IsActive);
-
-                if (managerAccount == null)
+                AccountSettings? managerAccount;
+                if (_apiFactory.RequiresManagerAccount)
                 {
-                    _logger.LogInformation("No active manager account configured. Waiting...");
-                    await Task.Delay(5000, stoppingToken);
-                    continue;
+                    // Manager API: the credentials live in account_settings (Settings tab).
+                    var accounts = await _getAccounts();
+                    managerAccount = accounts
+                        .FirstOrDefault(a => a.AccountType == "manager" && a.IsActive);
+
+                    if (managerAccount == null)
+                    {
+                        _logger.LogInformation("No active manager account configured. Waiting...");
+                        await Task.Delay(5000, stoppingToken);
+                        continue;
+                    }
+                }
+                else
+                {
+                    // Live Bridge feed: keyed by its URL and bearer key (LiveBridge config, env
+                    // LiveBridge__ApiKey), no MT5 credentials. The account_settings read is skipped
+                    // entirely so a Supabase outage cannot block the bring-up; the synthetic account
+                    // only feeds the log lines, ConnectedServer and the "*" group mask below.
+                    managerAccount = new AccountSettings
+                    {
+                        AccountType = "manager",
+                        Label = _apiFactory.ProviderName + " feed",
+                        Server = _apiFactory.Endpoint ?? _apiFactory.ProviderName,
+                        Login = 0,
+                        Password = string.Empty,
+                        GroupMask = "*",
+                        IsActive = true,
+                    };
                 }
 
                 _logger.LogInformation(

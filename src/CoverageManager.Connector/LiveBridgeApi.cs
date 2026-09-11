@@ -16,7 +16,9 @@ namespace CoverageManager.Connector;
 /// <list type="bullet">
 /// <item><b>Initialize</b>: load the durable sequences (<see cref="LiveBridgeOptions.StatePath"/>).</item>
 /// <item><b>Connect</b>: dial, subscribe with the four resume sequences, apply hello + snapshot/replay + end frame.
-/// The MT5 server / login / password arguments are not used: the feed is keyed by its URL path and the bearer key.
+/// The MT5 server / login / password arguments are not used: the feed is keyed by its URL path and the bearer key,
+/// which is why <see cref="MT5ApiFactory.RequiresManagerAccount"/> is false and the connection service does not
+/// read <c>account_settings</c> for this provider.
 /// A first connection that fails (refused key, no route, bad handshake) returns false with the reason in
 /// <see cref="LastError"/>; the caller retries with its own backoff.</item>
 /// <item><b>IsConnected</b>: a live session (handshake complete, socket open). Drops are reconnected internally with

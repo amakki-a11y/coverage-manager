@@ -531,9 +531,20 @@ public class MT5ApiFactoryTests
     }
 
     [TestMethod]
-    public void Factory_DefaultsToManager()
+    public void Factory_DefaultsToManager_WhichNeedsTheManagerAccount()
     {
-        Assert.AreEqual(MT5ApiProviders.Manager, new MT5ApiFactory().ProviderName);
+        var factory = new MT5ApiFactory();
+        Assert.AreEqual(MT5ApiProviders.Manager, factory.ProviderName);
+        Assert.IsTrue(factory.RequiresManagerAccount, "the Manager API takes its credentials from account_settings");
+        Assert.IsNull(factory.Endpoint);
+    }
+
+    [TestMethod]
+    public void Factory_LiveBridge_NeedsNoManagerAccount_AndNamesTheFeedAsEndpoint()
+    {
+        var factory = new MT5ApiFactory("LiveBridge", new LiveBridgeOptions { Url = "wss://feed.example:5571/feed/src" });
+        Assert.IsFalse(factory.RequiresManagerAccount, "the feed is keyed by URL + bearer key; the bring-up must not wait for account_settings");
+        Assert.AreEqual("wss://feed.example:5571/feed/src", factory.Endpoint);
     }
 
     [TestMethod]

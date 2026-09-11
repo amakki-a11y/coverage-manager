@@ -48,6 +48,12 @@ public sealed class MT5ApiFactory : IMT5ApiFactory
 
     public string ProviderName { get; }
 
+    /// <inheritdoc />
+    public bool RequiresManagerAccount => ProviderName == MT5ApiProviders.Manager;
+
+    /// <inheritdoc />
+    public string? Endpoint => ProviderName == MT5ApiProviders.LiveBridge ? _liveBridgeOptions.Url : null;
+
     /// <param name="provider">Raw <c>MT5:Provider</c> value; null/blank selects the Manager API.</param>
     /// <param name="liveBridgeOptions">Bound <c>LiveBridge</c> section; only used by the LiveBridge provider.</param>
     /// <param name="loggerFactory">Optional; falls back to <see cref="NullLoggerFactory"/> (tests).</param>

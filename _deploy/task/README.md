@@ -122,7 +122,9 @@ TheBridge `docs/product-spec.md` section 15, proposal 14. `appsettings.json` alr
    enter `LiveBridge` (it is not a secret, but the same USER-scope mechanism reaches the task), or set
    `"Provider": "LiveBridge"` in `appsettings.json` and `build.ps1 -Swap`.
 3. Restart the API task. The startup log shows `MT5 API provider: LiveBridge`, then
-   `Live Bridge: hello ... mode snapshot` and `Live Bridge: snapshot complete ...`.
+   `Live Bridge: hello ... mode snapshot` and `Live Bridge: snapshot complete ...`. With this provider the
+   bring-up does not read the manager row from `account_settings` at all (the feed needs no MT5
+   credentials), so it also comes up while Supabase is unreachable.
 4. Verify: `/api/exposure/status.mt5Provider` = `LiveBridge`, `/api/exposure/diagnostics.liveBridge`
    shows `state: live`, `sourceConnected: true`, applied counts growing, and the resume sequences.
 5. The resume sequences live in `%LOCALAPPDATA%\CoverageManager\livebridge-state.json` for the task
