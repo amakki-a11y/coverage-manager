@@ -146,6 +146,12 @@ public sealed class FeedBook
                 .ToList();
     }
 
+    /// <summary>Time (source clock, milliseconds) of the oldest deal held, null when none.</summary>
+    public long? EarliestDealMsc()
+    {
+        lock (_gate) return _deals.Count == 0 ? null : _deals.Values.Min(d => d.TimeMsc);
+    }
+
     /// <summary>Forgets deals older than the given time (source clock, milliseconds); returns how many.</summary>
     public int PruneDeals(long olderThanMsc)
     {

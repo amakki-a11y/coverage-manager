@@ -501,6 +501,55 @@ public class LiveBridgeApiTests
         api.Dispose();
         Assert.ThrowsException<ObjectDisposedException>(() => api.Initialize());
     }
+
+    [TestMethod]
+    public async Task DealHistory_IsNoneWithoutDeals_StartsAtTheEarliestHeldDeal_AndRestartsAfterADealsReplayGap()
+    {
+        await using var server = new FakeFeedServer();
+        var options = TestOptions(server, TempStatePath());
+        options.DealHistoryMarginMs = 0;
+        using var api = new LiveBridgeApi(options);
+        var (connection, _) = await ConnectSnapshotAsync(api, server, accounts: new[] { Rec("accounts", "state", 300, A1) });
+
+        // The snapshot carries no deals: nothing can be compared yet, and nothing may be deleted.
+        Assert.IsTrue(api.DealHistory.IsEmpty);
+        Assert.IsFalse(api.DealHistory.Complete);
+
+        // Live deals stamped after the handshake (the source clock): the window starts at the earliest one held.
+        var nowSec = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var t1 = nowSec + 3_600;
+        var t2 = nowSec + 7_200;
+        await connection.RecordAsync("deals", "add", 201, FeedPayloadJson.Deal(9001, 1001, "XAUUSD", 0, 1, 0.10m, 2400.5, 12.5, 0, -0.1, t1, 7001, 501));
+        await connection.RecordAsync("deals", "add", 202, FeedPayloadJson.Deal(9002, 1001, "XAUUSD", 1, 1, 0.10m, 2401.5, -3.0, 0, -0.1, t2, 7002, 502));
+        await WaitUntilAsync(() => api.Book.DealCount == 2, what: "the two deals");
+        var window = api.DealHistory;
+        Assert.IsFalse(window.IsEmpty);
+        Assert.AreEqual(DateTimeOffset.FromUnixTimeSeconds(t1).UtcDateTime, window.FromUtc, "the window starts at the earliest deal the feed holds");
+        Assert.IsTrue(window.Covers(DateTimeOffset.FromUnixTimeSeconds(t2).UtcDateTime));
+        Assert.IsFalse(window.Covers(DateTimeOffset.FromUnixTimeSeconds(t1 - 1).UtcDateTime), "a deal older than the earliest held one is outside the window");
+
+        // A reconnect whose replay reports a deals gap: the stream is incomplete between the drop and the replay end,
+        // so the window restarts at the replay end, while the deals received before the gap stay answerable.
+        await connection.ByeAsync("maintenance");
+        await WaitUntilAsync(() => !api.IsConnected, what: "the drop");
+        var again = await server.NextConnectionAsync();
+        await again.Subscribe;
+        var endSeqDeals = (nowSec + 10_800) * 1000;   // the bridge mints sequences as milliseconds of the admission time
+        await again.HelloAsync("resume");
+        await again.ReplayAsync("positions");
+        await again.ReplayGapAsync("deals", "beyond the buffer");
+        await again.ReplayAsync("accounts");
+        await again.ReplayAsync("ticks");
+        await again.ReplayEndAsync(100, endSeqDeals, 300, 400);
+        await WaitUntilAsync(() => api.IsConnected, what: "the reconnect");
+
+        Assert.AreEqual(1, api.DealGaps);
+        Assert.AreEqual(DateTimeOffset.FromUnixTimeMilliseconds(endSeqDeals).UtcDateTime, api.DealHistory.FromUtc, "after a deals gap the window restarts at the replay end");
+        Assert.AreEqual(2, api.RequestDeals(1001, DateTimeOffset.FromUnixTimeSeconds(t1), DateTimeOffset.FromUnixTimeSeconds(t2)).Count, "the deals received before the gap stay answerable");
+        var diagnostics = (IReadOnlyDictionary<string, object?>)api.Diagnostics()["dealHistory"]!;
+        Assert.AreEqual(2, diagnostics["deals"]);
+        Assert.AreEqual(api.DealHistory.FromUtc, diagnostics["fromUtc"]);
+    }
 }
 
 [TestClass]

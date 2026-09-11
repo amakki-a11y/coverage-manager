@@ -90,6 +90,14 @@ public sealed class MT5ManagerConnection : BackgroundService
 
     /// <summary>Provider-specific counters (the Live Bridge feed session), null for providers without any.</summary>
     public IReadOnlyDictionary<string, object?>? ApiDiagnostics => (_api as IMT5ApiDiagnostics)?.Diagnostics();
+
+    /// <summary>
+    /// How far back the active provider's deal history reaches. The Manager API answers from the server's whole
+    /// history; the Live Bridge feed only from the deals it received since its resume point, so the reconciliation
+    /// sweep, /api/exposure/verify and the deal reloads limit themselves to this window and never treat an older
+    /// stored deal as a ghost (<see cref="IMT5DealHistory"/>, <see cref="DealReconciler"/>).
+    /// </summary>
+    public DealHistoryWindow DealHistory => _api is IMT5DealHistory history ? history.DealHistory : DealHistoryWindow.Full;
     public string? ConnectedServer { get; private set; }
     public DateTime? ConnectedAt { get; private set; }
     public int PositionCount { get; private set; }
@@ -677,7 +685,19 @@ public sealed class MT5ManagerConnection : BackgroundService
     {
         if (_api == null || !_api.IsConnected) return 0;
 
-        _dealStore.Clear();
+        var history = DealHistory;
+        if (history.Complete)
+        {
+            _dealStore.Clear();
+        }
+        else
+        {
+            // The feed cannot re-supply deals from before its window: the deals already in memory (loaded from
+            // Supabase at startup, or received earlier) stay, and the ones inside the window are replaced by
+            // identity below. Ghosts inside the window are evicted by the reconciliation sweep, not here.
+            _logger.LogInformation("Deal reload: the provider answers from {History}; keeping the {Count} deals already in memory",
+                history, _dealStore.DealCount);
+        }
         var totalDeals = 0;
 
         foreach (var login in logins)

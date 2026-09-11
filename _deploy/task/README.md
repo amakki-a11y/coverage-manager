@@ -131,6 +131,10 @@ TheBridge `docs/product-spec.md` section 15, proposal 14. `appsettings.json` alr
    user (`LiveBridge:StatePath` to move them); they survive a `build.ps1 -Swap`. Delete the file to
    force a fresh snapshot on the next start.
 6. Back to the Manager API: remove the `MT5__Provider` variable (or set it to `Manager`) and restart.
+7. Deal history: the feed answers `RequestDeals` only from the deals received since its resume point (48 h), so
+   the nightly reconciliation, `/api/exposure/verify` and the deal reloads limit themselves to that window
+   (`/api/exposure/diagnostics.liveBridge.dealHistory` shows its start); a Supabase deal older than the earliest
+   deal the feed holds is never deleted or reported as extra. Supabase stays the record of older deals.
 
 `start-api.ps1` passes `LiveBridge__ApiKey` and `MT5__Provider` from the user environment to the API.
 

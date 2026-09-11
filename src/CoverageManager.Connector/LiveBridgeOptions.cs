@@ -48,6 +48,15 @@ public sealed class LiveBridgeOptions
     public int SequenceFlushMs { get; set; } = 500;
 
     /// <summary>
+    /// Safety margin added to the instant from which the feed's deal stream is known to be complete (this process's
+    /// resume point, or the end of a deals replay gap) before the adapter reports it as the start of its deal history
+    /// (<see cref="IMT5DealHistory"/>). It absorbs clock skew between the MT5 server that stamps deal times and the
+    /// bridge that admits them, so a deal stamped just after the boundary but admitted just before it is never taken
+    /// for a ghost by the reconciliation sweep. 5 minutes by default.
+    /// </summary>
+    public int DealHistoryMarginMs { get; set; } = 300_000;
+
+    /// <summary>
     /// Optional pin: accept only the server certificate with this SHA-1 thumbprint (a self-signed feed certificate).
     /// Empty = the operating system's trust store decides, as for any HTTPS client.
     /// </summary>

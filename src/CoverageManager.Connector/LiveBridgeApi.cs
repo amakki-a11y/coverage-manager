@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.WebSockets;
 using CoverageManager.Connector.LiveBridge;
+using CoverageManager.Core.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -32,7 +33,9 @@ namespace CoverageManager.Connector;
 /// maintains (<see cref="FeedBook"/>); no request ever goes to the MT5 server.</item>
 /// <item><b>RequestDeals</b>: answered from the deals received in this process (the replayed gap plus live), kept for
 /// <see cref="LiveBridgeOptions.DealRetentionHours"/>. Deals from before the resume point are not in the feed's replay;
-/// the durable record of deals stays Supabase.</item>
+/// the durable record of deals stays Supabase. <see cref="DealHistory"/> tells the consumers how far back this record
+/// reaches (never earlier than the earliest deal held, moved forward by a deals replay gap), so the reconciliation
+/// sweep, /verify and the reloads never take an older Supabase deal for a ghost.</item>
 /// </list>
 /// Contract rules implemented: records are applied idempotently by identity; a record with a sequence at or below the
 /// last applied of its stream is ignored; a position update and an account frame are full state; a delete is a close;
@@ -42,7 +45,7 @@ namespace CoverageManager.Connector;
 /// A deal's four money fields (Profit, Storage = swap, Commission, Fee) map one to one. Not on the wire, fixed here:
 /// account registration / last-access times (0), comments ("").
 /// </summary>
-public sealed class LiveBridgeApi : IMT5Api, IMT5ApiDiagnostics
+public sealed class LiveBridgeApi : IMT5Api, IMT5ApiDiagnostics, IMT5DealHistory
 {
     private readonly LiveBridgeOptions _options;
     private readonly ILogger _logger;
@@ -81,6 +84,12 @@ public sealed class LiveBridgeApi : IMT5Api, IMT5ApiDiagnostics
     private long _unmappable;
     private long _tickGaps;
     private long _dealGaps;
+    // The instant (bridge clock, ms) from which this process's deal stream is known to be complete, plus the configured
+    // margin: set at the first handshake, moved forward by a deals replay gap. See DealHistory.
+    private long _dealFloorMsc;
+    private bool _firstHandshakeDone;     // loop thread only
+    private bool _dealGapInHandshake;     // loop thread only: a deals replay_gap arrived in the current handshake
+    private long? _resumeDealsSeq;        // loop thread only: the deals sequence sent in the current subscribe
     private long _lastFrameTicks;
     private long _lastHeartbeatTicks;
     private long _lastPruneTicks;
@@ -121,6 +130,24 @@ public sealed class LiveBridgeApi : IMT5Api, IMT5ApiDiagnostics
     public DateTime? LastFrameAtUtc => Ticks(Interlocked.Read(ref _lastFrameTicks));
     public FeedBook Book => _book;
     public string? StatePath => _sequences?.Path;
+
+    /// <summary>
+    /// How far back <see cref="RequestDeals"/> can answer: nothing while no deal is held; otherwise from the later of
+    /// the earliest deal held and the instant from which this process's deal stream is known to be complete (the first
+    /// handshake's resume point or end, moved forward by a deals replay gap, plus
+    /// <see cref="LiveBridgeOptions.DealHistoryMarginMs"/>). Retention pruning moves it forward as old deals are
+    /// forgotten. Never the server's full history: the consumers clamp their comparisons to it.
+    /// </summary>
+    public DealHistoryWindow DealHistory
+    {
+        get
+        {
+            var earliest = _book.EarliestDealMsc();
+            if (earliest is null) return DealHistoryWindow.None;
+            var from = Math.Max(earliest.Value, Interlocked.Read(ref _dealFloorMsc));
+            return DealHistoryWindow.Since(DateTimeOffset.FromUnixTimeMilliseconds(from).UtcDateTime);
+        }
+    }
 
     public long GetPositionsCalls => Interlocked.Read(ref _getPositionsCalls);
     public long GetUserAccountCalls => Interlocked.Read(ref _getUserAccountCalls);
@@ -375,6 +402,7 @@ public sealed class LiveBridgeApi : IMT5Api, IMT5ApiDiagnostics
             ["skippedBySequence"] = skipped,
             ["gaps"] = new Dictionary<string, long>(StringComparer.Ordinal) { ["ticks"] = Interlocked.Read(ref _tickGaps), ["deals"] = Interlocked.Read(ref _dealGaps) },
             ["sequences"] = _sequences?.Snapshot(),
+            ["dealHistory"] = DealHistoryDiagnostics(),
             ["statePath"] = _sequences?.Path,
             ["stateSavedAtUtc"] = _sequences?.LastSavedUtc,
             ["book"] = new Dictionary<string, int>(StringComparer.Ordinal)
@@ -384,6 +412,20 @@ public sealed class LiveBridgeApi : IMT5Api, IMT5ApiDiagnostics
                 ["symbols"] = _book.SymbolCount,
                 ["deals"] = _book.DealCount,
             },
+        };
+    }
+
+    private IReadOnlyDictionary<string, object?> DealHistoryDiagnostics()
+    {
+        var floor = Interlocked.Read(ref _dealFloorMsc);
+        var earliest = _book.EarliestDealMsc();
+        return new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["fromUtc"] = DealHistory.FromUtc,
+            ["completeFromUtc"] = floor == 0 ? null : DateTimeOffset.FromUnixTimeMilliseconds(floor).UtcDateTime,
+            ["earliestDealUtc"] = earliest is { } e ? DateTimeOffset.FromUnixTimeMilliseconds(e).UtcDateTime : null,
+            ["deals"] = _book.DealCount,
+            ["marginMs"] = _options.DealHistoryMarginMs,
         };
     }
 
@@ -405,7 +447,9 @@ public sealed class LiveBridgeApi : IMT5Api, IMT5ApiDiagnostics
                     TimeSpan.FromMilliseconds(Math.Max(1000, _options.HandshakeTimeoutMs)), ct).ConfigureAwait(false);
                 lock (_gate) _socket = socket;
 
-                await socket.SendTextAsync(FeedWire.Subscribe(_sequences!.Resume()), ct).ConfigureAwait(false);
+                var resume = _sequences!.Resume();
+                _resumeDealsSeq = resume.TryGetValue(FeedStreams.Deals, out var resumeDeals) ? resumeDeals : null;
+                await socket.SendTextAsync(FeedWire.Subscribe(resume), ct).ConfigureAwait(false);
                 _state = "handshake";
                 await HandshakeAsync(socket, ct).ConfigureAwait(false);
 
@@ -473,6 +517,7 @@ public sealed class LiveBridgeApi : IMT5Api, IMT5ApiDiagnostics
         var sawHello = false;
         var before = Applied();
         _positionSnapshot = false;
+        _dealGapInHandshake = false;
         while (true)
         {
             string? text;
@@ -686,6 +731,7 @@ public sealed class LiveBridgeApi : IMT5Api, IMT5ApiDiagnostics
     private void OnEnd(EndFrame end)
     {
         foreach (var (stream, seq) in end.Seq) _sequences?.Advance(stream, seq);
+        SettleDealFloor(end);
         if (_positionSnapshot)
         {
             _positionSnapshot = false;
@@ -709,9 +755,61 @@ public sealed class LiveBridgeApi : IMT5Api, IMT5ApiDiagnostics
             return;
         }
         Interlocked.Increment(ref _dealGaps);
+        _dealGapInHandshake = true;
         _logger.LogWarning("Live Bridge: {Stream} could not be replayed exactly ({Reason}); records after sequence {Seq} are not recoverable from the feed",
             gap.Stream, gap.Reason, _sequences?.Get(gap.Stream));
+        if (_state != "handshake") SettleDealFloor(null);   // a gap outside a handshake is not in the contract; be safe
     }
+
+    /// <summary>
+    /// The instant from which this process's deal stream is known to be complete, settled after an end frame.
+    /// First handshake of the process: the resume point when the replay continued this consumer's own sequence,
+    /// otherwise (a snapshot, or a resume the bridge could not honour exactly) the end of the handshake. A deals
+    /// replay gap: the end of that handshake, since the deals between the drop and the replay are lost to the feed.
+    /// The bridge mints sequences as milliseconds of the admission time, so an end frame's deals sequence names that
+    /// instant on the bridge's clock; the local clock is the fallback and an upper bound. The configured margin is
+    /// added, and the floor only ever moves forward.
+    /// </summary>
+    private void SettleDealFloor(EndFrame? end)
+    {
+        var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        long? candidate = null;
+        var reason = "";
+        if (_dealGapInHandshake)
+        {
+            _dealGapInHandshake = false;
+            candidate = Math.Max(nowMs, EndSequenceMs(end, nowMs) ?? nowMs);
+            reason = "deals replay gap";
+        }
+        else if (!_firstHandshakeDone)
+        {
+            if (_mode != "snapshot" && _resumeDealsSeq is { } resumeSeq && PlausibleMs(resumeSeq, nowMs) is { } resumeMs)
+            {
+                candidate = resumeMs;
+                reason = "resumed from this consumer's last deals sequence";
+            }
+            else
+            {
+                candidate = Math.Max(nowMs, EndSequenceMs(end, nowMs) ?? nowMs);
+                reason = "first handshake of this process";
+            }
+        }
+        _firstHandshakeDone = true;
+        if (candidate is not { } ms) return;
+
+        var floor = ms + Math.Max(0, _options.DealHistoryMarginMs);
+        if (floor <= Interlocked.Read(ref _dealFloorMsc)) return;
+        Interlocked.Exchange(ref _dealFloorMsc, floor);
+        _logger.LogInformation("Live Bridge: the deal record counts as complete from {From:O} ({Reason}); Supabase deals before it are never treated as ghosts",
+            DateTimeOffset.FromUnixTimeMilliseconds(floor).UtcDateTime, reason);
+    }
+
+    private static long? EndSequenceMs(EndFrame? end, long nowMs)
+        => end is not null && end.Seq.TryGetValue(FeedStreams.Deals, out var seq) ? PlausibleMs(seq, nowMs) : null;
+
+    /// <summary>A sequence read as milliseconds since the epoch, when it lies between 2020 and a day from now.</summary>
+    private static long? PlausibleMs(long seq, long nowMs)
+        => seq >= 1_577_836_800_000L && seq <= nowMs + 86_400_000L ? seq : null;
 
     private void OnHeartbeat(HeartbeatFrame heartbeat)
     {
