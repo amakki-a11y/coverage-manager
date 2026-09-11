@@ -24,6 +24,7 @@ public sealed class MT5ManagerConnection : BackgroundService
     private readonly Func<string, Task<DateTime?>>? _getLastDealTime;
 
     private IMT5Api? _api;
+    private readonly IMT5ApiFactory _apiFactory;
     private ulong[] _logins = [];
     private long _tickCount;
     private DateTime _lastAccountSync = DateTime.MinValue;
@@ -85,6 +86,7 @@ public sealed class MT5ManagerConnection : BackgroundService
         Math.Min(Math.Max(currentMs, 1) * 2, MaxBackoffMs);
 
     public bool IsConnected => _api?.IsConnected ?? false;
+    public string ApiProvider => _apiFactory.ProviderName;
     public string? ConnectedServer { get; private set; }
     public DateTime? ConnectedAt { get; private set; }
     public int PositionCount { get; private set; }
@@ -122,7 +124,8 @@ public sealed class MT5ManagerConnection : BackgroundService
         Func<IEnumerable<TradingAccount>, Task>? syncAccounts = null,
         Func<string, Task<DateTime?>>? getLastDealTime = null,
         Action<string>? onPriceTick = null,
-        Action<ClosedDeal>? onDealSettled = null)
+        Action<ClosedDeal>? onDealSettled = null,
+        IMT5ApiFactory? apiFactory = null)
     {
         _logger = logger;
         _positionManager = positionManager;
@@ -134,11 +137,13 @@ public sealed class MT5ManagerConnection : BackgroundService
         _onDealSettled = onDealSettled;
         _syncAccounts = syncAccounts;
         _getLastDealTime = getLastDealTime;
+        _apiFactory = apiFactory ?? new MT5ApiFactory();
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         await Task.Delay(2000, stoppingToken); // Let the rest of the app start
+        _logger.LogInformation("MT5 API provider: {Provider}", _apiFactory.ProviderName);
 
         var backoffMs = InitialBackoffMs;
 
@@ -162,7 +167,7 @@ public sealed class MT5ManagerConnection : BackgroundService
                     "Connecting to MT5 Manager: {Label} @ {Server} login {Login}",
                     managerAccount.Label, managerAccount.Server, managerAccount.Login);
 
-                _api = new MT5ApiReal();
+                _api = _apiFactory.Create();
 
                 if (!_api.Initialize())
                 {

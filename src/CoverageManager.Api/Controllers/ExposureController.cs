@@ -100,6 +100,7 @@ public class ExposureController : ControllerBase
         return Ok(new
         {
             mt5Connected = _mt5Connection.IsConnected,
+            mt5Provider = _mt5Connection.ApiProvider,
             mt5Server = _mt5Connection.ConnectedServer,
             bbookPositions = _mt5Connection.PositionCount,
             loginCount = _mt5Connection.LoginCount

@@ -61,6 +61,16 @@ try
     // Broadcast service (WebSocket push)
     builder.Services.AddSingleton<ExposureBroadcastService>();
 
+    // MT5 API provider: "Manager" (MetaQuotes Manager API DLLs, the default) or
+    // "LiveBridge" (push feed; placeholder until the Live Bridge publishes it).
+    // Normalized here so a typo fails at startup instead of inside the reconnect loop.
+    var mt5Provider = MT5ApiProviders.Normalize(builder.Configuration["MT5:Provider"]);
+    var liveBridgeOptions = builder.Configuration.GetSection(LiveBridgeOptions.SectionName).Get<LiveBridgeOptions>()
+                            ?? new LiveBridgeOptions();
+    Log.Information("MT5 API provider: {Provider}", mt5Provider);
+    builder.Services.AddSingleton<IMT5ApiFactory>(sp =>
+        new MT5ApiFactory(mt5Provider, liveBridgeOptions, sp.GetRequiredService<ILoggerFactory>()));
+
     // MT5 Manager connection (reads accounts from Supabase, connects, snapshots positions)
     builder.Services.AddSingleton<MT5ManagerConnection>(sp =>
     {
@@ -95,7 +105,8 @@ try
                 var delta = (deal.Entry >= 1 && deal.Entry <= 3 ? deal.Profit + deal.Swap : 0m)
                           + deal.Commission + deal.Fee;
                 broadcast.BroadcastDealSettled(key, delta, deal.Time, deal.DealId, "bbook");
-            });
+            },
+            apiFactory: sp.GetRequiredService<IMT5ApiFactory>());
     });
     builder.Services.AddHostedService(sp => sp.GetRequiredService<MT5ManagerConnection>());
 
@@ -109,7 +120,8 @@ try
             positionManager,
             priceCache,
             async () => await supabase.GetAccountSettingsAsync(),
-            () => broadcast.MarkDirty());
+            () => broadcast.MarkDirty(),
+            apiFactory: sp.GetRequiredService<IMT5ApiFactory>());
     });
     builder.Services.AddHostedService(sp => sp.GetRequiredService<MT5CoverageConnection>());
 

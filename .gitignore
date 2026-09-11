@@ -43,3 +43,9 @@ secrets.json
 # OS
 .DS_Store
 Thumbs.db
+
+# Scheduled-task deployment layout (see _deploy/task/README.md)
+publish/
+run/
+caddy/
+/Caddyfile

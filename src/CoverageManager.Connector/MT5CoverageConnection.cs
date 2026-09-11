@@ -22,6 +22,7 @@ public sealed class MT5CoverageConnection : BackgroundService
     // ExecuteAsync block is excluded.
 #pragma warning disable CS0649
     private IMT5Api? _api;
+    private readonly IMT5ApiFactory _apiFactory;
 #pragma warning restore CS0649
     private long _tickCount;
 
@@ -30,6 +31,7 @@ public sealed class MT5CoverageConnection : BackgroundService
     private const int PositionSnapshotIntervalMs = 500;
 
     public bool IsConnected => _api?.IsConnected ?? false;
+    public string ApiProvider => _apiFactory.ProviderName;
     public string? ConnectedServer { get; private set; }
     public int PositionCount { get; private set; }
 
@@ -38,13 +40,15 @@ public sealed class MT5CoverageConnection : BackgroundService
         PositionManager positionManager,
         PriceCache priceCache,
         Func<Task<List<AccountSettings>>> getAccounts,
-        Action onUpdate)
+        Action onUpdate,
+        IMT5ApiFactory? apiFactory = null)
     {
         _logger = logger;
         _positionManager = positionManager;
         _priceCache = priceCache;
         _getAccounts = getAccounts;
         _onUpdate = onUpdate;
+        _apiFactory = apiFactory ?? new MT5ApiFactory();
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -90,7 +94,7 @@ public sealed class MT5CoverageConnection : BackgroundService
                     "[Coverage] Connecting to LP: {Label} @ {Server} login {Login}",
                     coverageAccount.Label, coverageAccount.Server, coverageAccount.Login);
 
-                _api = new MT5ApiReal();
+                _api = _apiFactory.Create();
 
                 if (!_api.Initialize())
                 {

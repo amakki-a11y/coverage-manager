@@ -40,6 +40,10 @@ coverage-manager/
 │   │   ├── MT5ApiReal.cs               # Real MT5 Manager API implementation (#if MT5_API_AVAILABLE)
 │   │   ├── MT5ManagerConnection.cs     # B-Book connection service (positions, deals, account sync)
 │   │   ├── MT5CoverageConnection.cs    # Coverage connection (disabled — uses Python collector)
+│   │   ├── IMT5ApiFactory.cs           # Factory the connections call on every (re)connect; provider chosen from config
+│   │   ├── MT5ApiFactory.cs            # MT5ApiProviders (Manager | LiveBridge) + default factory
+│   │   ├── LiveBridgeApi.cs            # Empty IMT5Api placeholder for the Live Bridge push feed (see "MT5 API provider")
+│   │   ├── LiveBridgeOptions.cs        # `LiveBridge` config section (Url, ApiKey via env, ReconnectMs)
 │   │   ├── RawTypes.cs                 # RawDeal, RawPosition, RawTick, RawAccount
 │   │   └── Libs/                       # MetaQuotes native DLLs
 │   ├── CoverageManager.Api/            # ASP.NET Core host
@@ -139,6 +143,20 @@ Position + user state are pushed by MT5 via `CIMTPositionSink` / `CIMTUserSink` 
 - **`AccountSyncIntervalMinutes = 15`** (was 5). Balance/credit arrive via events; the bulk sync only refreshes roster fields (group, leverage, comment) + equity/margin.
 - **A/B verified empirically:** 500 ms poll = 4459 `getPositions` calls/min (40 logins) vs 60 s poll = 58 calls/min — **−98.7%** with zero drift in steady state.
 - **Diagnostics endpoint:** `GET /api/exposure/diagnostics` — returns `{ stage, pollIntervalMs, snapshotCount, drift.{totalDriftPositions,pollsWithDrift}, positionEvents.{add,update,delete}, userEvents.update, tickEvents.{total,perMinute,lastAt}, apiCalls.{getPositions,getUserAccount,getUserLogins,requestDeals,tickLast}.{total,perMinute}, broadcasts.{fullState,priceOnly}.{total,perMinute} + priceOnly.coalescedTicks }`. Watch `drift.pollsWithDrift` after any change. `tickEvents.lastAt` getting older than ~5s during market hours = MT5 isn't delivering ticks (server-side, not the app). `broadcasts.priceOnly.coalescedTicks` is the SUCCESS metric — high values mean bursts are collapsing into single sends.
+
+## MT5 API provider (Manager API vs Live Bridge)
+`MT5ManagerConnection` / `MT5CoverageConnection` never construct `MT5ApiReal` directly. They receive an [`IMT5ApiFactory`](src/CoverageManager.Connector/IMT5ApiFactory.cs) and call `Create()` on every (re)connect, so the B-Book feed can be swapped without touching the bring-up order, event wiring or reconnect backoff. The provider is resolved once at startup in `Program.cs` from `MT5:Provider`:
+
+| `MT5:Provider` | Implementation | Behaviour |
+|---|---|---|
+| `Manager` (default) | [`MT5ApiReal`](src/CoverageManager.Connector/MT5ApiReal.cs) | MetaQuotes Manager API via the native DLLs in `Connector\Libs\`. |
+| `LiveBridge` | [`LiveBridgeApi`](src/CoverageManager.Connector/LiveBridgeApi.cs) | **Placeholder until the Live Bridge publishes its push feed.** `Initialize()` succeeds, `Connect()` fails with a descriptive `LastError` (password never echoed), subscriptions return `false`, queries return empty results, call counters still tick. The host keeps running with the MT5 dot red and the normal 1s→60s backoff. Settings live in the `LiveBridge` section ([`LiveBridgeOptions`](src/CoverageManager.Connector/LiveBridgeOptions.cs): `Url`, `ReconnectMs`; `ApiKey` only via env `LiveBridge__ApiKey`). |
+
+- Unknown names throw in `MT5ApiProviders.Normalize` at startup, so a typo fails fast instead of looping in the reconnect backoff. Matching is case-insensitive; blank = `Manager`.
+- Per-environment override: `MT5__Provider=LiveBridge` (env var), no rebuild.
+- Visible at runtime: startup log line `MT5 API provider: …` and `/api/exposure/status.mt5Provider`.
+- Tests: [`LiveBridgeApiTests.cs`](src/CoverageManager.Tests/LiveBridgeApiTests.cs) locks the placeholder contract + factory selection.
+- When the feed ships: implement the members of `LiveBridgeApi` (the class comment maps each `IMT5Api` member to what the feed must provide). Nothing outside that class needs to change.
 
 ## Data Sync Architecture
 - **DataSyncService** (background): Syncs deals to Supabase every 30s with change detection
