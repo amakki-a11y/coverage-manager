@@ -191,7 +191,9 @@ public class ExposureBroadcastService : IDisposable
             Interlocked.Increment(ref _broadcastCount);
             var exposure = _exposureEngine.CalculateExposure();
             var prices = _priceCache.GetAll();
-            var pnl = _dealStore.GetPnLBySymbol();
+            // Today's closed P&L, cached: recomputed when a deal changes and at most once a second, because this
+            // frame fires up to ten times a second and the store holds two days of feed deals.
+            var pnl = _dealStore.GetTodayPnLBySymbol(TimeSpan.FromSeconds(1));
 
             // Evaluate alert thresholds
             var newAlerts = _alertEngine.Evaluate();

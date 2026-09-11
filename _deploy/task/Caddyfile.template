@@ -1,0 +1,20 @@
+# Coverage Manager - Caddy reverse proxy with automatic HTTPS.
+#
+# Copy to C:\CoverageManager\Caddyfile and replace HOSTNAME_PLACEHOLDER with the
+# public DNS name whose A record points at this server. Caddy obtains and renews
+# a Let's Encrypt certificate on its own; inbound TCP 80 and 443 must reach this
+# machine (Windows firewall + the VPS provider's firewall).
+#
+# Everything (REST /api/*, WebSocket /ws/*, the React bundle) is served by
+# Kestrel on 127.0.0.1:5000; Caddy handles WebSocket upgrades automatically.
+
+HOSTNAME_PLACEHOLDER {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:5000
+	log {
+		output file C:/CoverageManager/logs/caddy.access.log {
+			roll_size 10MiB
+			roll_keep 5
+		}
+	}
+}

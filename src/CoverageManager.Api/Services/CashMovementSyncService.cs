@@ -41,6 +41,7 @@ public sealed class CashMovementSyncService : BackgroundService
     private const int LookbackDays = 7;
     private const int PerLoginPacingMs = 300;
     private const int StartupDelayMinutes = 2;
+    private bool _feedNoticeLogged;
 
     public CashMovementSyncService(
         ILogger<CashMovementSyncService> logger,
@@ -65,10 +66,20 @@ public sealed class CashMovementSyncService : BackgroundService
         {
             try
             {
-                if (_mt5.IsConnected)
-                    await RunOnceAsync(stoppingToken).ConfigureAwait(false);
-                else
+                if (!_mt5.IsConnected)
                     _logger.LogDebug("CashMovementSync skipped — MT5 not connected");
+                else if (!_mt5.DealHistory.Complete)
+                {
+                    // The Live Bridge feed pushes every deal type, admin balance/credit included, through OnDealAdd,
+                    // and asking RequestDeals for 26,000+ logins one by one would take hours per cycle.
+                    if (!_feedNoticeLogged)
+                    {
+                        _feedNoticeLogged = true;
+                        _logger.LogInformation("CashMovementSync idle: the {Provider} feed delivers admin deals itself", _mt5.ApiProvider);
+                    }
+                }
+                else
+                    await RunOnceAsync(stoppingToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) { break; }
             catch (Exception ex)

@@ -20,10 +20,16 @@ public sealed class MT5ManagerConnection : BackgroundService
     private readonly Action _onUpdate;
     private readonly Action<string>? _onPriceTick;
     private readonly Action<ClosedDeal>? _onDealSettled;
-    private readonly Func<IEnumerable<TradingAccount>, Task>? _syncAccounts;
+    private readonly Func<IEnumerable<TradingAccount>, Task<int>>? _syncAccounts;
+    // What each account looked like when it was last written: a sync cycle writes only the accounts that changed.
+    private readonly AccountSyncTracker _accountSyncTracker = new();
+    private AccountSyncStatus _accountSyncStatus = new();
+    private const int AccountSyncChunkSize = 500;
+    private const int AccountSyncChunkPauseMs = 200;
     private readonly Func<string, Task<DateTime?>>? _getLastDealTime;
 
     private IMT5Api? _api;
+    private readonly IMT5ApiFactory _apiFactory;
     private ulong[] _logins = [];
     private long _tickCount;
     private DateTime _lastAccountSync = DateTime.MinValue;
@@ -85,6 +91,21 @@ public sealed class MT5ManagerConnection : BackgroundService
         Math.Min(Math.Max(currentMs, 1) * 2, MaxBackoffMs);
 
     public bool IsConnected => _api?.IsConnected ?? false;
+    public string ApiProvider => _apiFactory.ProviderName;
+
+    /// <summary>Provider-specific counters (the Live Bridge feed session), null for providers without any.</summary>
+    public IReadOnlyDictionary<string, object?>? ApiDiagnostics => (_api as IMT5ApiDiagnostics)?.Diagnostics();
+
+    /// <summary>
+    /// How far back the active provider's deal history reaches. The Manager API answers from the server's whole
+    /// history; the Live Bridge feed only from the deals it received since its resume point, so the reconciliation
+    /// sweep, /api/exposure/verify and the deal reloads limit themselves to this window and never treat an older
+    /// stored deal as a ghost (<see cref="IMT5DealHistory"/>, <see cref="DealReconciler"/>).
+    /// </summary>
+    public DealHistoryWindow DealHistory => _api is IMT5DealHistory history ? history.DealHistory : DealHistoryWindow.Full;
+
+    /// <summary>The last account sync cycle, for <c>/api/exposure/diagnostics.accountSync</c>.</summary>
+    public AccountSyncStatus AccountSyncStatus => _accountSyncStatus;
     public string? ConnectedServer { get; private set; }
     public DateTime? ConnectedAt { get; private set; }
     public int PositionCount { get; private set; }
@@ -119,10 +140,11 @@ public sealed class MT5ManagerConnection : BackgroundService
         DealStore dealStore,
         Func<Task<List<AccountSettings>>> getAccounts,
         Action onUpdate,
-        Func<IEnumerable<TradingAccount>, Task>? syncAccounts = null,
+        Func<IEnumerable<TradingAccount>, Task<int>>? syncAccounts = null,
         Func<string, Task<DateTime?>>? getLastDealTime = null,
         Action<string>? onPriceTick = null,
-        Action<ClosedDeal>? onDealSettled = null)
+        Action<ClosedDeal>? onDealSettled = null,
+        IMT5ApiFactory? apiFactory = null)
     {
         _logger = logger;
         _positionManager = positionManager;
@@ -134,11 +156,13 @@ public sealed class MT5ManagerConnection : BackgroundService
         _onDealSettled = onDealSettled;
         _syncAccounts = syncAccounts;
         _getLastDealTime = getLastDealTime;
+        _apiFactory = apiFactory ?? new MT5ApiFactory();
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         await Task.Delay(2000, stoppingToken); // Let the rest of the app start
+        _logger.LogInformation("MT5 API provider: {Provider}", _apiFactory.ProviderName);
 
         var backoffMs = InitialBackoffMs;
 
@@ -146,23 +170,44 @@ public sealed class MT5ManagerConnection : BackgroundService
         {
             try
             {
-                // Get active manager accounts from Supabase
-                var accounts = await _getAccounts();
-                var managerAccount = accounts
-                    .FirstOrDefault(a => a.AccountType == "manager" && a.IsActive);
-
-                if (managerAccount == null)
+                AccountSettings? managerAccount;
+                if (_apiFactory.RequiresManagerAccount)
                 {
-                    _logger.LogInformation("No active manager account configured. Waiting...");
-                    await Task.Delay(5000, stoppingToken);
-                    continue;
+                    // Manager API: the credentials live in account_settings (Settings tab).
+                    var accounts = await _getAccounts();
+                    managerAccount = accounts
+                        .FirstOrDefault(a => a.AccountType == "manager" && a.IsActive);
+
+                    if (managerAccount == null)
+                    {
+                        _logger.LogInformation("No active manager account configured. Waiting...");
+                        await Task.Delay(5000, stoppingToken);
+                        continue;
+                    }
+                }
+                else
+                {
+                    // Live Bridge feed: keyed by its URL and bearer key (LiveBridge config, env
+                    // LiveBridge__ApiKey), no MT5 credentials. The account_settings read is skipped
+                    // entirely so a Supabase outage cannot block the bring-up; the synthetic account
+                    // only feeds the log lines, ConnectedServer and the "*" group mask below.
+                    managerAccount = new AccountSettings
+                    {
+                        AccountType = "manager",
+                        Label = _apiFactory.ProviderName + " feed",
+                        Server = _apiFactory.Endpoint ?? _apiFactory.ProviderName,
+                        Login = 0,
+                        Password = string.Empty,
+                        GroupMask = "*",
+                        IsActive = true,
+                    };
                 }
 
                 _logger.LogInformation(
                     "Connecting to MT5 Manager: {Label} @ {Server} login {Login}",
                     managerAccount.Label, managerAccount.Server, managerAccount.Login);
 
-                _api = new MT5ApiReal();
+                _api = _apiFactory.Create();
 
                 if (!_api.Initialize())
                 {
@@ -240,7 +285,10 @@ public sealed class MT5ManagerConnection : BackgroundService
                         _logger.LogWarning(ex, "Failed to query last deal time, falling back to today");
                     }
                 }
-                BackfillDeals(logins, backfillFrom, DateTimeOffset.UtcNow);
+                // Deal stamps are the server's clock, hours ahead of UTC here; a window ending at UTC "now" cuts the
+                // newest deals off (the feed's book compares stamps to the bounds, and the Manager API reads them as
+                // server time too), so the window ends a day ahead.
+                BackfillDeals(logins, backfillFrom, DateTimeOffset.UtcNow.AddDays(1));
 
                 // Initial account sync to Supabase
                 await SyncAccountsToSupabaseAsync(logins, "bbook");
@@ -342,19 +390,23 @@ public sealed class MT5ManagerConnection : BackgroundService
         _logger.LogInformation("MT5 Manager connection service stopped");
     }
 
+    /// <summary>
+    /// Writes the accounts whose durable-store fields changed since they were last written, in paced chunks. The
+    /// first cycle after a start writes every account; afterwards, with 26,000+ accounts on the feed, a cycle writes
+    /// the few thousand whose balance, credit, equity, margin or roster fields moved.
+    /// </summary>
     private async Task SyncAccountsToSupabaseAsync(ulong[] logins, string source)
     {
         if (_api == null || !_api.IsConnected || _syncAccounts == null) return;
 
         try
         {
-            var accounts = new List<TradingAccount>();
-
+            var now = DateTime.UtcNow;
+            var accounts = new List<TradingAccount>(logins.Length);
             foreach (var login in logins)
             {
                 var raw = _api.GetUserAccount(login);
                 if (raw == null) continue;
-
                 accounts.Add(new TradingAccount
                 {
                     Source = source,
@@ -375,18 +427,50 @@ public sealed class MT5ManagerConnection : BackgroundService
                         ? DateTimeOffset.FromUnixTimeSeconds(raw.LastTradeTime).UtcDateTime
                         : null,
                     Comment = raw.Comment,
-                    SyncedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow
+                    SyncedAt = now,
+                    UpdatedAt = now
                 });
             }
 
-            if (accounts.Count > 0)
+            var changed = _accountSyncTracker.Changed(accounts);
+            var written = 0;
+            var requests = 0;
+            string? error = null;
+            foreach (var chunk in changed.Chunk(AccountSyncChunkSize))
             {
-                await _syncAccounts(accounts);
-                _logger.LogInformation("Synced {Count} {Source} trading accounts to Supabase", accounts.Count, source);
+                if (requests > 0) await Task.Delay(AccountSyncChunkPauseMs);
+                requests++;
+                var accepted = await _syncAccounts(chunk);
+                if (accepted < chunk.Length)
+                {
+                    error = $"request {requests}: {accepted} of {chunk.Length} rows accepted";
+                    break;
+                }
+                _accountSyncTracker.MarkSynced(chunk);
+                written += accepted;
             }
 
             _lastAccountSync = DateTime.UtcNow;
+            var previous = _accountSyncStatus;
+            _accountSyncStatus = new AccountSyncStatus
+            {
+                LastRunUtc = _lastAccountSync,
+                Read = accounts.Count,
+                Changed = changed.Count,
+                Written = written,
+                Requests = requests,
+                LastError = error,
+                RunsTotal = previous.RunsTotal + 1,
+                WrittenTotal = previous.WrittenTotal + written,
+            };
+            if (error is not null)
+                _logger.LogWarning("Account sync: {Written} of {Changed} changed accounts written, then {Error}; the rest are retried next cycle ({Read} read)",
+                    written, changed.Count, error, accounts.Count);
+            else if (changed.Count > 0)
+                _logger.LogInformation("Account sync: {Written} changed {Source} accounts written in {Requests} request(s) ({Read} read, {Unchanged} unchanged)",
+                    written, source, requests, accounts.Count, accounts.Count - changed.Count);
+            else
+                _logger.LogDebug("Account sync: nothing changed among {Read} accounts", accounts.Count);
         }
         catch (Exception ex)
         {
@@ -648,7 +732,19 @@ public sealed class MT5ManagerConnection : BackgroundService
     {
         if (_api == null || !_api.IsConnected) return 0;
 
-        _dealStore.Clear();
+        var history = DealHistory;
+        if (history.Complete)
+        {
+            _dealStore.Clear();
+        }
+        else
+        {
+            // The feed cannot re-supply deals from before its window: the deals already in memory (loaded from
+            // Supabase at startup, or received earlier) stay, and the ones inside the window are replaced by
+            // identity below. Ghosts inside the window are evicted by the reconciliation sweep, not here.
+            _logger.LogInformation("Deal reload: the provider answers from {History}; keeping the {Count} deals already in memory",
+                history, _dealStore.DealCount);
+        }
         var totalDeals = 0;
 
         foreach (var login in logins)
