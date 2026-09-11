@@ -51,6 +51,20 @@ try
     // can be attached per-service later without changing the services themselves.
     builder.Services.AddHttpClient();
 
+    // Supabase:ReadOnly = true blocks every write to Supabase at the HTTP layer, on every factory
+    // client, so the API can run against a live feed without persisting anything (a feed test from
+    // a parked install). Reads and the read-only RPC functions pass. The ledger of blocked writes
+    // is on /api/exposure/diagnostics.supabaseReadOnly.
+    var supabaseReadOnly = builder.Configuration.GetValue("Supabase:ReadOnly", false);
+    var supabaseHost = Uri.TryCreate(builder.Configuration["Supabase:Url"], UriKind.Absolute, out var supabaseUri) ? supabaseUri.Host : "";
+    builder.Services.AddSingleton(new SupabaseReadOnlyLedger(supabaseReadOnly, supabaseHost));
+    if (supabaseReadOnly)
+    {
+        builder.Services.AddTransient<SupabaseReadOnlyHandler>();
+        builder.Services.ConfigureHttpClientDefaults(http => http.AddHttpMessageHandler<SupabaseReadOnlyHandler>());
+        Log.Warning("Supabase READ-ONLY mode: every write to {Host} is blocked (Supabase:ReadOnly = true)", supabaseHost);
+    }
+
     // Supabase HTTP client
     builder.Services.AddSingleton<SupabaseService>(sp =>
         new SupabaseService(
@@ -263,7 +277,14 @@ try
         // no Stub synthesis). UI + code are untouched so it can be turned back on from Settings.
         var bridgeHost = app.Services.GetRequiredService<BridgeFeedHost>();
         var bridgeSettings = await supabase.GetBridgeSettingsAsync();
-        if (bridgeSettings?.Enabled == false)
+        // Centroid:Enabled = false (env Centroid__Enabled=false) keeps the feed dormant whatever
+        // bridge_settings says: a second instance (a feed test) must not open its own Centroid session.
+        var centroidAllowed = app.Configuration.GetValue("Centroid:Enabled", true);
+        if (!centroidAllowed)
+        {
+            Log.Information("Centroid Bridge feed is DISABLED by config (Centroid:Enabled = false) — skipping startup");
+        }
+        else if (bridgeSettings?.Enabled == false)
         {
             Log.Information("Centroid Bridge feed is DISABLED in bridge_settings — skipping startup");
         }
