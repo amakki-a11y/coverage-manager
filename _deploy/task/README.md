@@ -108,12 +108,29 @@ Rollback (printed by the script): stop the task, rename `publish\api` away, rena
 Collector-only change: `uv pip install --python collector\venv\Scripts\python.exe -r collector\requirements.txt`
 then `Stop-ScheduledTask CoverageManager-Collector; Start-ScheduledTask CoverageManager-Collector`.
 
-## Switching the B-Book feed to the Live Bridge (when published)
+## Switching the B-Book feed to the Live Bridge
 
-1. Implement `src\CoverageManager.Connector\LiveBridgeApi.cs` (members are documented in the class comment).
-2. Set `MT5:Provider` to `LiveBridge` in `appsettings.json`, or per machine with a USER-scope
-   env var `MT5__Provider=LiveBridge`; put the feed URL in `LiveBridge:Url` and the key in env `LiveBridge__ApiKey`.
-3. `build.ps1 -Swap`. `/api/exposure/status.mt5Provider` confirms the active provider.
+The adapter (`src\CoverageManager.Connector\LiveBridgeApi.cs`) implements the consumer contract of
+TheBridge `docs/product-spec.md` section 15, proposal 14. `appsettings.json` already points
+`LiveBridge:Url` at `wss://feed.connecttrader.app:5571/feed/BBcorp-Live`; production stays on
+`MT5:Provider = Manager` until the owner plans the switch.
+
+1. The bridge console must list this server's address (37.148.206.228) as the consumer's allowed
+   address and hand you the generated key. Store it as the task user:
+   `.\_deploy\task\set-secrets.ps1 -Names LiveBridge__ApiKey`
+2. Select the provider per machine without a rebuild: `set-secrets.ps1 -Names MT5__Provider` and
+   enter `LiveBridge` (it is not a secret, but the same USER-scope mechanism reaches the task), or set
+   `"Provider": "LiveBridge"` in `appsettings.json` and `build.ps1 -Swap`.
+3. Restart the API task. The startup log shows `MT5 API provider: LiveBridge`, then
+   `Live Bridge: hello ... mode snapshot` and `Live Bridge: snapshot complete ...`.
+4. Verify: `/api/exposure/status.mt5Provider` = `LiveBridge`, `/api/exposure/diagnostics.liveBridge`
+   shows `state: live`, `sourceConnected: true`, applied counts growing, and the resume sequences.
+5. The resume sequences live in `%LOCALAPPDATA%\CoverageManager\livebridge-state.json` for the task
+   user (`LiveBridge:StatePath` to move them); they survive a `build.ps1 -Swap`. Delete the file to
+   force a fresh snapshot on the next start.
+6. Back to the Manager API: remove the `MT5__Provider` variable (or set it to `Manager`) and restart.
+
+`start-api.ps1` passes `LiveBridge__ApiKey` and `MT5__Provider` from the user environment to the API.
 
 ## Notes
 

@@ -87,6 +87,9 @@ public sealed class MT5ManagerConnection : BackgroundService
 
     public bool IsConnected => _api?.IsConnected ?? false;
     public string ApiProvider => _apiFactory.ProviderName;
+
+    /// <summary>Provider-specific counters (the Live Bridge feed session), null for providers without any.</summary>
+    public IReadOnlyDictionary<string, object?>? ApiDiagnostics => (_api as IMT5ApiDiagnostics)?.Diagnostics();
     public string? ConnectedServer { get; private set; }
     public DateTime? ConnectedAt { get; private set; }
     public int PositionCount { get; private set; }

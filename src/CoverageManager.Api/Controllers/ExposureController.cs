@@ -132,6 +132,8 @@ public class ExposureController : ControllerBase
         {
             mt5Connected = _mt5Connection.IsConnected,
             stage = "2b",
+            mt5Provider = _mt5Connection.ApiProvider,
+            liveBridge = _mt5Connection.ApiDiagnostics,
             pollIntervalMs = 60_000,
             connectedAt,
             uptimeMinutes = Math.Round(minutesConnected, 2),
