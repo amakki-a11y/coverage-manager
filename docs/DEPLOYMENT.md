@@ -401,4 +401,31 @@ To unregister later: `Unregister-ScheduledTask -TaskName 'CoverageCollectorWatch
 | MT5 dot red intermittently | Manager credentials changed | Settings → Connections → update |
 | `exposure_snapshots` never grows | Scheduler service not ticking | `nssm restart coverage-api`, check `logs/api.log` |
 
+---
+
+## 14. Scheduled-task deployment (no NSSM, no admin for day-to-day ops)
+
+Alternative to §8–§13 for servers where the app account is **not** an administrator, or where
+you prefer Task Scheduler over NSSM. Everything runs as Windows Scheduled Tasks under the app
+user with a stored password (so USER-scope environment variables carry the secrets), a
+watchdog task probes the API/collector every 30 s, and Caddy terminates TLS.
+
+Scripts live in [`_deploy/task/`](../_deploy/task/README.md):
+
+| Script | Purpose |
+|---|---|
+| `build.ps1 [-Swap]` | `dotnet publish` + `npm ci`/`npm run build` into `publish\api-staging`; `-Swap` puts it live (stops/starts the API task, keeps `api-old-<ts>` for rollback) |
+| `set-secrets.ps1` | Prompts (hidden input) for `Supabase__Key` etc. and stores them as USER-scope env vars |
+| `register-tasks.ps1 [-Collector] [-Caddy]` | Registers `CoverageManager-Api`, `-Watchdog`, optional `-Collector` / `-Caddy` |
+| `start-api.ps1`, `start-collector.ps1`, `start-caddy.ps1` | Task actions (foreground launch + pid file + per-run stdout/stderr logs) |
+| `watchdog.ps1` | Liveness probe every 30 s (task repeats every minute, 2 probes per run); 3 consecutive failures → restart the owning task |
+| `Caddyfile.template` | Reverse proxy with automatic Let's Encrypt TLS → `127.0.0.1:5000` |
+
+The only steps that still need an administrator: the one-off `register-tasks.ps1` run
+(boot-triggered tasks cannot be registered by a standard user; the script then grants the app
+account control of its tasks), the inbound firewall rule for 443 (and 80 for ACME), and
+stopping/disabling any older NSSM services that hold ports 80/8100.
+
+Full runbook: [`_deploy/task/README.md`](../_deploy/task/README.md).
+
 Full conventions + architecture: `CLAUDE.md` at the repo root.

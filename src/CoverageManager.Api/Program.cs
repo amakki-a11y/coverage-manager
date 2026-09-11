@@ -51,6 +51,20 @@ try
     // can be attached per-service later without changing the services themselves.
     builder.Services.AddHttpClient();
 
+    // Supabase:ReadOnly = true blocks every write to Supabase at the HTTP layer, on every factory
+    // client, so the API can run against a live feed without persisting anything (a feed test from
+    // a parked install). Reads and the read-only RPC functions pass. The ledger of blocked writes
+    // is on /api/exposure/diagnostics.supabaseReadOnly.
+    var supabaseReadOnly = builder.Configuration.GetValue("Supabase:ReadOnly", false);
+    var supabaseHost = Uri.TryCreate(builder.Configuration["Supabase:Url"], UriKind.Absolute, out var supabaseUri) ? supabaseUri.Host : "";
+    builder.Services.AddSingleton(new SupabaseReadOnlyLedger(supabaseReadOnly, supabaseHost));
+    if (supabaseReadOnly)
+    {
+        builder.Services.AddTransient<SupabaseReadOnlyHandler>();
+        builder.Services.ConfigureHttpClientDefaults(http => http.AddHttpMessageHandler<SupabaseReadOnlyHandler>());
+        Log.Warning("Supabase READ-ONLY mode: every write to {Host} is blocked (Supabase:ReadOnly = true)", supabaseHost);
+    }
+
     // Supabase HTTP client
     builder.Services.AddSingleton<SupabaseService>(sp =>
         new SupabaseService(
@@ -60,6 +74,16 @@ try
 
     // Broadcast service (WebSocket push)
     builder.Services.AddSingleton<ExposureBroadcastService>();
+
+    // MT5 API provider: "Manager" (MetaQuotes Manager API DLLs, the default) or
+    // "LiveBridge" (push feed; placeholder until the Live Bridge publishes it).
+    // Normalized here so a typo fails at startup instead of inside the reconnect loop.
+    var mt5Provider = MT5ApiProviders.Normalize(builder.Configuration["MT5:Provider"]);
+    var liveBridgeOptions = builder.Configuration.GetSection(LiveBridgeOptions.SectionName).Get<LiveBridgeOptions>()
+                            ?? new LiveBridgeOptions();
+    Log.Information("MT5 API provider: {Provider}", mt5Provider);
+    builder.Services.AddSingleton<IMT5ApiFactory>(sp =>
+        new MT5ApiFactory(mt5Provider, liveBridgeOptions, sp.GetRequiredService<ILoggerFactory>()));
 
     // MT5 Manager connection (reads accounts from Supabase, connects, snapshots positions)
     builder.Services.AddSingleton<MT5ManagerConnection>(sp =>
@@ -95,7 +119,8 @@ try
                 var delta = (deal.Entry >= 1 && deal.Entry <= 3 ? deal.Profit + deal.Swap : 0m)
                           + deal.Commission + deal.Fee;
                 broadcast.BroadcastDealSettled(key, delta, deal.Time, deal.DealId, "bbook");
-            });
+            },
+            apiFactory: sp.GetRequiredService<IMT5ApiFactory>());
     });
     builder.Services.AddHostedService(sp => sp.GetRequiredService<MT5ManagerConnection>());
 
@@ -109,7 +134,8 @@ try
             positionManager,
             priceCache,
             async () => await supabase.GetAccountSettingsAsync(),
-            () => broadcast.MarkDirty());
+            () => broadcast.MarkDirty(),
+            apiFactory: sp.GetRequiredService<IMT5ApiFactory>());
     });
     builder.Services.AddHostedService(sp => sp.GetRequiredService<MT5CoverageConnection>());
 
@@ -251,7 +277,14 @@ try
         // no Stub synthesis). UI + code are untouched so it can be turned back on from Settings.
         var bridgeHost = app.Services.GetRequiredService<BridgeFeedHost>();
         var bridgeSettings = await supabase.GetBridgeSettingsAsync();
-        if (bridgeSettings?.Enabled == false)
+        // Centroid:Enabled = false (env Centroid__Enabled=false) keeps the feed dormant whatever
+        // bridge_settings says: a second instance (a feed test) must not open its own Centroid session.
+        var centroidAllowed = app.Configuration.GetValue("Centroid:Enabled", true);
+        if (!centroidAllowed)
+        {
+            Log.Information("Centroid Bridge feed is DISABLED by config (Centroid:Enabled = false) — skipping startup");
+        }
+        else if (bridgeSettings?.Enabled == false)
         {
             Log.Information("Centroid Bridge feed is DISABLED in bridge_settings — skipping startup");
         }

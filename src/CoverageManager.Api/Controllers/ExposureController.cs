@@ -46,6 +46,7 @@ public class ExposureController : ControllerBase
     private readonly MappingRefreshService _mappingRefresh;
     private readonly IHttpClientFactory _httpFactory;
     private readonly ILogger<ExposureController> _logger;
+    private readonly SupabaseReadOnlyLedger _readOnlyLedger;
 
     public ExposureController(
         ExposureEngine exposureEngine,
@@ -57,7 +58,8 @@ public class ExposureController : ControllerBase
         ExposureBroadcastService broadcast,
         MappingRefreshService mappingRefresh,
         IHttpClientFactory httpFactory,
-        ILogger<ExposureController> logger)
+        ILogger<ExposureController> logger,
+        SupabaseReadOnlyLedger readOnlyLedger)
     {
         _exposureEngine = exposureEngine;
         _positionManager = positionManager;
@@ -69,6 +71,7 @@ public class ExposureController : ControllerBase
         _mappingRefresh = mappingRefresh;
         _httpFactory = httpFactory;
         _logger = logger;
+        _readOnlyLedger = readOnlyLedger;
     }
 
     /// <summary>
@@ -100,6 +103,7 @@ public class ExposureController : ControllerBase
         return Ok(new
         {
             mt5Connected = _mt5Connection.IsConnected,
+            mt5Provider = _mt5Connection.ApiProvider,
             mt5Server = _mt5Connection.ConnectedServer,
             bbookPositions = _mt5Connection.PositionCount,
             loginCount = _mt5Connection.LoginCount
@@ -131,6 +135,10 @@ public class ExposureController : ControllerBase
         {
             mt5Connected = _mt5Connection.IsConnected,
             stage = "2b",
+            mt5Provider = _mt5Connection.ApiProvider,
+            liveBridge = _mt5Connection.ApiDiagnostics,
+            dealHistory = _mt5Connection.DealHistory,
+            supabaseReadOnly = new { enabled = _readOnlyLedger.Enabled, host = _readOnlyLedger.Host, blockedTotal = _readOnlyLedger.Total, blocked = _readOnlyLedger.Blocked },
             pollIntervalMs = 60_000,
             connectedAt,
             uptimeMinutes = Math.Round(minutesConnected, 2),
@@ -414,24 +422,29 @@ public class ExposureController : ControllerBase
         var fromOffset = new DateTimeOffset(fromDate, TimeSpan.Zero);
         var toOffset = new DateTimeOffset(toDate, TimeSpan.Zero);
 
-        // 1. Query MT5 Manager (batched, read-only)
-        var mt5Deals = _mt5Connection.QueryDeals(fromOffset, toOffset);
+        // 1. Query the provider (batched, read-only)
+        var history = _mt5Connection.DealHistory;
+        var providerDeals = _mt5Connection.QueryDeals(fromOffset, toOffset);
 
         // 2. Query Supabase (exclude moved accounts)
         var supaDeals = await _supabase.GetDealsAsync("bbook", fromDate, toDate);
         var movedLogins = await _supabase.GetMovedLoginsAsync();
-        var supaTradeDeals = supaDeals
+        var storedTradeDeals = supaDeals
             .Where(d => d.Action <= 1 && !string.IsNullOrEmpty(d.Symbol))
             .Where(d => !movedLogins.Contains(d.Login))
             .ToList();
+
+        // The comparison is limited to what the provider can answer: with the Live Bridge feed only the deals since
+        // the earliest one it holds, so older Supabase deals are neither reported as extra nor deleted.
+        var plan = DealReconciler.Plan(providerDeals, storedTradeDeals, fromDate, toDate, history);
+        var mt5Deals = plan.ProviderDeals;
+        var supaTradeDeals = plan.StoredDeals;
 
         // Fix: find deals in MT5 but not in Supabase, upsert them.
         var fixedCount = 0;
         if (fix)
         {
-            var supaDealIds = new HashSet<long>(supaTradeDeals.Select(d => d.DealId));
-            var missingDeals = mt5Deals
-                .Where(d => !supaDealIds.Contains((long)d.DealId))
+            var missingDeals = plan.Missing
                 .Select(d => new DealRecord
                 {
                     DealId = (long)d.DealId,
@@ -472,11 +485,7 @@ public class ExposureController : ControllerBase
         var deletedIds = new List<long>();
         if (delete)
         {
-            var mt5DealIds = new HashSet<long>(mt5Deals.Select(d => (long)d.DealId));
-            deletedIds = supaTradeDeals
-                .Where(d => !mt5DealIds.Contains(d.DealId))
-                .Select(d => d.DealId)
-                .ToList();
+            deletedIds = plan.Ghosts.Select(d => d.DealId).ToList();   // never a deal from before the provider's window
             if (deletedIds.Count > 0)
                 deletedCount = await _supabase.DeleteDealsAsync("bbook", deletedIds);
         }
@@ -553,6 +562,15 @@ public class ExposureController : ControllerBase
             fixed_ = fixedCount,
             deleted_ = deletedCount,
             deletedDealIds = deletedIds,
+            dealHistory = new
+            {
+                complete = history.Complete,
+                fromUtc = history.FromUtc,
+                comparedFrom = plan.FromUtc,
+                comparedTo = plan.ToUtc,
+                unverifiableInSupabase = plan.Unverifiable.Count,
+                note = plan.Note
+            },
             elapsed = sw.Elapsed.ToString(@"hh\:mm\:ss")
         });
     }
@@ -593,20 +611,23 @@ public class ExposureController : ControllerBase
             .ToArray();
 
         var loginResults = new List<object>();
+        var history = _mt5Connection.DealHistory;
         var totalMissing = 0;
         var totalExtra = 0;
+        var totalUnverifiable = 0;
         var dealsToFix = new List<DealRecord>();
 
         foreach (var login in logins)
         {
             var mt5Deals = _mt5Connection.QueryDealsForLogin(login, fromOffset, toOffset);
-            var mt5DealIds = new HashSet<ulong>(mt5Deals.Select(d => d.DealId));
-
             var supaDealList = supaByLogin.GetValueOrDefault((long)login) ?? [];
-            var supaDealIds = new HashSet<long>(supaDealList.Select(d => d.DealId));
 
-            var missingFromSupa = mt5Deals.Where(d => !supaDealIds.Contains((long)d.DealId)).ToList();
-            var extraInSupa = supaDealList.Where(d => !mt5DealIds.Contains((ulong)d.DealId)).ToList();
+            // Limited to what the provider can answer (see /verify): Supabase deals before the feed's window count
+            // as unverifiable, never as extra.
+            var loginPlan = DealReconciler.Plan(mt5Deals, supaDealList, fromDate, toDate, history);
+            var missingFromSupa = loginPlan.Missing;
+            var extraInSupa = loginPlan.Ghosts;
+            totalUnverifiable += loginPlan.Unverifiable.Count;
 
             if (missingFromSupa.Count == 0 && extraInSupa.Count == 0)
                 continue; // Skip matched logins
@@ -648,6 +669,7 @@ public class ExposureController : ControllerBase
                 supaCount = supaDealList.Count,
                 missingFromSupabase = missingFromSupa.Count,
                 extraInSupabase = extraInSupa.Count,
+                unverifiable = loginPlan.Unverifiable.Count,
                 missingDeals = missingFromSupa.Take(20).Select(d => new
                 {
                     dealId = d.DealId,
@@ -675,7 +697,10 @@ public class ExposureController : ControllerBase
 
         foreach (var login in supaOnlyLogins)
         {
-            var deals = supaByLogin[login];
+            var loginPlan = DealReconciler.Plan(Array.Empty<ClosedDeal>(), supaByLogin[login], fromDate, toDate, history);
+            var deals = loginPlan.Ghosts;
+            totalUnverifiable += loginPlan.Unverifiable.Count;
+            if (deals.Count == 0) continue;
             totalExtra += deals.Count;
             loginResults.Add(new
             {
@@ -714,6 +739,8 @@ public class ExposureController : ControllerBase
             loginsWithDiffs = loginResults.Count,
             totalMissingFromSupabase = totalMissing,
             totalExtraInSupabase = totalExtra,
+            totalUnverifiableInSupabase = totalUnverifiable,
+            dealHistory = new { complete = history.Complete, fromUtc = history.FromUtc },
             fixed_ = fixedCount,
             elapsed = sw.Elapsed.ToString(@"hh\:mm\:ss"),
             logins = loginResults

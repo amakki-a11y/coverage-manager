@@ -140,10 +140,10 @@ public class ReconciliationService : BackgroundService
             // MT5ApiReal.RequestDeals + section 5 below). Query with a ±24h buffer so we
             // capture deals at both UTC-window edges regardless of server TZ, then filter
             // by actual UTC deal_time for the apples-to-apples comparison.
+            var history = mt5.DealHistory;
             var mt5Raw = mt5.QueryDeals(new DateTimeOffset(fromUtc.AddHours(-24), TimeSpan.Zero),
                                          new DateTimeOffset(toUtc.AddHours(+24),  TimeSpan.Zero));
             var mt5Deals = mt5Raw.Where(d => d.Time >= fromUtc && d.Time < toUtc).ToList();
-            run.Mt5DealCount = mt5Deals.Count;
 
             // 2. Pull Supabase side (exclude moved accounts).
             var supaDeals = await supabase.GetDealsAsync("bbook", fromUtc, toUtc);
@@ -152,13 +152,20 @@ public class ReconciliationService : BackgroundService
                 .Where(d => d.Action <= 1 && !string.IsNullOrEmpty(d.Symbol))
                 .Where(d => !moved.Contains(d.Login))
                 .ToList();
-            run.SupabaseDealCount = supaTrade.Count;
-
-            var mt5Ids = new HashSet<long>(mt5Deals.Select(d => (long)d.DealId));
-            var supaIds = new HashSet<long>(supaTrade.Select(d => d.DealId));
+            // The comparison is limited to what the provider can answer. The Manager API returns
+            // the server's whole history, so the plan covers the whole window. The Live Bridge feed
+            // holds only the deals received since its resume point (48 h retention), so the window
+            // is clamped to the earliest deal it holds and Supabase deals older than that are kept
+            // untouched: the feed cannot say whether they still exist, so they are never ghosts.
+            var plan = DealReconciler.Plan(mt5Deals, supaTrade, fromUtc, toUtc, history);
+            run.WindowFrom = plan.FromUtc;
+            run.Mt5DealCount = plan.ProviderDeals.Count;
+            run.SupabaseDealCount = plan.StoredDeals.Count;
+            if (plan.Note.Length > 0)
+                _logger.LogInformation("Reconciliation: {Note}", plan.Note);
 
             // 3. Backfill — MT5 has, Supa doesn't. mt5Deals is already UTC-window-filtered.
-            var missingMt5 = mt5Deals.Where(d => !supaIds.Contains((long)d.DealId)).ToList();
+            var missingMt5 = plan.Missing;
             if (missingMt5.Count > 0)
             {
                 var sample = missingMt5.Take(10).Select(d => $"{d.DealId}:{d.Login}:{d.Symbol}@{d.Time:o}").ToList();
@@ -193,8 +200,7 @@ public class ReconciliationService : BackgroundService
 
             // 4. Modifications — deals whose fields differ. Detect logs to trade_audit_log
             //    and the subsequent UpsertDealsAsync patches the Supa row.
-            var commonDeals = mt5Deals
-                .Where(d => supaIds.Contains((long)d.DealId))
+            var commonDeals = plan.Common
                 .Select(d => new DealRecord
                 {
                     DealId = (long)d.DealId,
@@ -236,7 +242,7 @@ public class ReconciliationService : BackgroundService
             // with a ±24h buffer above and filter both sides to UTC deal_time ∈ [fromUtc,
             // toUtc). That makes the set comparison apples-to-apples regardless of server
             // TZ.
-            var ghosts = supaTrade.Where(d => !mt5Ids.Contains(d.DealId)).ToList();
+            var ghosts = plan.Ghosts;   // inside the compared window only; older stored deals are kept
             if (ghosts.Count > 0)
             {
                 var sample = ghosts.Take(10).Select(d => $"{d.DealId}:{d.Login}:{d.Symbol}@{d.DealTime:o}").ToList();
@@ -250,7 +256,8 @@ public class ReconciliationService : BackgroundService
                     _logger.LogInformation("Reconciliation: evicted {Count} ghost deals from in-memory DealStore", evicted);
             }
 
-            run.Notes = $"backfill={run.Backfilled}, ghost={run.GhostDeleted}, modified={run.Modified}";
+            run.Notes = $"backfill={run.Backfilled}, ghost={run.GhostDeleted}, modified={run.Modified}"
+                + (plan.Note.Length > 0 ? "; " + plan.Note : "");
             run.FinishedAt = DateTime.UtcNow;
             _logger.LogInformation(
                 "Reconciliation sweep ({Trigger}) complete: backfill={Back}, ghost={Ghost}, modified={Mod} (window {From:o}..{To:o})",
