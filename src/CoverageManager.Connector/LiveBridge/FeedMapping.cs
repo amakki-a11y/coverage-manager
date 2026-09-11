@@ -8,8 +8,9 @@ namespace CoverageManager.Connector.LiveBridge;
 /// units <see cref="MT5ApiReal"/> produces from the Manager API:
 ///   VolumeExt is lots x 1e8 -> RawPosition.Volume in lots, RawDeal.VolumeRaw in 1/10000 lot;
 ///   TimeCreate / Time are the source's seconds -> TimeMsc = seconds x 1000 (the Manager API's TimeCreate() x 1000);
-///   prices and money are read as decimal straight from the JSON text (no double round trip).
-/// Not on the wire and therefore fixed here: deal Fee (0), account RegistrationTime / LastTradeTime (0), Comment ("").
+///   prices and money are read as decimal straight from the JSON text (no double round trip);
+///   a deal's four money fields Profit, Storage (MT5's swap), Commission and Fee map one to one.
+/// Not on the wire and therefore fixed here: account RegistrationTime / LastTradeTime (0), Comment ("").
 /// An account frame without computed money (Computed = false) gets Equity = Balance + Credit and Margin = 0, which is
 /// exact for an account with no open positions and a one-second transient for one that has.
 /// </summary>
@@ -63,7 +64,7 @@ public static class FeedMapping
             Profit = Dec(p, "Profit"),
             Commission = Dec(p, "Commission"),
             Storage = Dec(p, "Storage"),
-            Fee = 0m,                                            // not on the wire
+            Fee = Dec(p, "Fee"),                                 // absent on a bridge older than 2026-09-11 = 0
             Entry = UInt(p, "Entry"),
             OrderId = ULong(p, "Order"),
             PositionId = ULong(p, "PositionID"),

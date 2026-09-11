@@ -335,7 +335,7 @@ internal static class FeedPayloadJson
     }
 
     public static string Deal(long deal, long login, string symbol, int action, int entry, decimal lots, double price, double profit,
-                              double storage, double commission, long time, long order, long positionId, string? comment = null)
+                              double storage, double commission, long time, long order, long positionId, string? comment = null, double fee = 0)
     {
         using var ms = new MemoryStream();
         using (var w = new Utf8JsonWriter(ms))
@@ -351,6 +351,7 @@ internal static class FeedPayloadJson
             w.WriteNumber("Profit", profit);
             w.WriteNumber("Storage", storage);
             w.WriteNumber("Commission", commission);
+            w.WriteNumber("Fee", fee);
             w.WriteNumber("Time", time);
             w.WriteNumber("Order", order);
             w.WriteNumber("PositionID", positionId);

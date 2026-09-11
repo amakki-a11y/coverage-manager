@@ -185,7 +185,7 @@ public class LiveBridgeApiTests
         await connection.RecordAsync("positions", "add", 101, P1);
         await connection.RecordAsync("positions", "update", 102, FeedPayloadJson.Position(501, 1001, "XAUUSD", 0, 0.10m, 2400.5, 2405.0, 45.0, -0.2, 1_789_000_000));
         await connection.RecordAsync("positions", "delete", 103, FeedPayloadJson.Position(501, 1001, "XAUUSD", 0, 0.10m, 2400.5, 2405.0, 45.0, -0.2, 1_789_000_000, closingDeal: 777));
-        await connection.RecordAsync("deals", "add", 201, FeedPayloadJson.Deal(777, 1001, "XAUUSD", 1, 1, 0.10m, 2405.0, 45.0, -0.2, -0.7, 1_789_000_500, 9001, 501, "close"));
+        await connection.RecordAsync("deals", "add", 201, FeedPayloadJson.Deal(777, 1001, "XAUUSD", 1, 1, 0.10m, 2405.0, 45.0, -0.2, -0.7, 1_789_000_500, 9001, 501, "close", fee: -0.05));
         await connection.RecordAsync("accounts", "state", 301, A1);
         await connection.RecordsAsync("ticks",
             Rec("ticks", "tick", 401, FeedPayloadJson.Tick("XAUUSD", 2404.9, 2405.3, 1_789_000_000_500)),
@@ -210,7 +210,7 @@ public class LiveBridgeApiTests
         Assert.AreEqual(45.0m, deal.Profit);
         Assert.AreEqual(-0.2m, deal.Storage);
         Assert.AreEqual(-0.7m, deal.Commission);
-        Assert.AreEqual(0m, deal.Fee);
+        Assert.AreEqual(-0.05m, deal.Fee);
         Assert.AreEqual(1_789_000_500_000L, deal.TimeMsc);
         Assert.AreEqual(9001UL, deal.OrderId);
         Assert.AreEqual(501UL, deal.PositionId);

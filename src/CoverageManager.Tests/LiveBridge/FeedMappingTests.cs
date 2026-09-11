@@ -32,9 +32,9 @@ public class FeedMappingTests
     }
 
     [TestMethod]
-    public void Deal_VolumeRawInTenThousandthsOfALot_FeeIsZero_CommentNullBecomesEmpty()
+    public void Deal_VolumeRawInTenThousandthsOfALot_FourMoneyFields_CommentNullBecomesEmpty()
     {
-        var d = FeedMapping.Deal(Json(FeedPayloadJson.Deal(90001, 1065, "XAUUSD", 1, 1, 0.25m, 2405.55, 45.25, -0.2, -0.7, 1_789_000_500, 8001, 45369295)))!;
+        var d = FeedMapping.Deal(Json(FeedPayloadJson.Deal(90001, 1065, "XAUUSD", 1, 1, 0.25m, 2405.55, 45.25, -0.2, -0.7, 1_789_000_500, 8001, 45369295, fee: -0.05)))!;
         Assert.AreEqual(90001UL, d.DealId);
         Assert.AreEqual(1065UL, d.Login);
         Assert.AreEqual("XAUUSD", d.Symbol);
@@ -46,7 +46,7 @@ public class FeedMappingTests
         Assert.AreEqual(45.25m, d.Profit);
         Assert.AreEqual(-0.2m, d.Storage);
         Assert.AreEqual(-0.7m, d.Commission);
-        Assert.AreEqual(0m, d.Fee);
+        Assert.AreEqual(-0.05m, d.Fee);
         Assert.AreEqual(1_789_000_500_000L, d.TimeMsc);
         Assert.AreEqual(8001UL, d.OrderId);
         Assert.AreEqual(45369295UL, d.PositionId);
@@ -56,9 +56,12 @@ public class FeedMappingTests
         Assert.AreEqual("sl 1.0800", withComment.Comment);
         Assert.IsNull(FeedMapping.Deal(Json("{\"Login\":1}")));
 
-        // A volume finer than a ten-thousandth of a lot rounds to the nearest (the Raw contract's unit).
+        // A volume finer than a ten-thousandth of a lot rounds to the nearest (the Raw contract's unit);
+        // a payload without Fee (a bridge older than 2026-09-11) reads as 0.
         var fine = FeedMapping.Deal(Json("{\"Deal\":2,\"Login\":1,\"VolumeExt\":123456}"))!;
         Assert.AreEqual(12UL, fine.VolumeRaw);
+        Assert.AreEqual(0m, fine.Fee);
+        Assert.AreEqual(0m, fine.Commission);
     }
 
     [TestMethod]

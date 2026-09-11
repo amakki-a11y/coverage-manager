@@ -37,7 +37,8 @@ namespace CoverageManager.Connector;
 /// a positions snapshot reconciles the book (a position missing from it is closed); sequences are kept durably and sent
 /// on every connect; <c>replay_gap</c> is accepted for ticks (the last prices follow) and logged for deals; one connection
 /// per key; an ack with the applied sequences every <see cref="LiveBridgeOptions.AckEveryMs"/>.
-/// Not on the wire, fixed here: deal Fee (0), account registration / last-access times (0), comments ("").
+/// A deal's four money fields (Profit, Storage = swap, Commission, Fee) map one to one. Not on the wire, fixed here:
+/// account registration / last-access times (0), comments ("").
 /// </summary>
 public sealed class LiveBridgeApi : IMT5Api, IMT5ApiDiagnostics
 {
