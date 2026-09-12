@@ -40,6 +40,18 @@ secrets.json
 # Task Master
 .taskmaster/templates/
 
+# v2 local-Postgres tooling — never commit dumps, local conn strings, or secrets
+**/_dumps/
+db/*.local.env
+*.pgdump
+
+# Deploy / runtime artifacts present in the server working tree — never commit.
+# caddy/data holds TLS private keys + ACME account keys; publish/ is build output
+# with appsettings + native DLLs; run/ holds live feed state.
+/publish/
+/caddy/
+/run/
+
 # OS
 .DS_Store
 Thumbs.db
