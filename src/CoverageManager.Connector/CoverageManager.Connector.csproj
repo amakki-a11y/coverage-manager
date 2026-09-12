@@ -1,10 +1,17 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <!-- v2 (Phase 2, source consolidation): the Live Bridge consumer feed is the ONLY
+       B-Book source. The MetaQuotes Manager API connector (MT5ApiReal), its managed
+       wrapper references and the native MT5APIManager64.dll copy step are all gone.
+
+       This also retires the deploy hazard documented in CLAUDE.md / docs/DEPLOYMENT.md:
+       no native DLL has to be copied to the publish root any more, because nothing
+       P/Invokes into one. MT5_API_AVAILABLE is likewise no longer defined. -->
+
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <DefineConstants>MT5_API_AVAILABLE</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
@@ -14,30 +21,6 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.5" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.5" />
-  </ItemGroup>
-
-  <!-- MT5 Manager API native DLLs (managed wrappers) -->
-  <ItemGroup>
-    <Reference Include="MetaQuotes.MT5CommonAPI">
-      <HintPath>Libs\MetaQuotes.MT5CommonAPI64.dll</HintPath>
-    </Reference>
-    <Reference Include="MetaQuotes.MT5ManagerAPI">
-      <HintPath>Libs\MetaQuotes.MT5ManagerAPI64.dll</HintPath>
-    </Reference>
-  </ItemGroup>
-
-  <!-- Copy the native MT5APIManager64.dll to the OUTPUT ROOT (not Libs/). The
-       managed wrappers above P/Invoke into this DLL; Windows only searches the
-       exe's own directory by default, so placing it in a Libs/ subfolder would
-       raise DllNotFoundException at first call. The <Link> element flattens
-       the output path so bin/Release/net8.0/MT5APIManager64.dll gets emitted
-       instead of bin/Release/net8.0/Libs/MT5APIManager64.dll. This also fixes
-       the manual post-publish copy step in docs/DEPLOYMENT.md §12. -->
-  <ItemGroup>
-    <None Include="Libs\MT5APIManager64.dll">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>MT5APIManager64.dll</Link>
-    </None>
   </ItemGroup>
 
 </Project>

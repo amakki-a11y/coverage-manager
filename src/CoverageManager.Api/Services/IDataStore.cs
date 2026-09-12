@@ -51,6 +51,22 @@ public interface IDataStore
     Task<int> UpsertDealsAsync(IEnumerable<DealRecord> deals);
     Task<int> DetectAndLogDealChangesAsync(IEnumerable<DealRecord> incomingDeals, string source);
 
+    /// <summary>
+    /// One chunk of deals, upserted on (source, deal_id). True when accepted; otherwise the
+    /// reason, short. The caller owns pacing/retries and bounds each write with
+    /// <paramref name="timeout"/> so a stalled store cannot hold a sync tick.
+    /// </summary>
+    Task<(bool Ok, string? Error)> UpsertDealChunkAsync(IReadOnlyList<DealRecord> chunk, TimeSpan timeout, CancellationToken ct = default);
+
+    /// <summary>Audit rows in one go; false when the store did not accept them (caller re-queues).</summary>
+    Task<bool> TryInsertAuditEntriesAsync(IEnumerable<TradeAuditEntry> entries, CancellationToken ct = default);
+
+    /// <summary>
+    /// Compare incoming deals with the stored copies already in hand (no read), detect changes,
+    /// and log audit entries. Used by the reconciliation sweep, which already fetched the window.
+    /// </summary>
+    Task<int> DetectAndLogDealChangesAsync(IEnumerable<DealRecord> incomingDeals, IReadOnlyDictionary<long, DealRecord> existing, string source);
+
     // ── Audit log ──
     Task InsertAuditEntriesAsync(IEnumerable<TradeAuditEntry> entries);
     Task<List<TradeAuditEntry>> GetAuditLogAsync(DateTime? from = null, string? symbol = null, long? login = null);

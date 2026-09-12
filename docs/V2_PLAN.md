@@ -320,6 +320,17 @@ wrapper lands (still a good idea, still not v2-specific).
 
 ### 8.3 Cutover
 
+> **CUTOVER BLOCKER — `bridge_executions` is still on Supabase.**
+> [`BridgeSupabaseWriter`](../src/CoverageManager.Api/Services/BridgeSupabaseWriter.cs)
+> reads *and* writes `bridge_executions` over its own HTTP client straight to Supabase.
+> It sits outside `SupabaseService`'s surface, so the Phase 1 storage swap did not touch
+> it and Phase 2 did not either. This is the **paired CLIENT ↔ COV_OUT coverage data —
+> unique, not reconstructible from the feed** (it comes from the Centroid dropcopy), so
+> it **must land in local Postgres before cutover**, or freezing v1 strands it.
+> Needs its own pass: port the writer to `IDataStore`/Postgres (the `bridge_executions`
+> table already exists locally, migration `0006`) and import the existing rows.
+> **Logged, not started.**
+
 - When v2 matches v1 within tolerance across a full trading day, switch dealers to v2
   (DNS / reverse-proxy target, or the `dealing.connecttrader.app` Caddy upstream).
 - **Freeze v1 as a read-only archive:** stop v1's writers (or set its store

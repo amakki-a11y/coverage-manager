@@ -438,41 +438,124 @@ ON CONFLICT (source, deal_id) DO UPDATE SET
             await using var c = await OpenAsync();
             var existingRows = await c.QueryAsync<DealRecord>(
                 "SELECT * FROM deals WHERE source=@source AND deal_id = ANY(@ids)", new { source, ids });
-            var existing = existingRows.ToDictionary(r => r.DealId);
-
-            var auditEntries = new List<TradeAuditEntry>();
-            foreach (var deal in incoming)
-            {
-                if (!existing.TryGetValue(deal.DealId, out var old)) continue;
-                void Check(string field, string? oldVal, string? newVal)
-                {
-                    if (oldVal != newVal)
-                        auditEntries.Add(new TradeAuditEntry
-                        {
-                            Source = source, DealId = deal.DealId, PositionId = deal.PositionId,
-                            Login = deal.Login, Symbol = deal.Symbol, FieldChanged = field,
-                            OldValue = oldVal, NewValue = newVal, ChangeType = "modified"
-                        });
-                }
-                Check("price", old.Price.ToString("F5"), deal.Price.ToString("F5"));
-                Check("volume", old.Volume.ToString("F2"), deal.Volume.ToString("F2"));
-                Check("profit", old.Profit.ToString("F2"), deal.Profit.ToString("F2"));
-                Check("commission", old.Commission.ToString("F2"), deal.Commission.ToString("F2"));
-                Check("swap", old.Swap.ToString("F2"), deal.Swap.ToString("F2"));
-                Check("fee", old.Fee.ToString("F2"), deal.Fee.ToString("F2"));
-                Check("direction", old.Direction, deal.Direction);
-                Check("entry", old.Entry.ToString(), deal.Entry.ToString());
-            }
-
-            if (auditEntries.Count > 0)
-            {
-                await InsertAuditEntriesAsync(auditEntries);
-                _logger.LogWarning("Detected {Count} deal modifications for source={Source}", auditEntries.Count, source);
-            }
-            return auditEntries.Count;
+            return await CompareAndLogAsync(incoming, existingRows.ToDictionary(r => r.DealId), source);
         }
         catch (Exception ex) { _logger.LogError(ex, "DetectAndLogDealChangesAsync failed"); return 0; }
     }
+
+    /// <summary>Compare against stored copies already in hand — no read. Used by the sweep.</summary>
+    public Task<int> DetectAndLogDealChangesAsync(
+        IEnumerable<DealRecord> incomingDeals, IReadOnlyDictionary<long, DealRecord> existing, string source)
+        => CompareAndLogAsync(incomingDeals.ToList(), existing, source);
+
+    private async Task<int> CompareAndLogAsync(
+        List<DealRecord> incoming, IReadOnlyDictionary<long, DealRecord> existing, string source)
+    {
+        var auditEntries = new List<TradeAuditEntry>();
+        foreach (var deal in incoming)
+        {
+            if (!existing.TryGetValue(deal.DealId, out var old)) continue;
+            void Check(string field, string? oldVal, string? newVal)
+            {
+                if (oldVal != newVal)
+                    auditEntries.Add(new TradeAuditEntry
+                    {
+                        Source = source, DealId = deal.DealId, PositionId = deal.PositionId,
+                        Login = deal.Login, Symbol = deal.Symbol, FieldChanged = field,
+                        OldValue = oldVal, NewValue = newVal, ChangeType = "modified"
+                    });
+            }
+            Check("price", old.Price.ToString("F5"), deal.Price.ToString("F5"));
+            Check("volume", old.Volume.ToString("F2"), deal.Volume.ToString("F2"));
+            Check("profit", old.Profit.ToString("F2"), deal.Profit.ToString("F2"));
+            Check("commission", old.Commission.ToString("F2"), deal.Commission.ToString("F2"));
+            Check("swap", old.Swap.ToString("F2"), deal.Swap.ToString("F2"));
+            Check("fee", old.Fee.ToString("F2"), deal.Fee.ToString("F2"));
+            Check("direction", old.Direction, deal.Direction);
+            Check("entry", old.Entry.ToString(), deal.Entry.ToString());
+        }
+
+        if (auditEntries.Count > 0)
+        {
+            await InsertAuditEntriesAsync(auditEntries);
+            _logger.LogWarning("Detected {Count} deal modifications for source={Source}", auditEntries.Count, source);
+        }
+        return auditEntries.Count;
+    }
+
+    /// <summary>
+    /// One chunk of deals upserted on (source, deal_id), bounded by <paramref name="timeout"/>.
+    /// Returns the failure reason instead of swallowing it so DataSyncService can pace/re-queue.
+    /// </summary>
+    public async Task<(bool Ok, string? Error)> UpsertDealChunkAsync(
+        IReadOnlyList<DealRecord> chunk, TimeSpan timeout, CancellationToken ct = default)
+    {
+        if (chunk.Count == 0) return (true, null);
+        try
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(timeout);
+            await using var c = await OpenAsync();
+            const string sql = @"
+INSERT INTO deals (source, deal_id, login, symbol, canonical_symbol, direction, action, entry,
+    volume, price, profit, commission, swap, fee, order_id, position_id, deal_time)
+VALUES (@Source,@DealId,@Login,@Symbol,@CanonicalSymbol,@Direction,@Action,@Entry,
+    @Volume,@Price,@Profit,@Commission,@Swap,@Fee,@OrderId,@PositionId,@DealTime)
+ON CONFLICT (source, deal_id) DO UPDATE SET
+    login=EXCLUDED.login, symbol=EXCLUDED.symbol, canonical_symbol=EXCLUDED.canonical_symbol,
+    direction=EXCLUDED.direction, action=EXCLUDED.action, entry=EXCLUDED.entry, volume=EXCLUDED.volume,
+    price=EXCLUDED.price, profit=EXCLUDED.profit, commission=EXCLUDED.commission, swap=EXCLUDED.swap,
+    fee=EXCLUDED.fee, order_id=EXCLUDED.order_id, position_id=EXCLUDED.position_id, deal_time=EXCLUDED.deal_time;";
+            var prms = chunk.Select(d => new
+            {
+                d.Source, d.DealId, d.Login, d.Symbol, d.CanonicalSymbol, d.Direction, d.Action, d.Entry,
+                d.Volume, d.Price, d.Profit, d.Commission, d.Swap, d.Fee, d.OrderId, d.PositionId,
+                DealTime = U(d.DealTime)
+            });
+            await c.ExecuteAsync(new CommandDefinition(sql, prms, cancellationToken: cts.Token,
+                commandTimeout: (int)Math.Max(1, timeout.TotalSeconds)));
+            return (true, null);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            return (false, $"no answer within {timeout.TotalSeconds:0} s");
+        }
+        catch (Exception ex)
+        {
+            return (false, $"{ex.GetType().Name}: {Truncate(ex.Message, 160)}");
+        }
+    }
+
+    /// <summary>Audit rows in one transaction; false when the write failed (caller re-queues).</summary>
+    public async Task<bool> TryInsertAuditEntriesAsync(IEnumerable<TradeAuditEntry> entries, CancellationToken ct = default)
+    {
+        var list = entries.ToList();
+        if (list.Count == 0) return true;
+        try
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(30));
+            await using var c = await OpenAsync();
+            const string sql = @"
+INSERT INTO trade_audit_log (source, deal_id, position_id, login, symbol, field_changed,
+    old_value, new_value, changed_by, change_type, detected_at)
+VALUES (@Source,@DealId,@PositionId,@Login,@Symbol,@FieldChanged,@OldValue,@NewValue,@ChangedBy,@ChangeType,@DetectedAt);";
+            var prms = list.Select(e => new
+            {
+                e.Source, e.DealId, e.PositionId, e.Login, e.Symbol, e.FieldChanged,
+                e.OldValue, e.NewValue, e.ChangedBy, e.ChangeType, DetectedAt = U(e.DetectedAt)
+            });
+            await c.ExecuteAsync(new CommandDefinition(sql, prms, cancellationToken: cts.Token, commandTimeout: 30));
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("Audit log insert failed: {Error}", Truncate(ex.Message, 160));
+            return false;
+        }
+    }
+
+    private static string Truncate(string? s, int max) => string.IsNullOrEmpty(s) ? "" : s.Length <= max ? s : s.Substring(0, max) + "...";
 
     // ===================== Audit log =====================
 

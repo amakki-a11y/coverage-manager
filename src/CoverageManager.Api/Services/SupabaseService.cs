@@ -712,7 +712,78 @@ public class SupabaseService : IDataStore
     }
 
     /// <summary>
-    /// Compare incoming deals with stored deals, detect changes, and log audit entries.
+    /// One chunk of deals to Supabase, upserted on (source, deal_id). True when accepted; otherwise the reason, short.
+    /// The caller decides pacing and retries, and bounds each request with <paramref name="timeout"/> so a stalled
+    /// Supabase cannot hold a sync tick for the shared client's 100 s.
+    /// </summary>
+    public async Task<(bool Ok, string? Error)> UpsertDealChunkAsync(IReadOnlyList<DealRecord> chunk, TimeSpan timeout, CancellationToken ct = default)
+    {
+        if (chunk.Count == 0) return (true, null);
+        try
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(timeout);
+            var json = JsonSerializer.Serialize(chunk, JsonOptions);
+            using var content = new StringContent(json, Encoding.UTF8, "application/json");
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"{_url}/rest/v1/deals?on_conflict=source,deal_id") { Content = content };
+            request.Headers.Add("Prefer", "resolution=merge-duplicates");
+            using var response = await _http.SendAsync(request, cts.Token).ConfigureAwait(false);
+            if (response.IsSuccessStatusCode) return (true, null);
+            var body = await response.Content.ReadAsStringAsync(cts.Token).ConfigureAwait(false);
+            return (false, $"HTTP {(int)response.StatusCode}: {Truncate(body, 160)}");
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            return (false, $"no answer within {timeout.TotalSeconds:0} s");
+        }
+        catch (Exception ex)
+        {
+            return (false, $"{ex.GetType().Name}: {Truncate(ex.Message, 160)}");
+        }
+    }
+
+    /// <summary>Audit rows in one request; false when Supabase did not accept them (the caller re-queues).</summary>
+    public async Task<bool> TryInsertAuditEntriesAsync(IEnumerable<TradeAuditEntry> entries, CancellationToken ct = default)
+    {
+        var list = entries.ToList();
+        if (list.Count == 0) return true;
+        try
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(30));
+            foreach (var chunk in list.Chunk(500))
+            {
+                var json = JsonSerializer.Serialize(chunk, JsonOptions);
+                using var content = new StringContent(json, Encoding.UTF8, "application/json");
+                using var request = new HttpRequestMessage(HttpMethod.Post, $"{_url}/rest/v1/trade_audit_log") { Content = content };
+                using var response = await _http.SendAsync(request, cts.Token).ConfigureAwait(false);
+                if (!response.IsSuccessStatusCode)
+                {
+                    var err = await response.Content.ReadAsStringAsync(cts.Token).ConfigureAwait(false);
+                    _logger.LogWarning("Audit log insert failed: {Error}", Truncate(err, 160));
+                    return false;
+                }
+            }
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("Audit log insert failed: {Error}", Truncate(ex.Message, 160));
+            return false;
+        }
+    }
+
+    private static string Truncate(string? s, int max) => string.IsNullOrEmpty(s) ? "" : s.Length <= max ? s : s.Substring(0, max) + "...";
+
+    /// <summary>
+    /// Compare incoming deals with the stored copies already in hand (no read), detect changes, and log audit entries.
+    /// Used by the reconciliation sweep, which has just fetched the window's stored deals.
+    /// </summary>
+    public Task<int> DetectAndLogDealChangesAsync(IEnumerable<DealRecord> incomingDeals, IReadOnlyDictionary<long, DealRecord> existing, string source)
+        => CompareAndLogAsync(incomingDeals.ToList(), existing, source);
+
+    /// <summary>
+    /// Compare incoming deals with stored deals (read back in chunks of 100 ids), detect changes, and log audit entries.
     /// </summary>
     public async Task<int> DetectAndLogDealChangesAsync(IEnumerable<DealRecord> incomingDeals, string source)
     {
@@ -739,6 +810,19 @@ public class SupabaseService : IDataStore
                 }
             }
 
+            return await CompareAndLogAsync(incoming, existing, source).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to detect deal changes");
+            return 0;
+        }
+    }
+
+    private async Task<int> CompareAndLogAsync(List<DealRecord> incoming, IReadOnlyDictionary<long, DealRecord> existing, string source)
+    {
+        try
+        {
             // Compare and detect changes
             var auditEntries = new List<TradeAuditEntry>();
             foreach (var deal in incoming)

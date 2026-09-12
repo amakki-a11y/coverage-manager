@@ -51,6 +51,21 @@ try
     // can be attached per-service later without changing the services themselves.
     builder.Services.AddHttpClient();
 
+    // Supabase:ReadOnly = true blocks every write to Supabase at the HTTP layer, on every factory
+    // client. In v2 the domain store is Postgres, so this now guards only the ONE remaining
+    // Supabase writer -- BridgeSupabaseWriter (bridge_executions), which still has to be migrated
+    // to local Postgres before cutover. The ledger of blocked writes is on
+    // /api/exposure/diagnostics.supabaseReadOnly.
+    var supabaseReadOnly = builder.Configuration.GetValue("Supabase:ReadOnly", false);
+    var supabaseHost = Uri.TryCreate(builder.Configuration["Supabase:Url"], UriKind.Absolute, out var supabaseUri) ? supabaseUri.Host : "";
+    builder.Services.AddSingleton(new SupabaseReadOnlyLedger(supabaseReadOnly, supabaseHost));
+    if (supabaseReadOnly)
+    {
+        builder.Services.AddTransient<SupabaseReadOnlyHandler>();
+        builder.Services.ConfigureHttpClientDefaults(http => http.AddHttpMessageHandler<SupabaseReadOnlyHandler>());
+        Log.Warning("Supabase READ-ONLY mode: every write to {Host} is blocked (Supabase:ReadOnly = true)", supabaseHost);
+    }
+
     // v2 data store: direct Npgsql to the local coverage_v2 PostgreSQL database.
     // Replaces the Supabase PostgREST HTTP client. Everything depends on the
     // IDataStore interface so the store is swapped by this registration alone;
@@ -64,6 +79,16 @@ try
 
     // Broadcast service (WebSocket push)
     builder.Services.AddSingleton<ExposureBroadcastService>();
+
+    // MT5 API provider: "Manager" (MetaQuotes Manager API DLLs, the default) or
+    // "LiveBridge" (push feed; placeholder until the Live Bridge publishes it).
+    // Normalized here so a typo fails at startup instead of inside the reconnect loop.
+    var mt5Provider = MT5ApiProviders.Normalize(builder.Configuration["MT5:Provider"]);
+    var liveBridgeOptions = builder.Configuration.GetSection(LiveBridgeOptions.SectionName).Get<LiveBridgeOptions>()
+                            ?? new LiveBridgeOptions();
+    Log.Information("MT5 API provider: {Provider}", mt5Provider);
+    builder.Services.AddSingleton<IMT5ApiFactory>(sp =>
+        new MT5ApiFactory(mt5Provider, liveBridgeOptions, sp.GetRequiredService<ILoggerFactory>()));
 
     // MT5 Manager connection (reads accounts from Supabase, connects, snapshots positions)
     builder.Services.AddSingleton<MT5ManagerConnection>(sp =>
@@ -99,7 +124,8 @@ try
                 var delta = (deal.Entry >= 1 && deal.Entry <= 3 ? deal.Profit + deal.Swap : 0m)
                           + deal.Commission + deal.Fee;
                 broadcast.BroadcastDealSettled(key, delta, deal.Time, deal.DealId, "bbook");
-            });
+            },
+            apiFactory: sp.GetRequiredService<IMT5ApiFactory>());
     });
     builder.Services.AddHostedService(sp => sp.GetRequiredService<MT5ManagerConnection>());
 
@@ -113,17 +139,21 @@ try
             positionManager,
             priceCache,
             async () => await supabase.GetAccountSettingsAsync(),
-            () => broadcast.MarkDirty());
+            () => broadcast.MarkDirty(),
+            apiFactory: sp.GetRequiredService<IMT5ApiFactory>());
     });
     builder.Services.AddHostedService(sp => sp.GetRequiredService<MT5CoverageConnection>());
 
     // Data sync service (persists deals to Supabase, detects modifications)
-    builder.Services.AddHostedService<DataSyncService>(sp =>
+    var dataSyncOptions = builder.Configuration.GetSection(DataSyncOptions.SectionName).Get<DataSyncOptions>() ?? new DataSyncOptions();
+    builder.Services.AddSingleton<DataSyncService>(sp =>
         new DataSyncService(
             sp.GetRequiredService<IDataStore>(),
             dealStore,
             positionManager,
-            sp.GetRequiredService<ILogger<DataSyncService>>()));
+            sp.GetRequiredService<ILogger<DataSyncService>>(),
+            dataSyncOptions));
+    builder.Services.AddHostedService(sp => sp.GetRequiredService<DataSyncService>());
 
     // ---- Phase 2.5: Bridge Execution Analysis (Centroid Dropcopy feed) ----
     // Pairing window and feed mode are read from config; defaults are safe (Stub + 10s).
@@ -176,12 +206,13 @@ try
     builder.Services.AddSingleton<ReconciliationService>();
     builder.Services.AddHostedService(sp => sp.GetRequiredService<ReconciliationService>());
 
-    // Periodic cash-movement sync — admin balance/credit deals (action ≥ 2)
-    // don't fire CIMTDealSink reliably and the nightly reconciliation
-    // sweep filters them out. Runs every 15 min over a 7-day lookback so
-    // missing transfers land in Supabase fast enough that the Equity P&L
-    // tab's Net Dep/W and Net Cred columns stay aligned with MT5 Manager.
-    builder.Services.AddHostedService<CashMovementSyncService>();
+    // CashMovementSyncService was RETIRED in v2 Phase 2 (source consolidation).
+    // It existed because MT5 Manager's CIMTDealSink didn't fire for admin balance/credit
+    // transfers, so a 15-min / 7-day-lookback sweep had to backfill them. The Live Bridge
+    // feed pushes admin deals itself, and walking 26,845 feed logins took hours per cycle,
+    // so under the feed it did nothing but cost. With the Manager provider gone it could
+    // only ever idle. The one-shot Settings action (/api/equity-pnl/backfill-cash-movements)
+    // is unaffected and still available.
 
     // Resilient mapping cache — auto-heals when the cold-start Supabase
     // fetch hits a transient TLS reset (observed 2026-05-07). 60s tick
@@ -255,7 +286,14 @@ try
         // no Stub synthesis). UI + code are untouched so it can be turned back on from Settings.
         var bridgeHost = app.Services.GetRequiredService<BridgeFeedHost>();
         var bridgeSettings = await supabase.GetBridgeSettingsAsync();
-        if (bridgeSettings?.Enabled == false)
+        // Centroid:Enabled = false (env Centroid__Enabled=false) keeps the feed dormant whatever
+        // bridge_settings says: a second instance (a feed test) must not open its own Centroid session.
+        var centroidAllowed = app.Configuration.GetValue("Centroid:Enabled", true);
+        if (!centroidAllowed)
+        {
+            Log.Information("Centroid Bridge feed is DISABLED by config (Centroid:Enabled = false) — skipping startup");
+        }
+        else if (bridgeSettings?.Enabled == false)
         {
             Log.Information("Centroid Bridge feed is DISABLED in bridge_settings — skipping startup");
         }
