@@ -350,8 +350,13 @@ wrapper lands (still a good idea, still not v2-specific).
    single point of failure on the CM box.)
 2. **Multi-source at launch** (`BBcorp-Live` only, multi designed-in) vs multi-source
    day one — drives whether `FeedClient` is instanced per source from v1.
-3. **Feed↔db self-check** (§5.4): build the slimmed self-heal, or rely on synchronous
-   commit + WAL and delete the reconciliation concept entirely?
+3. ~~**Feed↔db self-check** (§5.4): build the slimmed self-heal, or rely on synchronous
+   commit + WAL and delete the reconciliation concept entirely?~~
+   **RESOLVED 2026-09-12 — build the slim self-check, delete the heavy sweep.** The
+   reduced feed↔db self-heal of §5.4 gets built; v1's `ReconciliationService` /
+   `ReconciliationController` / `DealReconciler` cross-source sweep is deleted (there is
+   no second authority to reconcile against). `MappingRefreshService` is **kept**.
+   Not yet implemented — scheduled after the Phase 3 import.
 4. ~~**Historical archive depth:** import all 280K+ deals, or only config + a rolling
    window, with the deep archive left queryable on the frozen v1?~~
    **RESOLVED 2026-09-12 — rolling 12 months.** Local Postgres stores a rolling
@@ -368,6 +373,30 @@ wrapper lands (still a good idea, still not v2-specific).
    decision covers closed `deals` only. Do `trade_audit_log`, `bridge_executions` and
    `alert_events` follow the same 12-month window, or keep full history (they are far
    smaller)? Until a call is made they import in full and are never pruned.
+
+---
+
+## 9a. Sequencing + standing requirements (owner, 2026-09-12)
+
+**Order of work:** Phase 3 **real import first**, then the `bridge_executions` port
+(§8.3 blocker), then a **delta re-import** immediately before the parallel run to pick up
+everything v1 wrote in the meantime.
+
+**`RequestDeals` reads history from Postgres — REQUIRED (Phase 3).** The 12-month
+closed-trades look-back must be served from local Postgres, not from the feed. `FeedBook`
+is the **live working set only** (48 h retention); it can never answer a 12-month query.
+This closes the loop with the retention decision in §5.5.
+
+**Import read discipline (live v1 is in production):** the export reads must be
+**chunked and paced by `deal_id` range** — never one giant `SELECT` against the live v1
+database — and everything on v1 is **strictly read-only**.
+
+**Cutover blockers — must be closed before Phase 4, do not bury:**
+1. Two inherited LiveBridge tests fail and are correctness defects in what is now the
+   **sole** B-Book source: `SequenceRule_…` raises a duplicate event (expected 1, got 2),
+   and `Disconnect_…` times out flushing resume sequences. They guard against
+   double-counted deals and wrong-sequence resumes.
+2. `bridge_executions` still reads/writes to Supabase via `BridgeSupabaseWriter` (§8.3).
 
 ---
 

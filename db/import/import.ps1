@@ -47,6 +47,11 @@ param(
   # Rolling retention window in months for tables declaring a WindowColumn.
   # Default comes from the manifest (RetentionMonths). 0 disables windowing.
   [int]$RetentionMonths = -1,
+  # Chunked-read tuning for the live source. Override the manifest per run:
+  #   -ChunkSpan  key-range width per extract (deal_id span), default from manifest
+  #   -PaceMs     pause between chunks, default from manifest
+  [int64]$ChunkSpan = 0,
+  [int]$PaceMs = -1,
   [switch]$DryRun
 )
 
@@ -67,9 +72,12 @@ $script:SrcPw = if ($SourcePasswordFile) { (Get-Content $SourcePasswordFile -Raw
 $script:TgtPw = if ($TargetPasswordFile) { (Get-Content $TargetPasswordFile -Raw).Trim() } else { $env:PGPASSWORD }
 
 function Invoke-PsqlConn {
-  param([string]$Conn, [string]$Pw, [string]$Sql, [string]$File, [switch]$TuplesOnly)
+  # -Chatty omits psql's -q so command tags (notably "COPY n") reach stdout; the chunked
+  # reader parses that to count rows. With -q they are suppressed and every count reads 0.
+  param([string]$Conn, [string]$Pw, [string]$Sql, [string]$File, [switch]$TuplesOnly, [switch]$Chatty)
   $env:PGPASSWORD = $Pw
-  $a = @('-v','ON_ERROR_STOP=1','-X','-q','-d',$Conn)
+  $a = @('-v','ON_ERROR_STOP=1','-X','-d',$Conn)
+  if (-not $Chatty) { $a += '-q' }
   if ($TuplesOnly) { $a += @('-t','-A') }
   if ($File) { $a += @('-f',$File) } else { $a += @('-c',$Sql) }
   $out = & $script:Psql @a 2>&1
@@ -105,6 +113,39 @@ Write-Host "tables: $($tables.Count)   dry-run: $([bool]$DryRun)"
 Write-Host ("retention: {0}" -f $(if ($RetentionMonths -gt 0) { "rolling $RetentionMonths months on windowed tables" } else { "DISABLED (full history)" }))
 Write-Host ""
 
+# Loads one CSV into the target in a single psql session (the TEMP staging table has to
+# survive the \copy, so extract and load cannot be separate sessions).
+#   config-exact   -> authoritative mirror: TRUNCATE ... CASCADE then INSERT, so
+#                     migration-seeded rows (e.g. snapshot_schedules, whose fresh UUIDs
+#                     would otherwise duplicate v1's) are replaced and source == target.
+#   archive-upsert -> insert-missing: ON CONFLICT DO NOTHING, so re-running a chunk (or a
+#                     whole interrupted import) never clobbers rows and is idempotent.
+function Load-Csv {
+  param([string]$Table, [string]$ColList, [string]$CsvPath, [string]$Mode)
+  $csvFwd = $CsvPath -replace '\\','/'
+  if ($Mode -eq 'config-exact') {
+    $mutate = "TRUNCATE TABLE public.`"$Table`" RESTART IDENTITY CASCADE;`nINSERT INTO public.`"$Table`" ($ColList) SELECT $ColList FROM _stg;"
+  } else {
+    $mutate = "INSERT INTO public.`"$Table`" ($ColList) SELECT $ColList FROM _stg ON CONFLICT DO NOTHING;"
+  }
+  $sql = @"
+BEGIN;
+CREATE TEMP TABLE _stg AS SELECT $ColList FROM public."$Table" WITH NO DATA;
+\copy _stg ($ColList) FROM '$csvFwd' WITH (FORMAT csv, HEADER true)
+$mutate
+COMMIT;
+"@
+  $file = Join-Path $script:WorkDirResolved "$Table.load.sql"
+  Set-Content -Path $file -Value $sql -Encoding ascii
+  $res = Invoke-PsqlConn -Conn $script:TargetConnResolved -Pw $script:TgtPw -File $file
+  if ($res.ExitCode -ne 0) { throw "target load failed:`n$($res.Output)" }
+}
+
+$script:WorkDirResolved    = $WorkDir
+$script:TargetConnResolved = $TargetConn
+$script:Summary = @()
+$runStart = Get-Date
+
 $failures = 0
 foreach ($t in $tables) {
   $name = $t.Name
@@ -134,39 +175,67 @@ foreach ($t in $tables) {
 
     if ($DryRun) { Write-Host "  would import columns: $colList$where"; continue }
 
-    # 1. extract source -> CSV (client-side copy)
-    $csv = Join-Path $WorkDir "$name.csv"
-    if (Test-Path $csv) { Remove-Item $csv -Force }
-    $copyOut = "\copy (SELECT $colList FROM public.`"$name`"$where) TO '$($csv -replace '\\','/')' WITH (FORMAT csv, HEADER true)"
-    $r = Invoke-PsqlConn -Conn $SourceConn -Pw $script:SrcPw -Sql $copyOut
-    if ($r.ExitCode -ne 0) { throw "source extract failed:`n$($r.Output)" }
+    $tableStart = Get-Date
+    $rows = 0
 
-    # 2. load in one target session (temp table must survive the \copy).
-    #    config-exact  -> authoritative mirror: TRUNCATE ... CASCADE then INSERT, so
-    #                     migration-seeded rows (e.g. snapshot_schedules, which carry
-    #                     fresh UUIDs that would otherwise duplicate v1's rows) are
-    #                     replaced, giving an exact source==target match. Atomic:
-    #                     ON_ERROR_STOP + implicit single statement-file transaction.
-    #    archive-upsert -> insert-missing: INSERT ... ON CONFLICT DO NOTHING (never
-    #                     clobbers a row the live feed may already have written).
-    $csvFwd = $csv -replace '\\','/'
-    if ($t.Mode -eq 'config-exact') {
-      $mutate = "TRUNCATE TABLE public.`"$name`" RESTART IDENTITY CASCADE;`nINSERT INTO public.`"$name`" ($colList) SELECT $colList FROM _stg;"
-    } else {
-      $mutate = "INSERT INTO public.`"$name`" ($colList) SELECT $colList FROM _stg ON CONFLICT DO NOTHING;"
+    if ($t.ChunkColumn -and $t.Mode -eq 'archive-upsert') {
+      # ---- chunked + paced read (large history tables) -------------------------
+      # Never issue one giant SELECT against the live v1 database: walk the table in
+      # key ranges over ChunkColumn (deal_id), extracting and loading one range at a
+      # time with a pause between ranges. Idempotent (ON CONFLICT DO NOTHING), so an
+      # interrupted run is resumed simply by running it again.
+      if ($srcCols -notcontains $t.ChunkColumn) { throw "ChunkColumn '$($t.ChunkColumn)' not on source table $name" }
+      $span  = if ($ChunkSpan -gt 0) { $ChunkSpan } elseif ($t.ChunkSpan) { [int64]$t.ChunkSpan } else { 50000 }
+      $pace  = if ($PaceMs -ge 0) { $PaceMs } elseif ($null -ne $t.PaceMs) { [int]$t.PaceMs } else { 200 }
+      $ck    = "`"$($t.ChunkColumn)`""
+
+      $b = Invoke-PsqlConn -Conn $SourceConn -Pw $script:SrcPw -TuplesOnly `
+            -Sql "SELECT COALESCE(min($ck),0)::text || '|' || COALESCE(max($ck),-1)::text FROM public.`"$name`"$where;"
+      if ($b.ExitCode -ne 0) { throw "bounds probe failed:`n$($b.Output)" }
+      $parts = ($b.Output.Trim() -split '\|')
+      $lo = [int64]$parts[0]; $hi = [int64]$parts[1]
+      if ($hi -lt $lo) { Write-Host "  no rows in window."; continue }
+      $totalChunks = [math]::Ceiling(($hi - $lo + 1) / $span)
+      Write-Host ("  chunked read: {0} in [{1}..{2}], span {3}, pace {4}ms -> {5} chunk(s)" -f $t.ChunkColumn, $lo, $hi, $span, $pace, $totalChunks)
+
+      $csv = Join-Path $WorkDir "$name.chunk.csv"
+      $n = 0
+      for ($start = $lo; $start -le $hi; $start += $span) {
+        $end = $start + $span
+        $n++
+        if (Test-Path $csv) { Remove-Item $csv -Force }
+        $pred = if ($where) { "$where AND $ck >= $start AND $ck < $end" } else { " WHERE $ck >= $start AND $ck < $end" }
+        $r = Invoke-PsqlConn -Conn $SourceConn -Pw $script:SrcPw -Chatty `
+              -Sql "\copy (SELECT $colList FROM public.`"$name`"$pred) TO '$($csv -replace '\\','/')' WITH (FORMAT csv, HEADER true)"
+        if ($r.ExitCode -ne 0) { throw "chunk $n extract failed:`n$($r.Output)" }
+        # -1 = count unknown (unexpected psql output); load anyway rather than skip data.
+        $got = -1
+        if ($r.Output -match 'COPY\s+(\d+)') { $got = [int64]$matches[1] }
+        if ($got -ne 0) {
+          Load-Csv -Table $name -ColList $colList -CsvPath $csv -Mode $t.Mode
+          if ($got -gt 0) { $rows += $got }
+        }
+        if ($n % 10 -eq 0 -or $start + $span -gt $hi) {
+          $el = ((Get-Date) - $tableStart).TotalSeconds
+          Write-Host ("    chunk {0}/{1}  rows so far {2:N0}  {3:N0}s  ({4:N0} rows/s)" -f $n, $totalChunks, $rows, $el, $(if($el -gt 0){$rows/$el}else{0}))
+        }
+        if ($pace -gt 0 -and $start + $span -le $hi) { Start-Sleep -Milliseconds $pace }
+      }
     }
-    $script = @"
-BEGIN;
-CREATE TEMP TABLE _stg AS SELECT $colList FROM public."$name" WITH NO DATA;
-\copy _stg ($colList) FROM '$csvFwd' WITH (FORMAT csv, HEADER true)
-$mutate
-COMMIT;
-"@
-    $scriptFile = Join-Path $WorkDir "$name.load.sql"
-    Set-Content -Path $scriptFile -Value $script -Encoding ascii
-    $r = Invoke-PsqlConn -Conn $TargetConn -Pw $script:TgtPw -File $scriptFile
-    if ($r.ExitCode -ne 0) { throw "target load failed:`n$($r.Output)" }
-    Write-Host "  loaded."
+    else {
+      # ---- single-shot (small config / history tables) -------------------------
+      $csv = Join-Path $WorkDir "$name.csv"
+      if (Test-Path $csv) { Remove-Item $csv -Force }
+      $r = Invoke-PsqlConn -Conn $SourceConn -Pw $script:SrcPw -Chatty `
+            -Sql "\copy (SELECT $colList FROM public.`"$name`"$where) TO '$($csv -replace '\\','/')' WITH (FORMAT csv, HEADER true)"
+      if ($r.ExitCode -ne 0) { throw "source extract failed:`n$($r.Output)" }
+      if ($r.Output -match 'COPY\s+(\d+)') { $rows = [int64]$matches[1] }
+      Load-Csv -Table $name -ColList $colList -CsvPath $csv -Mode $t.Mode
+    }
+
+    $secs = ((Get-Date) - $tableStart).TotalSeconds
+    Write-Host ("  loaded {0:N0} row(s) in {1:N1}s" -f $rows, $secs)
+    $script:Summary += [pscustomobject]@{ Table = $name; Rows = $rows; Seconds = [math]::Round($secs,1) }
   }
   catch {
     Write-Host "  FAILED: $($_.Exception.Message)"
@@ -175,6 +244,9 @@ COMMIT;
 }
 
 Write-Host ""
+Write-Host (($script:Summary | Format-Table -AutoSize | Out-String).TrimEnd())
+Write-Host ""
+Write-Host ("TOTAL: {0:N0} rows in {1:N1}s" -f ($script:Summary | Measure-Object Rows -Sum).Sum, ((Get-Date) - $runStart).TotalSeconds)
 if ($failures -gt 0) { Write-Host "$failures table(s) failed."; exit 1 }
 Write-Host "Import pass complete. Run verify.ps1 next."
 exit 0

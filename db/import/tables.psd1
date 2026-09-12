@@ -72,7 +72,11 @@
 
     # History / archive (large; insert-missing only)
     # WindowColumn => subject to the RetentionMonths rolling window (import + verify).
-    @{ Name='deals';                           Order=80;  Mode='archive-upsert'; Keys=@('source','deal_id'); WindowColumn='deal_time'; Checks=@('count','sum:profit','sum:commission','sum:swap','sum:fee') }
+    # ChunkColumn/ChunkSpan/PaceMs => the READ side is walked in key ranges with a pause
+    # between them, so the ~2M-row export never issues one giant SELECT against the LIVE
+    # v1 database. Idempotent (ON CONFLICT DO NOTHING): an interrupted run resumes by
+    # simply re-running. Tune with -ChunkSpan / -PaceMs on the command line.
+    @{ Name='deals';                           Order=80;  Mode='archive-upsert'; Keys=@('source','deal_id'); WindowColumn='deal_time'; ChunkColumn='deal_id'; ChunkSpan=50000; PaceMs=200; Checks=@('count','sum:profit','sum:commission','sum:swap','sum:fee') }
     @{ Name='trade_audit_log';                 Order=85;  Mode='archive-upsert'; Keys=@('id'); Checks=@('count') }
     @{ Name='bridge_executions';               Order=90;  Mode='archive-upsert'; Keys=@('client_deal_id'); Checks=@('count','sum:cov_volume') }
   )

@@ -94,22 +94,27 @@ foreach ($t in $tables) {
   $w = WindowWhere $t
   $wLabel = if ($w) { " [windowed]" } else { "" }
 
-  foreach ($check in @($t.Checks + 'count' | Select-Object -Unique)) {
-    if ($check -eq 'count') {
-      $s = [int64](Q -Conn $SourceConn -Pw $script:SrcPw -Sql "SELECT count(*) FROM public.`"$name`"$w;").Value
-      $d = [int64](Q -Conn $TargetConn -Pw $script:TgtPw -Sql "SELECT count(*) FROM public.`"$name`"$w;").Value
-      $ok = if ($archive) { $d -ge $s } else { $d -eq $s }
-      Record $name 'count' $ok "src=$s tgt=$d$(if($archive){' (>=)'})$wLabel"
-    }
-    elseif ($check -like 'sum:*') {
-      $col = $check.Substring(4)
-      $sql = "SELECT COALESCE(round(sum(`"$col`")::numeric,4),0) FROM public.`"$name`"$w;"
-      $s = [decimal](Q -Conn $SourceConn -Pw $script:SrcPw -Sql $sql).Value
-      $d = [decimal](Q -Conn $TargetConn -Pw $script:TgtPw -Sql $sql).Value
-      $ok = if ($archive) { $d -ge $s } else { $d -eq $s }
-      Record $name "sum:$col" $ok "src=$s tgt=$d$wLabel"
-    }
-    elseif ($check -eq 'checksum') {
+  # ONE aggregate scan per side for count + every sum. v1 is a live production database;
+  # running a separate full scan per check (5 on deals) would multiply that load for no
+  # benefit, so they are combined into a single pipe-delimited row.
+  $sumCols = @($t.Checks | Where-Object { $_ -like 'sum:*' } | ForEach-Object { $_.Substring(4) })
+  $exprs = @("count(*)::text") + @($sumCols | ForEach-Object { "COALESCE(round(sum(`"$_`")::numeric,4),0)::text" })
+  $aggSql = "SELECT " + ($exprs -join " || '|' || ") + " FROM public.`"$name`"$w;"
+  $sAgg = (Q -Conn $SourceConn -Pw $script:SrcPw -Sql $aggSql).Value -split '\|'
+  $dAgg = (Q -Conn $TargetConn -Pw $script:TgtPw -Sql $aggSql).Value -split '\|'
+
+  $sCount = [int64]$sAgg[0]; $dCount = [int64]$dAgg[0]
+  $okCount = if ($archive) { $dCount -ge $sCount } else { $dCount -eq $sCount }
+  Record $name 'count' $okCount "src=$sCount tgt=$dCount$(if($archive){' (>=)'})$wLabel"
+
+  for ($i = 0; $i -lt $sumCols.Count; $i++) {
+    $sv = [decimal]$sAgg[$i + 1]; $dv = [decimal]$dAgg[$i + 1]
+    $okSum = if ($archive) { $dv -ge $sv } else { $dv -eq $sv }
+    Record $name "sum:$($sumCols[$i])" $okSum "src=$sv tgt=$dv$wLabel"
+  }
+
+  foreach ($check in @($t.Checks)) {
+    if ($check -eq 'checksum') {
       if ($archive) { continue }
       $sc = Cols -Conn $SourceConn -Pw $script:SrcPw -Table $name
       $tc = Cols -Conn $TargetConn -Pw $script:TgtPw -Table $name -InsertableOnly

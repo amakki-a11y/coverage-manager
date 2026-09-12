@@ -137,14 +137,45 @@ $env:PGPASSWORD = (Get-Content $af -Raw).Trim()
 .\import\test-import.ps1 -SuperPasswordFile $sf
 ```
 
-### Phase 3 (NOT NOW): the real import
+### Phase 3: the real import from live v1 Supabase
 
-When Phase 3 begins, point the importer at the live Supabase Postgres:
+**v1 is a LIVE production database. Read-only, and never one giant SELECT.** The
+importer walks `deals` in `deal_id` key ranges with a pause between them
+(`ChunkColumn`/`ChunkSpan`/`PaceMs` in `tables.psd1`, overridable with `-ChunkSpan` /
+`-PaceMs`). Loads are `ON CONFLICT DO NOTHING`, so an interrupted run is resumed by
+simply running it again — no duplicates, no bookkeeping.
+
+**Connect over DIRECT Postgres, never PostgREST** (PostgREST is the schema-cache 503
+path). The direct host resolves **AAAA only** — this box has IPv6 and reaches it; an
+IPv4-only path would fail and look like an outage. The `aws-0-eu-central-1` pooler
+returns `tenant/user not found` for this project, so use the direct host.
+
+Required credential (not on this box): the **v1 Supabase database password**, placed in
+`C:\ProgramData\CoverageManagerV2\secrets\v1_supabase_db.txt` (file contents = the
+password only). `SUPABASE__KEY` is the PostgREST service-role JWT and does **not** work
+for a Postgres connection.
 
 ```powershell
-.\import\import.ps1 -SourceConn "<supabase libpq conn>" -TargetConn "host=127.0.0.1 dbname=coverage_v2 user=coverage_app" -SourcePasswordFile <src> -TargetPasswordFile $af
-.\import\verify.ps1 -SourceConn "<supabase libpq conn>" -TargetConn "host=127.0.0.1 dbname=coverage_v2 user=coverage_app" -SourcePasswordFile <src> -TargetPasswordFile $af
+$src = 'C:\ProgramData\CoverageManagerV2\secrets\v1_supabase_db.txt'
+$af  = 'C:\ProgramData\CoverageManagerV2\secrets\pg_app.txt'
+$V1  = 'host=db.svhmhcqopkdgccnzgvzp.supabase.co port=5432 dbname=postgres user=postgres sslmode=require'
+$TGT = 'host=127.0.0.1 port=5432 dbname=coverage_v2 user=coverage_app'
+
+.\import\import.ps1 -SourceConn $V1 -TargetConn $TGT -SourcePasswordFile $src -TargetPasswordFile $af
+.\import\verify.ps1 -SourceConn $V1 -TargetConn $TGT -SourcePasswordFile $src -TargetPasswordFile $af
 ```
+
+Measured on a 2.0M-row synthetic rehearsal (local→local, so this bounds the LOAD side;
+the live run is dominated by network read latency from Supabase):
+
+| | |
+|---|---|
+| first import | 2,000,000 deals in **182s** (~11,000 rows/s, 40 paced chunks) |
+| re-run (resume) | same 2,000,000, **no duplicates**, 82s |
+| verify | 30/30 checks in **9s** |
+
+`verify.ps1` does **one** combined aggregate scan per table per side (count + all sums),
+not one scan per check, to keep load off live v1.
 
 ## Verified in Phase 0
 
