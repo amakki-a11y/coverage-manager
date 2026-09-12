@@ -68,8 +68,20 @@ function Resolve-Psql {
 }
 $script:Psql = Resolve-Psql -Explicit $PsqlPath
 
-$script:SrcPw = if ($SourcePasswordFile) { (Get-Content $SourcePasswordFile -Raw).Trim() } else { $env:PGPASSWORD }
-$script:TgtPw = if ($TargetPasswordFile) { (Get-Content $TargetPasswordFile -Raw).Trim() } else { $env:PGPASSWORD }
+# Reads a password file defensively: strips a UTF-8/UTF-16 BOM (an editor-saved file
+# carries one, and it becomes an invisible leading character that surfaces only as a
+# baffling "password authentication failed") plus surrounding whitespace/newlines.
+function Read-PasswordFile {
+  param([string]$Path)
+  if (-not (Test-Path $Path)) { throw "Password file not found: $Path" }
+  $s = Get-Content $Path -Raw
+  if ($null -eq $s) { return '' }
+  # char codes, not literals: this file must stay pure ASCII (see CLAUDE.md).
+  return $s.TrimStart([char]0xFEFF, [char]0xFFFE).Trim()
+}
+
+$script:SrcPw = if ($SourcePasswordFile) { Read-PasswordFile $SourcePasswordFile } else { $env:PGPASSWORD }
+$script:TgtPw = if ($TargetPasswordFile) { Read-PasswordFile $TargetPasswordFile } else { $env:PGPASSWORD }
 
 function Invoke-PsqlConn {
   # -Chatty omits psql's -q so command tags (notably "COPY n") reach stdout; the chunked
