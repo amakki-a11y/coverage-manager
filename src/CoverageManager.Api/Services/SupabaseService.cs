@@ -26,7 +26,7 @@ namespace CoverageManager.Api.Services;
 ///     — see CLAUDE.md's "Supabase functions" section.
 /// </para>
 /// </summary>
-public class SupabaseService
+public class SupabaseService : IDataStore
 {
     private readonly HttpClient _http;
     private readonly string _url;

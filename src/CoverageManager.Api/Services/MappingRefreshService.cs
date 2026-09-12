@@ -19,7 +19,7 @@ namespace CoverageManager.Api.Services;
 ///
 /// <para><b>Cadence:</b> first tick after a 60s startup delay, then every 60s.
 /// The startup delay gives <c>Program.cs</c>'s primary mapping load (which now
-/// retries 3x via <see cref="SupabaseService.GetMappingsAsync"/>) a chance to
+/// retries 3x via <see cref="IDataStore.GetMappingsAsync"/>) a chance to
 /// succeed before this service starts ticking — keeps logs quiet on the happy
 /// path. If startup's load failed, this service auto-heals within 60s.</para>
 ///
@@ -40,7 +40,7 @@ namespace CoverageManager.Api.Services;
 /// </summary>
 public sealed class MappingRefreshService : BackgroundService
 {
-    private readonly SupabaseService _supabase;
+    private readonly IDataStore _supabase;
     private readonly PositionManager _positionManager;
     private readonly ILogger<MappingRefreshService> _logger;
 
@@ -58,7 +58,7 @@ public sealed class MappingRefreshService : BackgroundService
     public int ConsecutiveFailures => _consecutiveFailures;
 
     public MappingRefreshService(
-        SupabaseService supabase,
+        IDataStore supabase,
         PositionManager positionManager,
         ILogger<MappingRefreshService> logger)
     {

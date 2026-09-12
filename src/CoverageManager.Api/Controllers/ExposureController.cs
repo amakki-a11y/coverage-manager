@@ -40,7 +40,7 @@ public class ExposureController : ControllerBase
     private readonly PositionManager _positionManager;
     private readonly MT5ManagerConnection _mt5Connection;
     private readonly DealStore _dealStore;
-    private readonly SupabaseService _supabase;
+    private readonly IDataStore _supabase;
     private readonly ExposureSnapshotService _snapshotService;
     private readonly ExposureBroadcastService _broadcast;
     private readonly MappingRefreshService _mappingRefresh;
@@ -52,7 +52,7 @@ public class ExposureController : ControllerBase
         PositionManager positionManager,
         MT5ManagerConnection mt5Connection,
         DealStore dealStore,
-        SupabaseService supabase,
+        IDataStore supabase,
         ExposureSnapshotService snapshotService,
         ExposureBroadcastService broadcast,
         MappingRefreshService mappingRefresh,

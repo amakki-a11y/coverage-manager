@@ -65,7 +65,7 @@ public class ReconciliationService : BackgroundService
     {
         try
         {
-            var supabase = _services.GetRequiredService<SupabaseService>();
+            var supabase = _services.GetRequiredService<IDataStore>();
             var recent = await supabase.ListReconciliationRunsAsync(5);
             var lastScheduled = recent
                 .Where(r => r.TriggerType == "scheduled" && string.IsNullOrEmpty(r.Error))
@@ -121,7 +121,7 @@ public class ReconciliationService : BackgroundService
             StartedAt = DateTime.UtcNow,
         };
 
-        var supabase = _services.GetRequiredService<SupabaseService>();
+        var supabase = _services.GetRequiredService<IDataStore>();
         var mt5 = _services.GetRequiredService<MT5ManagerConnection>();
 
         try

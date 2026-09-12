@@ -13,12 +13,12 @@ namespace CoverageManager.Api.Controllers;
 public class ReconciliationController : ControllerBase
 {
     private readonly ReconciliationService _service;
-    private readonly SupabaseService _supabase;
+    private readonly IDataStore _supabase;
     private readonly ILogger<ReconciliationController> _logger;
 
     public ReconciliationController(
         ReconciliationService service,
-        SupabaseService supabase,
+        IDataStore supabase,
         ILogger<ReconciliationController> logger)
     {
         _service = service;

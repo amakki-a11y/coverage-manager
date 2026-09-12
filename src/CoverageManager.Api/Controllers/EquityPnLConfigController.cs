@@ -17,10 +17,10 @@ namespace CoverageManager.Api.Controllers;
 [Route("api/equity-pnl-config")]
 public class EquityPnLConfigController : ControllerBase
 {
-    private readonly SupabaseService _supabase;
+    private readonly IDataStore _supabase;
     private readonly ILogger<EquityPnLConfigController> _logger;
 
-    public EquityPnLConfigController(SupabaseService supabase, ILogger<EquityPnLConfigController> logger)
+    public EquityPnLConfigController(IDataStore supabase, ILogger<EquityPnLConfigController> logger)
     {
         _supabase = supabase;
         _logger = logger;

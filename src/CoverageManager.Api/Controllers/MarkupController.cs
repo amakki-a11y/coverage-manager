@@ -13,14 +13,14 @@ namespace CoverageManager.Api.Controllers;
 [Route("api/markup")]
 public class MarkupController : ControllerBase
 {
-    private readonly SupabaseService _supabase;
+    private readonly IDataStore _supabase;
     private readonly IHttpClientFactory _httpFactory;
     private readonly ILogger<MarkupController> _logger;
 
     private const string CollectorUrl = "http://localhost:8100";
 
     public MarkupController(
-        SupabaseService supabase,
+        IDataStore supabase,
         IHttpClientFactory httpFactory,
         ILogger<MarkupController> logger)
     {

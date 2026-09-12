@@ -17,10 +17,10 @@ namespace CoverageManager.Api.Controllers;
 public class AlertsController : ControllerBase
 {
     private readonly AlertEngine _alertEngine;
-    private readonly SupabaseService _supabase;
+    private readonly IDataStore _supabase;
     private readonly ExposureBroadcastService _broadcast;
 
-    public AlertsController(AlertEngine alertEngine, SupabaseService supabase, ExposureBroadcastService broadcast)
+    public AlertsController(AlertEngine alertEngine, IDataStore supabase, ExposureBroadcastService broadcast)
     {
         _alertEngine = alertEngine;
         _supabase = supabase;

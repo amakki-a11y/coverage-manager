@@ -49,7 +49,7 @@ public class ExposureSnapshotService : BackgroundService
 
     private async Task TickAsync(CancellationToken ct)
     {
-        var supabase = _services.GetRequiredService<SupabaseService>();
+        var supabase = _services.GetRequiredService<IDataStore>();
         var schedules = await supabase.GetSnapshotSchedulesAsync();
         var now = DateTime.UtcNow;
 
@@ -108,7 +108,7 @@ public class ExposureSnapshotService : BackgroundService
     private async Task<int> CaptureOnceAsync(string triggerType, string label, CancellationToken ct)
     {
         var engine = _services.GetRequiredService<ExposureEngine>();
-        var supabase = _services.GetRequiredService<SupabaseService>();
+        var supabase = _services.GetRequiredService<IDataStore>();
 
         var summaries = engine.CalculateExposure();
         var nowUtc = DateTime.UtcNow;

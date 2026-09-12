@@ -23,6 +23,8 @@
   <ItemGroup>
     <ProjectReference Include="..\CoverageManager.Core\CoverageManager.Core.csproj" />
     <ProjectReference Include="..\CoverageManager.Connector\CoverageManager.Connector.csproj" />
+    <!-- Phase 1: PostgresService integration tests need the Api project + Npgsql. -->
+    <ProjectReference Include="..\CoverageManager.Api\CoverageManager.Api.csproj" />
   </ItemGroup>
 
 </Project>

@@ -18,7 +18,7 @@ public class CoverageDealIndex : BackgroundService
 {
     private readonly HttpClient _http;
     private readonly ILogger<CoverageDealIndex> _logger;
-    private readonly SupabaseService _supabase;
+    private readonly IDataStore _supabase;
     private readonly ConcurrentDictionary<ulong, CoverageDeal> _byOrder = new();
     // Keyed by Centroid maker_order_id (which FXGROW writes into MT5 external_id on 96900).
     // One maker_order_id can produce multiple MT5 deals (partial fills); we keep the earliest.
@@ -29,7 +29,7 @@ public class CoverageDealIndex : BackgroundService
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
     };
 
-    public CoverageDealIndex(HttpClient http, SupabaseService supabase, ILogger<CoverageDealIndex> logger)
+    public CoverageDealIndex(HttpClient http, IDataStore supabase, ILogger<CoverageDealIndex> logger)
     {
         _http = http;
         _http.BaseAddress = new Uri("http://localhost:8100/");

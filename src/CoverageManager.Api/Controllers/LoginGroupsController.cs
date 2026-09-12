@@ -12,10 +12,10 @@ namespace CoverageManager.Api.Controllers;
 [Route("api/login-groups")]
 public class LoginGroupsController : ControllerBase
 {
-    private readonly SupabaseService _supabase;
+    private readonly IDataStore _supabase;
     private readonly ILogger<LoginGroupsController> _logger;
 
-    public LoginGroupsController(SupabaseService supabase, ILogger<LoginGroupsController> logger)
+    public LoginGroupsController(IDataStore supabase, ILogger<LoginGroupsController> logger)
     {
         _supabase = supabase;
         _logger = logger;

@@ -16,12 +16,12 @@ namespace CoverageManager.Api.Controllers;
 [Route("api/snapshot-schedules")]
 public class SnapshotSchedulesController : ControllerBase
 {
-    private readonly SupabaseService _supabase;
+    private readonly IDataStore _supabase;
     private readonly ExposureSnapshotService _snapshotService;
     private readonly ILogger<SnapshotSchedulesController> _logger;
 
     public SnapshotSchedulesController(
-        SupabaseService supabase,
+        IDataStore supabase,
         ExposureSnapshotService snapshotService,
         ILogger<SnapshotSchedulesController> logger)
     {

@@ -11,7 +11,7 @@ namespace CoverageManager.Api.Services;
 /// </summary>
 public sealed class DataSyncService : BackgroundService
 {
-    private readonly SupabaseService _supabase;
+    private readonly IDataStore _supabase;
     private readonly DealStore _dealStore;
     private readonly PositionManager _positionManager;
     private readonly ILogger<DataSyncService> _logger;
@@ -19,7 +19,7 @@ public sealed class DataSyncService : BackgroundService
     private const int SyncIntervalMs = 30_000; // Sync every 30 seconds
 
     public DataSyncService(
-        SupabaseService supabase,
+        IDataStore supabase,
         DealStore dealStore,
         PositionManager positionManager,
         ILogger<DataSyncService> logger)

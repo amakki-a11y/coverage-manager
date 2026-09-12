@@ -23,7 +23,7 @@ namespace CoverageManager.Api.Services;
 public class RestCentroidBridgeService : BackgroundService, ICentroidBridgeService
 {
     private readonly IHttpClientFactory _httpFactory;
-    private readonly SupabaseService _supabase;
+    private readonly IDataStore _supabase;
     private readonly ILogger<RestCentroidBridgeService> _logger;
 
     private readonly ConcurrentBag<BridgeDeal> _buffer = new();
@@ -48,7 +48,7 @@ public class RestCentroidBridgeService : BackgroundService, ICentroidBridgeServi
 
     public RestCentroidBridgeService(
         IHttpClientFactory httpFactory,
-        SupabaseService supabase,
+        IDataStore supabase,
         ILogger<RestCentroidBridgeService> logger)
     {
         _httpFactory = httpFactory;

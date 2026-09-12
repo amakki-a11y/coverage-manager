@@ -20,7 +20,7 @@ public class CompareController : ControllerBase
 {
     private readonly ExposureEngine _exposureEngine;
     private readonly DealStore _dealStore;
-    private readonly SupabaseService _supabase;
+    private readonly IDataStore _supabase;
     private readonly IHttpClientFactory _httpFactory;
     private readonly ILogger<CompareController> _logger;
 
@@ -29,7 +29,7 @@ public class CompareController : ControllerBase
     public CompareController(
         ExposureEngine exposureEngine,
         DealStore dealStore,
-        SupabaseService supabase,
+        IDataStore supabase,
         IHttpClientFactory httpFactory,
         ILogger<CompareController> logger)
     {

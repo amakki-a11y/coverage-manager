@@ -96,7 +96,7 @@ public class CoverageAccountSyncService : BackgroundService
             UpdatedAt = DateTime.UtcNow,
         };
 
-        var supabase = _services.GetRequiredService<SupabaseService>();
+        var supabase = _services.GetRequiredService<IDataStore>();
         var n = await supabase.UpsertTradingAccountsAsync(new[] { acct });
         if (n > 0)
         {

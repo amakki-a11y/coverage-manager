@@ -17,12 +17,12 @@ namespace CoverageManager.Api.Controllers;
 [Route("api/settings")]
 public class SettingsController : ControllerBase
 {
-    private readonly SupabaseService _supabase;
+    private readonly IDataStore _supabase;
     private readonly BridgeFeedHost _bridgeHost;
     private readonly ILogger<SettingsController> _logger;
 
     public SettingsController(
-        SupabaseService supabase,
+        IDataStore supabase,
         BridgeFeedHost bridgeHost,
         ILogger<SettingsController> logger)
     {
@@ -71,7 +71,7 @@ public class SettingsController : ControllerBase
     /// the wire. Preserves the original snake_case JSON shape the UI depends on
     /// (account_type, group_mask, is_active, …) but blanks the password so it
     /// never leaves the server. Mutates in place — callers already got fresh
-    /// instances from SupabaseService / the POST body.
+    /// instances from IDataStore / the POST body.
     /// </summary>
     private static AccountSettings RedactAccount(AccountSettings a)
     {

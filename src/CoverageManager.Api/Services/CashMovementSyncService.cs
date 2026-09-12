@@ -35,7 +35,7 @@ public sealed class CashMovementSyncService : BackgroundService
 {
     private readonly ILogger<CashMovementSyncService> _logger;
     private readonly MT5ManagerConnection _mt5;
-    private readonly SupabaseService _supabase;
+    private readonly IDataStore _supabase;
 
     private const int SyncIntervalMinutes = 15;
     private const int LookbackDays = 7;
@@ -45,7 +45,7 @@ public sealed class CashMovementSyncService : BackgroundService
     public CashMovementSyncService(
         ILogger<CashMovementSyncService> logger,
         MT5ManagerConnection mt5,
-        SupabaseService supabase)
+        IDataStore supabase)
     {
         _logger = logger;
         _mt5 = mt5;

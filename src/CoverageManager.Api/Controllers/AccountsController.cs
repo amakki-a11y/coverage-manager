@@ -13,10 +13,10 @@ namespace CoverageManager.Api.Controllers;
 [Route("api/accounts")]
 public class AccountsController : ControllerBase
 {
-    private readonly SupabaseService _supabase;
+    private readonly IDataStore _supabase;
     private readonly MT5ManagerConnection _mt5Connection;
 
-    public AccountsController(SupabaseService supabase, MT5ManagerConnection mt5Connection)
+    public AccountsController(IDataStore supabase, MT5ManagerConnection mt5Connection)
     {
         _supabase = supabase;
         _mt5Connection = mt5Connection;

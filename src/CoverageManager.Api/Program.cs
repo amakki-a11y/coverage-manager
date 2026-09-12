@@ -51,12 +51,16 @@ try
     // can be attached per-service later without changing the services themselves.
     builder.Services.AddHttpClient();
 
-    // Supabase HTTP client
-    builder.Services.AddSingleton<SupabaseService>(sp =>
-        new SupabaseService(
+    // v2 data store: direct Npgsql to the local coverage_v2 PostgreSQL database.
+    // Replaces the Supabase PostgREST HTTP client. Everything depends on the
+    // IDataStore interface so the store is swapped by this registration alone;
+    // SupabaseService still implements IDataStore and can be re-registered here
+    // if a PostgREST fallback is ever needed.
+    builder.Services.AddSingleton<PostgresService>(sp =>
+        new PostgresService(
             sp.GetRequiredService<IConfiguration>(),
-            sp.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(SupabaseService)),
-            sp.GetRequiredService<ILogger<SupabaseService>>()));
+            sp.GetRequiredService<ILogger<PostgresService>>()));
+    builder.Services.AddSingleton<IDataStore>(sp => sp.GetRequiredService<PostgresService>());
 
     // Broadcast service (WebSocket push)
     builder.Services.AddSingleton<ExposureBroadcastService>();
@@ -64,7 +68,7 @@ try
     // MT5 Manager connection (reads accounts from Supabase, connects, snapshots positions)
     builder.Services.AddSingleton<MT5ManagerConnection>(sp =>
     {
-        var supabase = sp.GetRequiredService<SupabaseService>();
+        var supabase = sp.GetRequiredService<IDataStore>();
         var broadcast = sp.GetRequiredService<ExposureBroadcastService>();
         return new MT5ManagerConnection(
             sp.GetRequiredService<ILogger<MT5ManagerConnection>>(),
@@ -102,7 +106,7 @@ try
     // MT5 Coverage connection (LP account — reads coverage positions)
     builder.Services.AddSingleton<MT5CoverageConnection>(sp =>
     {
-        var supabase = sp.GetRequiredService<SupabaseService>();
+        var supabase = sp.GetRequiredService<IDataStore>();
         var broadcast = sp.GetRequiredService<ExposureBroadcastService>();
         return new MT5CoverageConnection(
             sp.GetRequiredService<ILogger<MT5CoverageConnection>>(),
@@ -116,7 +120,7 @@ try
     // Data sync service (persists deals to Supabase, detects modifications)
     builder.Services.AddHostedService<DataSyncService>(sp =>
         new DataSyncService(
-            sp.GetRequiredService<SupabaseService>(),
+            sp.GetRequiredService<IDataStore>(),
             dealStore,
             positionManager,
             sp.GetRequiredService<ILogger<DataSyncService>>()));
@@ -216,7 +220,7 @@ try
     // Wire alert persistence into broadcast service
     {
         var broadcast = app.Services.GetRequiredService<ExposureBroadcastService>();
-        var supabaseForAlerts = app.Services.GetRequiredService<SupabaseService>();
+        var supabaseForAlerts = app.Services.GetRequiredService<IDataStore>();
         broadcast.SetAlertPersistCallback(async alerts =>
             await supabaseForAlerts.InsertAlertEventsAsync(alerts));
     }
@@ -229,7 +233,7 @@ try
     // service auto-heals within 60s.
     using (var scope = app.Services.CreateScope())
     {
-        var supabase = scope.ServiceProvider.GetRequiredService<SupabaseService>();
+        var supabase = scope.ServiceProvider.GetRequiredService<IDataStore>();
         var mappingRefresh = app.Services.GetRequiredService<MappingRefreshService>();
         var ok = await mappingRefresh.RefreshOnceAsync();
         Log.Information(

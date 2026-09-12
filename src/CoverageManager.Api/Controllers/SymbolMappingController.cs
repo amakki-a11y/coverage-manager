@@ -17,9 +17,9 @@ namespace CoverageManager.Api.Controllers;
 public class SymbolMappingController : ControllerBase
 {
     private readonly PositionManager _positionManager;
-    private readonly SupabaseService _supabase;
+    private readonly IDataStore _supabase;
 
-    public SymbolMappingController(PositionManager positionManager, SupabaseService supabase)
+    public SymbolMappingController(PositionManager positionManager, IDataStore supabase)
     {
         _positionManager = positionManager;
         _supabase = supabase;
