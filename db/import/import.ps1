@@ -44,6 +44,9 @@ param(
   [string]$WorkDir = (Join-Path $PSScriptRoot '_dumps'),
   [string[]]$Only,
   [string]$PsqlPath,
+  # Rolling retention window in months for tables declaring a WindowColumn.
+  # Default comes from the manifest (RetentionMonths). 0 disables windowing.
+  [int]$RetentionMonths = -1,
   [switch]$DryRun
 )
 
@@ -87,11 +90,19 @@ $manifest = Import-PowerShellDataFile -Path $ManifestPath
 $tables = $manifest.Tables | Sort-Object { [int]$_.Order }
 if ($Only) { $tables = $tables | Where-Object { $Only -contains $_.Name } }
 
+# Retention window (V2_PLAN 5.5). UTC-day-stable so import and a later verify on the
+# same UTC day compute an identical cutoff on both servers regardless of session TZ.
+if ($RetentionMonths -lt 0) {
+  $RetentionMonths = if ($null -ne $manifest.RetentionMonths) { [int]$manifest.RetentionMonths } else { 0 }
+}
+$cutoffSql = "date_trunc('day', (now() AT TIME ZONE 'UTC')) AT TIME ZONE 'UTC' - interval '$RetentionMonths months'"
+
 New-Item -ItemType Directory -Force -Path $WorkDir | Out-Null
 Write-Host "psql:   $script:Psql"
 Write-Host "source: $SourceConn"
 Write-Host "target: $TargetConn"
 Write-Host "tables: $($tables.Count)   dry-run: $([bool]$DryRun)"
+Write-Host ("retention: {0}" -f $(if ($RetentionMonths -gt 0) { "rolling $RetentionMonths months on windowed tables" } else { "DISABLED (full history)" }))
 Write-Host ""
 
 $failures = 0
@@ -113,12 +124,20 @@ foreach ($t in $tables) {
 
     $colList = ($cols | ForEach-Object { "`"$_`"" }) -join ', '
 
-    if ($DryRun) { Write-Host "  would import columns: $colList"; continue }
+    # Rolling-retention filter: only tables declaring a WindowColumn are windowed.
+    $where = ''
+    if ($RetentionMonths -gt 0 -and $t.WindowColumn) {
+      if ($srcCols -notcontains $t.WindowColumn) { throw "WindowColumn '$($t.WindowColumn)' not present on source table $name" }
+      $where = " WHERE `"$($t.WindowColumn)`" >= $cutoffSql"
+      Write-Host "  window: $($t.WindowColumn) >= now() - $RetentionMonths months (rolling retention)"
+    }
+
+    if ($DryRun) { Write-Host "  would import columns: $colList$where"; continue }
 
     # 1. extract source -> CSV (client-side copy)
     $csv = Join-Path $WorkDir "$name.csv"
     if (Test-Path $csv) { Remove-Item $csv -Force }
-    $copyOut = "\copy (SELECT $colList FROM public.`"$name`") TO '$($csv -replace '\\','/')' WITH (FORMAT csv, HEADER true)"
+    $copyOut = "\copy (SELECT $colList FROM public.`"$name`"$where) TO '$($csv -replace '\\','/')' WITH (FORMAT csv, HEADER true)"
     $r = Invoke-PsqlConn -Conn $SourceConn -Pw $script:SrcPw -Sql $copyOut
     if ($r.ExitCode -ne 0) { throw "source extract failed:`n$($r.Output)" }
 

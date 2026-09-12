@@ -20,6 +20,35 @@
   # Supabase (in-memory only), so there is nothing to import; v2 live-populates it.
   # `account_settings`, `reconciliation_runs`, and the unused stubs are dropped in v2.
 
+  # ---------------------------------------------------------------------------
+  # RETENTION (decided 2026-09-12, V2_PLAN section 5.5)
+  #
+  #   The v2 local Postgres keeps a ROLLING 12 MONTHS of closed deals. The Exposure
+  #   tab's "closed trades" section looks back at most 12 months, so local storage is
+  #   sized to the dealer-facing look-back -- not to the full history of the books.
+  #
+  #   This ONE setting drives BOTH enforcement points so they cannot drift:
+  #     * import scope  -- tables declaring a WindowColumn are filtered to
+  #                        "<WindowColumn> >= <cutoff>" when extracted from v1, and
+  #                        verify.ps1 applies the SAME predicate to BOTH sides so
+  #                        counts/sums stay apples-to-apples.
+  #     * prune policy  -- the same cutoff expression removes aged-out rows locally
+  #                        (see db/README.md "Retention"; the automated pruner is a
+  #                        Phase 2 runtime job and is NOT built yet).
+  #
+  #   Cutoff is UTC-day-stable: date_trunc('day', now() UTC) - RetentionMonths.
+  #   Set RetentionMonths = 0 (or pass -RetentionMonths 0) to disable windowing.
+  #
+  #   Deeper look-back than the window will be served by a future ON-DEMAND,
+  #   READ-ONLY request to the accounting system through a narrow, purpose-built API
+  #   -- never a direct DB key into the books. That fetch is DEFERRED; do not build it.
+  #
+  #   Covers closed `deals` only. trade_audit_log / bridge_executions / alert_events
+  #   are NOT covered by this decision (V2_PLAN section 9.7) -- they import in full
+  #   and are never pruned until a separate call is made.
+  # ---------------------------------------------------------------------------
+  RetentionMonths = 12
+
   Tables = @(
     @{ Name='symbol_mappings';                 Order=10;  Mode='config-exact';   Keys=@('id'); Checks=@('count','checksum') }
     @{ Name='trading_accounts';                Order=20;  Mode='config-exact';   Keys=@('source','login'); Checks=@('count','sum:balance','sum:equity') }
@@ -42,7 +71,8 @@
     @{ Name='alert_events';                    Order=76;  Mode='config-exact';   Keys=@('id'); Checks=@('count') }
 
     # History / archive (large; insert-missing only)
-    @{ Name='deals';                           Order=80;  Mode='archive-upsert'; Keys=@('source','deal_id'); Checks=@('count','sum:profit','sum:commission','sum:swap','sum:fee') }
+    # WindowColumn => subject to the RetentionMonths rolling window (import + verify).
+    @{ Name='deals';                           Order=80;  Mode='archive-upsert'; Keys=@('source','deal_id'); WindowColumn='deal_time'; Checks=@('count','sum:profit','sum:commission','sum:swap','sum:fee') }
     @{ Name='trade_audit_log';                 Order=85;  Mode='archive-upsert'; Keys=@('id'); Checks=@('count') }
     @{ Name='bridge_executions';               Order=90;  Mode='archive-upsert'; Keys=@('client_deal_id'); Checks=@('count','sum:cov_volume') }
   )

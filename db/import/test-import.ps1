@@ -135,7 +135,9 @@ INSERT INTO deals (source, deal_id, login, symbol, canonical_symbol, direction, 
   ('bbook',1001,5001,'XAUUSD-','XAUUSD','SELL',1,1,1,2400.5, 100,-5,-2,-1, 9001,8001,'2026-04-02T10:00:00Z','n1'),
   ('bbook',1002,5001,'XAUUSD-','XAUUSD','BUY', 0,0,1,2399.0,   0,-5, 0, 0, 9001,8001,'2026-04-01T10:00:00Z','n2'),
   ('bbook',1003,5002,'XAUUSD.c','XAUUSD.c','SELL',1,1,1,2401.0,50,-2, 0, 0, 9002,8002,'2026-04-03T10:00:00Z','n3'),
-  ('bbook',1004,5001,'','', 'BALANCE',2,0,0,0, 1000, 0, 0, 0, NULL, NULL,'2026-04-04T10:00:00Z','deposit');
+  ('bbook',1004,5001,'','', 'BALANCE',2,0,0,0, 1000, 0, 0, 0, NULL, NULL,'2026-04-04T10:00:00Z','deposit'),
+  -- Out of the rolling 12-month retention window (V2_PLAN 5.5): must NOT be imported.
+  ('bbook',1005,5001,'XAUUSD-','XAUUSD','SELL',1,1,1,2000.0, 999,-9,-9,-9, 9005,8005,'2019-01-01T10:00:00Z','ancient');
 
 INSERT INTO trade_audit_log (source, deal_id, login, symbol, field_changed, old_value, new_value, changed_by, change_type, detected_at) VALUES
   ('bbook',1001,5001,'XAUUSD','profit','90','100','recon','modified','2026-04-02T11:00:00Z');
@@ -172,7 +174,13 @@ $hasLegacy = PgScalar -Db $TgtDb -Sql "SELECT count(*) FROM information_schema.c
 Assert 'source-only column deals.legacy_note dropped on import' ($hasLegacy -eq '0') "count=$hasLegacy"
 
 $dealCount = PgScalar -Db $TgtDb -Sql "SELECT count(*) FROM deals;"
-Assert 'all 4 deals imported (archive)' ($dealCount -eq '4') "count=$dealCount"
+Assert 'in-window deals imported (archive), aged row excluded' ($dealCount -eq '4') "count=$dealCount"
+
+# Retention (V2_PLAN 5.5): the 2019 deal is outside the rolling 12-month window.
+$srcTotal = PgScalar -Db $SrcDb -Sql "SELECT count(*) FROM deals;"
+$aged     = PgScalar -Db $TgtDb -Sql "SELECT count(*) FROM deals WHERE deal_id = 1005;"
+Assert 'source really held the aged row (fixture sanity)' ($srcTotal -eq '5') "src count=$srcTotal"
+Assert 'rolling 12-month window excluded the aged deal from the target' ($aged -eq '0') "deal_id 1005 rows=$aged"
 
 $schedCount = PgScalar -Db $TgtDb -Sql "SELECT count(*) FROM snapshot_schedules;"
 Assert 'snapshot_schedules mirrored to 3 (seed replaced, no dup)' ($schedCount -eq '3') "count=$schedCount"

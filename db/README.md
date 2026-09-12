@@ -77,6 +77,49 @@ v2. Source and target are libpq connection strings; passwords come from files, n
 command line — so the same tool moves a **local fixture** now and a **remote Supabase**
 source in Phase 3.
 
+## Retention — rolling 12 months of closed deals (decided 2026-09-12)
+
+The v2 local Postgres keeps a **rolling 12 months of closed deals**; nothing older is
+stored locally. The Exposure tab's "closed trades" section looks back at most 12
+months, so local storage is sized to the dealer-facing look-back rather than the full
+history of the books. Full policy: [`docs/V2_PLAN.md` §5.5](../docs/V2_PLAN.md).
+
+Configured in **one place** — `RetentionMonths = 12` in
+[`import/tables.psd1`](import/tables.psd1) — which drives both enforcement points so
+they cannot drift:
+
+| Enforcement point | Where | Status |
+|---|---|---|
+| **Import scope** | tables declaring `WindowColumn` (today: `deals.deal_time`) are filtered on extract; `verify.ps1` applies the *same* predicate to **both** sides | implemented |
+| **Prune policy** | same cutoff removes aged-out rows locally | policy recorded below; the automated pruner is a **Phase 2 runtime job, not built yet** |
+
+Cutoff is UTC-day-stable, so an import and a later verify on the same UTC day agree
+regardless of either server's session timezone:
+
+```sql
+date_trunc('day', (now() AT TIME ZONE 'UTC')) AT TIME ZONE 'UTC' - interval '12 months'
+```
+
+Prune statement (run deliberately; not yet scheduled):
+
+```sql
+DELETE FROM deals
+ WHERE deal_time < date_trunc('day', (now() AT TIME ZONE 'UTC')) AT TIME ZONE 'UTC'
+                   - interval '12 months';
+```
+
+Pass `-RetentionMonths 0` to `import.ps1` / `verify.ps1` to disable windowing and move
+full history (both must be given the same value).
+
+**Deeper look-back is deferred.** Older than the window will be served by a future
+**on-demand, read-only** request to the accounting system through a narrow,
+purpose-built API — never a direct database key into the books, never a bulk copy back
+into v2. **Do not build that fetch now.**
+
+**Not covered:** `trade_audit_log`, `bridge_executions` and `alert_events` are separate
+history tables — they import in full and are never pruned until a separate call is made
+(`docs/V2_PLAN.md` §9.7).
+
 ## Usage
 
 ```powershell

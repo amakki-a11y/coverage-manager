@@ -25,7 +25,9 @@ param(
   [string]$TargetPasswordFile,
   [string]$ManifestPath = (Join-Path $PSScriptRoot 'tables.psd1'),
   [string[]]$Only,
-  [string]$PsqlPath
+  [string]$PsqlPath,
+  # Must match the value import.ps1 ran with. Default comes from the manifest.
+  [int]$RetentionMonths = -1
 )
 
 $ErrorActionPreference = 'Continue'
@@ -61,6 +63,20 @@ $manifest = Import-PowerShellDataFile -Path $ManifestPath
 $tables = $manifest.Tables | Sort-Object { [int]$_.Order }
 if ($Only) { $tables = $tables | Where-Object { $Only -contains $_.Name } }
 
+# Same rolling-retention cutoff import.ps1 uses (V2_PLAN 5.5). Applied to BOTH source
+# and target so a windowed import is compared apples-to-apples instead of a windowed
+# target being reported as "missing" rows against a full-history source.
+if ($RetentionMonths -lt 0) {
+  $RetentionMonths = if ($null -ne $manifest.RetentionMonths) { [int]$manifest.RetentionMonths } else { 0 }
+}
+$cutoffSql = "date_trunc('day', (now() AT TIME ZONE 'UTC')) AT TIME ZONE 'UTC' - interval '$RetentionMonths months'"
+function WindowWhere {
+  param($t)
+  if ($RetentionMonths -gt 0 -and $t.WindowColumn) { return " WHERE `"$($t.WindowColumn)`" >= $cutoffSql" }
+  return ''
+}
+Write-Host ("retention: {0}" -f $(if ($RetentionMonths -gt 0) { "rolling $RetentionMonths months on windowed tables" } else { "DISABLED (full history)" }))
+
 $pass = 0; $fail = 0
 $results = @()
 function Record { param($Table,$Check,$Ok,$Detail)
@@ -75,20 +91,23 @@ foreach ($t in $tables) {
   $srcExists = (Q -Conn $SourceConn -Pw $script:SrcPw -Sql "SELECT to_regclass('public.$name') IS NOT NULL;").Value
   if ($srcExists -ne 't') { Record $name 'exists' $false "source table missing"; continue }
 
+  $w = WindowWhere $t
+  $wLabel = if ($w) { " [windowed]" } else { "" }
+
   foreach ($check in @($t.Checks + 'count' | Select-Object -Unique)) {
     if ($check -eq 'count') {
-      $s = [int64](Q -Conn $SourceConn -Pw $script:SrcPw -Sql "SELECT count(*) FROM public.`"$name`";").Value
-      $d = [int64](Q -Conn $TargetConn -Pw $script:TgtPw -Sql "SELECT count(*) FROM public.`"$name`";").Value
+      $s = [int64](Q -Conn $SourceConn -Pw $script:SrcPw -Sql "SELECT count(*) FROM public.`"$name`"$w;").Value
+      $d = [int64](Q -Conn $TargetConn -Pw $script:TgtPw -Sql "SELECT count(*) FROM public.`"$name`"$w;").Value
       $ok = if ($archive) { $d -ge $s } else { $d -eq $s }
-      Record $name 'count' $ok "src=$s tgt=$d$(if($archive){' (>=)'})"
+      Record $name 'count' $ok "src=$s tgt=$d$(if($archive){' (>=)'})$wLabel"
     }
     elseif ($check -like 'sum:*') {
       $col = $check.Substring(4)
-      $sql = "SELECT COALESCE(round(sum(`"$col`")::numeric,4),0) FROM public.`"$name`";"
+      $sql = "SELECT COALESCE(round(sum(`"$col`")::numeric,4),0) FROM public.`"$name`"$w;"
       $s = [decimal](Q -Conn $SourceConn -Pw $script:SrcPw -Sql $sql).Value
       $d = [decimal](Q -Conn $TargetConn -Pw $script:TgtPw -Sql $sql).Value
       $ok = if ($archive) { $d -ge $s } else { $d -eq $s }
-      Record $name "sum:$col" $ok "src=$s tgt=$d"
+      Record $name "sum:$col" $ok "src=$s tgt=$d$wLabel"
     }
     elseif ($check -eq 'checksum') {
       if ($archive) { continue }
@@ -97,7 +116,7 @@ foreach ($t in $tables) {
       $cols = @($sc | Where-Object { $tc -contains $_ })
       $concat = ($cols | ForEach-Object { "COALESCE(`"$_`"::text,'~')" }) -join ",'|',"
       $order  = ($t.Keys | ForEach-Object { "`"$_`"" }) -join ', '
-      $sql = "SELECT md5(COALESCE(string_agg(concat_ws('|',$concat), E'\n' ORDER BY $order),'')) FROM public.`"$name`";"
+      $sql = "SELECT md5(COALESCE(string_agg(concat_ws('|',$concat), E'\n' ORDER BY $order),'')) FROM public.`"$name`"$w;"
       $s = (Q -Conn $SourceConn -Pw $script:SrcPw -Sql $sql).Value
       $d = (Q -Conn $TargetConn -Pw $script:TgtPw -Sql $sql).Value
       Record $name 'checksum' ($s -eq $d) "$($s.Substring(0,[Math]::Min(8,$s.Length)))..vs..$($d.Substring(0,[Math]::Min(8,$d.Length)))"
