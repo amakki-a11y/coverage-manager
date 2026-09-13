@@ -177,6 +177,46 @@ the live run is dominated by network read latency from Supabase):
 `verify.ps1` does **one** combined aggregate scan per table per side (count + all sums),
 not one scan per check, to keep load off live v1.
 
+### Phase 3 run record — 2026-09-13 00:36-00:42 UTC (executed)
+
+Source: live v1 Supabase over **direct Postgres** (IPv6), strictly read-only. v1 holds
+2026-02-23 -> 2026-09-13 (~6.7 months), so the 12-month window admits everything.
+`deal_id` spans 22,052,217..53,979,288 -- **31.9M IDs for 2.0M rows (~6% density)**, so
+`-ChunkSpan 800000` was used to get ~50k rows/chunk instead of the 639 near-empty round
+trips a 50k span would have produced. **40 chunks, 200 ms pacing.**
+
+| table | src | tgt | result |
+|---|---:|---:|---|
+| symbol_mappings | 38 | 38 | PASS (+ checksum) |
+| trading_accounts | 26,979 | 26,979 | PASS (balance 18,117,811.17 / equity 30,617,969.20) |
+| moved_accounts | 6 | 6 | PASS |
+| exposure_snapshots | 1,838 | 1,838 | PASS (net_pnl 4,875,431.1979) |
+| snapshot_schedules | 3 | 3 | PASS |
+| account_equity_snapshots | 8,365 | 8,365 | PASS (equity 887,530,773.26) |
+| alert_rules / bridge_settings | 1 / 1 | 1 / 1 | PASS |
+| alert_events | 20,398 | 20,398 | PASS |
+| **deals** | **1,997,722** | **1,997,722** | **PASS [windowed]** -- profit 2,066,266.08, commission -25,416.85, swap -7,616.45, fee -35,056.13 |
+| trade_audit_log | 0 | 0 | PASS |
+| equity_pnl_* / login_group* | 0 | 0 | PASS (never configured on v1) |
+| bridge_executions | 52,922 | 52,865 | see below |
+
+**Totals: 2,108,216 rows in 304.3s** (deals 1,997,722 in 284.8s across 40 chunks);
+verify 13.2s. **28/30 checks PASS.**
+
+The two non-PASS checks are `bridge_executions`, and they are **live-source drift, not a
+defect**: v1 is still writing that table continuously (measured 52,934 -> 52,946 in 20 s,
+~36 rows/min, from v1's Centroid Stub feed), so the source grows between extract and
+verify. A delta re-import closed the gap from 57 rows to **2**, with `sum:cov_volume`
+matching exactly -- demonstrating the resume path. It can only verify clean once v1's
+writers are stopped, which is what the pre-parallel-run delta re-import is for.
+`deals` by contrast matched **exactly**, because markets were closed (max deal_time
+00:15:02Z) -- a complete, static snapshot.
+
+**v1 data quirk noted:** every v1 `bridge_executions.created_at` is `0001-01-01`
+(DateTime.MinValue) -- v1's writer sends an unset value instead of letting the DB default
+apply. Copied through faithfully; nothing reads that column, but it is useless for
+ordering. The v2 table has `DEFAULT now()` for rows written locally.
+
 ## Verified in Phase 0
 
 - Service up, `psql` 16.15, listener = `127.0.0.1:5432` only.
