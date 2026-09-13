@@ -373,6 +373,25 @@ wrapper lands (still a good idea, still not v2-specific).
    decision covers closed `deals` only. Do `trade_audit_log`, `bridge_executions` and
    `alert_events` follow the same 12-month window, or keep full history (they are far
    smaller)? Until a call is made they import in full and are never pruned.
+8. **`HedgeRatio` ignores hedge direction** (found diagnosing the two failing
+   `ExposureEngineTests`, 2026-09-13). *Nothing changed; owner decision required.*
+   - **The two tests are stale, not an engine defect.** They were written in `05620d9`
+     (2026-03-31) when `NetVolume = BBookNet + CoverageNet`. The next day `73a5c77` deliberately
+     changed it to `BBookNet − CoverageNet` ("coverage mirrors client direction"); the tests were
+     never updated and have failed for 5½ months. Real books confirm the engine: across 899
+     imported exposure snapshots (2026-04-17 → 09-12) with both sides open, 858 (95.4%) have
+     B-Book and coverage net in the **same** direction — **99.3%** volume-weighted — and every
+     stored `net_volume` equals `bnet − cnet`.
+   - **But the engine has a direction-blind metric.** `HedgeRatio = |CoverageNet / BBookNet|`, so
+     a hedge placed the wrong way counts as cover while `NetVolume` correctly shows exposure
+     **increasing**. `RiskBanner`'s per-symbol warning keys off `hedgeRatio < 80` (the portfolio
+     warning uses `|netVolume|` and is correct). Of the 41 wrong-way snapshots, **8 read ≥ 80%
+     hedged** — e.g. `Ut100-` 2026-06-06/07: B-Book −1.83, coverage +2.27, shown **124% hedged**,
+     true exposure **4.10 lots**.
+   - Options: (a) signed ratio — only same-direction coverage counts, a wrong-way hedge reads 0% and
+     the per-symbol warning fires; (b) keep the ratio and add an explicit wrong-direction flag;
+     (c) accept as is. Either way the two tests should be rewritten to the mirror convention, plus
+     a test for the wrong-way case — after the decision, since it determines what they assert.
 
 ---
 
