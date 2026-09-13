@@ -66,17 +66,8 @@ public sealed class DataSyncService : BackgroundService
     /// Matches what the settled-P&amp;L RPC does server-side so client- and
     /// server-computed canonical keys stay in lockstep.
     /// </summary>
-    private string ResolveCanonical(string rawSymbol)
-    {
-        var m = _positionManager.FindMapping(rawSymbol, "bbook");
-        if (m != null) return m.CanonicalName.ToUpperInvariant();
-
-        var s = (rawSymbol ?? string.Empty).Trim();
-        var dot = s.LastIndexOf('.');
-        if (dot >= 0 && s.Length - dot <= 3) s = s.Substring(0, dot);
-        while (s.EndsWith("-")) s = s[..^1];
-        return s.ToUpperInvariant();
-    }
+    // Shared with the feed/store self-check so both write identical rows (see DealRecordMapper).
+    private string ResolveCanonical(string rawSymbol) => DealRecordMapper.ResolveCanonical(rawSymbol, _positionManager);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -246,26 +237,5 @@ public sealed class DataSyncService : BackgroundService
         return entries.Count;
     }
 
-    private DealRecord ToRecord(ClosedDeal d) => new()
-    {
-        DealId = (long)d.DealId,
-        Source = "bbook",
-        Login = (long)d.Login,
-        Symbol = d.Symbol,
-        CanonicalSymbol = ResolveCanonical(d.Symbol),
-        Direction = d.Direction,
-        // Preserve the real MT5 DealAction code (0=BUY, 1=SELL, 2=BALANCE, 3=CREDIT, 4=CHARGE, 5=CORRECTION, ...):
-        // balance/credit deals feed the Equity P&L tab and must not be re-classified as trades.
-        Action = (int)d.Action,
-        Entry = (int)d.Entry,
-        Volume = d.VolumeLots,
-        Price = d.Price,
-        Profit = d.Profit,
-        Commission = d.Commission,
-        Swap = d.Swap,
-        Fee = d.Fee,
-        OrderId = d.OrderId == 0 ? null : (long?)d.OrderId,
-        PositionId = d.PositionId == 0 ? null : (long?)d.PositionId,
-        DealTime = d.Time
-    };
+    private DealRecord ToRecord(ClosedDeal d) => DealRecordMapper.FromClosedDeal(d, _positionManager);
 }

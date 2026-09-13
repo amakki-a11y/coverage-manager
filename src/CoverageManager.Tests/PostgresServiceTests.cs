@@ -115,7 +115,7 @@ public class PostgresServiceTests
         await using var c = new NpgsqlConnection(AppCs);
         await c.OpenAsync();
         await using var cmd = new NpgsqlCommand(
-            "TRUNCATE deals, symbol_mappings, trading_accounts, exposure_snapshots, equity_pnl_client_config, bridge_executions RESTART IDENTITY CASCADE", c);
+            "TRUNCATE deals, symbol_mappings, trading_accounts, exposure_snapshots, equity_pnl_client_config, bridge_executions, trade_audit_log, reconciliation_runs RESTART IDENTITY CASCADE", c);
         await cmd.ExecuteNonQueryAsync();
     }
 
@@ -274,6 +274,113 @@ VALUES ('V1-ROW','ORD-V1','US30','BUY',1,40000,'2026-04-17T01:41:38Z',999,1,
         Assert.AreEqual("mk|284872", v1.CovFills[0].DealId);
         Assert.AreEqual(21365693UL, v1.CovFills[0].MtTicket);
         Assert.AreEqual(-0.02m, v1.CovFills[0].ExtMarkup);
+    }
+
+    // ---- feed/store self-check: injected divergence against a real store ----
+
+    private sealed class FakeFeed : IFeedDealSource
+    {
+        public bool IsConnected { get; set; } = true;
+        public DealHistoryWindow DealHistory { get; set; }
+        public List<ClosedDeal> Deals { get; } = new();
+        public IReadOnlyList<ClosedDeal> QueryDeals(DateTimeOffset from, DateTimeOffset to) =>
+            Deals.Where(d => d.Time >= from.UtcDateTime && d.Time < to.UtcDateTime).ToList();
+    }
+
+    private static ClosedDeal FeedDeal(ulong id, decimal profit, DateTime at) => new()
+    {
+        DealId = id, Login = 5001, Symbol = "XAUUSD-", Direction = "SELL", VolumeLots = 1m, Price = 2400m,
+        Profit = profit, Commission = -1m, Swap = 0m, Fee = 0m, Entry = 1, Action = 1, Time = at,
+    };
+
+    private static DealRecord StoreDeal(long id, decimal profit, DateTime at, int action = 1, string canonical = "XAUUSD") => new()
+    {
+        Source = "bbook", DealId = id, Login = 5001, Symbol = "XAUUSD-", CanonicalSymbol = canonical,
+        Direction = "SELL", Action = action, Entry = 1, Volume = 1m, Price = 2400m,
+        Profit = profit, Commission = -1m, Swap = 0m, Fee = 0m, DealTime = at,
+    };
+
+    [TestMethod]
+    public async Task SelfCheck_InjectedDivergence_IsRewritten_AndNothingIsEverDeleted()
+    {
+        RequireEnabled();
+        // Whole seconds so a timestamptz round trip compares exactly.
+        var nowS = DateTime.UtcNow;
+        var t = new DateTime(nowS.Year, nowS.Month, nowS.Day, nowS.Hour, nowS.Minute, nowS.Second, DateTimeKind.Utc).AddHours(-2);
+
+        // STORE (what persistence left behind)
+        await _svc.UpsertDealsAsync(new[]
+        {
+            StoreDeal(7001, 10m, t),                                   // A: identical to the feed
+            StoreDeal(7002, 10m, t.AddMinutes(1), canonical: "LEGACY-KEY"), // B: profit diverged; odd canonical must survive
+            StoreDeal(7003, 10m, t.AddMinutes(2)),                     // C: store-only, inside the window
+            StoreDeal(7004, 10m, new DateTime(2026, 3, 1, 10, 0, 0, DateTimeKind.Utc)), // D: store-only, older than the window
+            StoreDeal(7005, 500m, t.AddMinutes(3), action: 2),         // X: a cash movement the feed query never returns
+        });
+
+        // FEED (the authority's working set)
+        var feed = new FakeFeed { DealHistory = DealHistoryWindow.Since(t.AddHours(-1)) };
+        feed.Deals.Add(FeedDeal(7001, 10m, t));                 // A same
+        feed.Deals.Add(FeedDeal(7002, 99m, t.AddMinutes(1)));   // B corrected value
+        feed.Deals.Add(FeedDeal(7006, 42m, t.AddMinutes(4)));   // E never reached the store
+
+        var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["SelfCheck:IntervalMinutes"] = "15", ["SelfCheck:StartupDelayMinutes"] = "0",
+        }).Build();
+        var selfCheck = new FeedStoreSelfCheckService(feed, _svc, new CoverageManager.Core.Engines.PositionManager(),
+            config, NullLogger<FeedStoreSelfCheckService>.Instance);
+
+        var run = await selfCheck.RunNowAsync("manual");
+
+        Assert.IsNull(run.Error, run.Error);
+        Assert.AreEqual(1, run.Backfilled, "E re-written from the feed");
+        Assert.AreEqual(1, run.Modified, "B corrected from the feed");
+        Assert.AreEqual(0, run.GhostDeleted, "the self-check never deletes");
+        Assert.AreEqual(3, run.Mt5DealCount, "feed trade deals in window");
+        Assert.AreEqual(3, run.SupabaseDealCount, "stored trade deals in window: A, B, C");
+        StringAssert.Contains(run.Notes, "1 store-only kept (never deleted)");
+
+        var stored = await _svc.GetDealsAsync("bbook", new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), DateTime.UtcNow.AddDays(1));
+        var byId = stored.ToDictionary(d => d.DealId);
+        Assert.IsTrue(byId.ContainsKey(7006), "missing deal re-written");
+        Assert.AreEqual(99m, byId[7002].Profit, "diverged value corrected");
+        Assert.AreEqual("LEGACY-KEY", byId[7002].CanonicalSymbol, "correction heals values, never re-keys");
+        Assert.IsTrue(byId.ContainsKey(7003), "NO-DELETE: store-only deal inside the window survives");
+        Assert.IsTrue(byId.ContainsKey(7004), "NO-DELETE: store-only deal older than the window survives");
+        Assert.IsTrue(byId.ContainsKey(7005), "NO-DELETE: cash movement survives");
+        Assert.AreEqual(6, stored.Count);
+
+        var audit = await _svc.GetAuditLogAsync(login: 5001);
+        Assert.IsTrue(audit.Any(a => a.DealId == 7002 && a.FieldChanged == "profit" && a.NewValue == "99.00"),
+            "the corrected value is recorded in trade_audit_log");
+
+        var runs = await _svc.ListReconciliationRunsAsync(5);
+        Assert.IsTrue(runs.Any(r => r.Backfilled == 1 && r.Modified == 1 && r.GhostDeleted == 0),
+            "the run is recorded where the Settings card reads it");
+
+        // Converges: a second pass finds nothing left to do and still deletes nothing.
+        var again = await selfCheck.RunNowAsync("manual");
+        Assert.AreEqual(0, again.Backfilled);
+        Assert.AreEqual(0, again.Modified);
+        Assert.AreEqual(6, (await _svc.GetDealsAsync("bbook", new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), DateTime.UtcNow.AddDays(1))).Count);
+    }
+
+    [TestMethod]
+    public async Task SelfCheck_FeedDisconnected_RecordsASkip_AndTouchesNothing()
+    {
+        RequireEnabled();
+        var t = DateTime.UtcNow.AddHours(-1);
+        await _svc.UpsertDealsAsync(new[] { StoreDeal(8001, 10m, t) });
+        var feed = new FakeFeed { IsConnected = false, DealHistory = DealHistoryWindow.Since(t.AddHours(-1)) };
+        var selfCheck = new FeedStoreSelfCheckService(feed, _svc, new CoverageManager.Core.Engines.PositionManager(),
+            new ConfigurationBuilder().Build(), NullLogger<FeedStoreSelfCheckService>.Instance);
+
+        var run = await selfCheck.RunNowAsync("scheduled");
+
+        Assert.AreEqual("feed not connected", run.Error);
+        Assert.AreEqual(0, run.Backfilled + run.Modified + run.GhostDeleted);
+        Assert.AreEqual(1, (await _svc.GetDealsAsync("bbook", t.AddHours(-1), DateTime.UtcNow.AddDays(1))).Count);
     }
 
     [TestMethod]

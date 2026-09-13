@@ -200,10 +200,13 @@ try
     // Needed because MT5 Manager API (used for B-Book) can't see LP accounts.
     builder.Services.AddHostedService<CoverageAccountSyncService>();
 
-    // Nightly deal reconciliation — finds ghosts (Supa has, MT5 doesn't) and patches
-    // modifications so our historical P&L stays aligned with MT5 Manager over time.
-    builder.Services.AddSingleton<ReconciliationService>();
-    builder.Services.AddHostedService(sp => sp.GetRequiredService<ReconciliationService>());
+    // v2 feed/store self-check (V2_PLAN 5.4). Replaces v1's heavy ReconciliationService sweep
+    // (deleted): compares the Live Bridge working set with Postgres for the retained window,
+    // re-writes what diverged, never deletes. Backs /api/reconciliation/* unchanged.
+    builder.Services.AddSingleton<IFeedDealSource>(sp =>
+        new ConnectionFeedDealSource(sp.GetRequiredService<MT5ManagerConnection>()));
+    builder.Services.AddSingleton<FeedStoreSelfCheckService>();
+    builder.Services.AddHostedService(sp => sp.GetRequiredService<FeedStoreSelfCheckService>());
 
     // CashMovementSyncService was RETIRED in v2 Phase 2 (source consolidation).
     // It existed because MT5 Manager's CIMTDealSink didn't fire for admin balance/credit

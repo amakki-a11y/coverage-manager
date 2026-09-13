@@ -1237,7 +1237,7 @@ function ReconciliationCard() {
   useEffect(() => { fetchRuns(); }, [fetchRuns]);
 
   const runNow = async () => {
-    if (!confirm('Run reconciliation sweep now? Defaults to last 14 days. This will backfill missing deals, patch modifications, and delete ghost deals.')) return;
+    if (!confirm('Run the feed/store self-check now? It compares the Live Bridge feed's retained window with the stored deals and re-writes any that are missing or differ. It never deletes deals.')) return;
     setRunning(true);
     setError(null);
     try {
@@ -1249,7 +1249,7 @@ function ReconciliationCard() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       await fetchRuns();
     } catch (e: any) {
-      setError(e?.message ?? 'Reconciliation run failed');
+      setError(e?.message ?? 'Self-check run failed');
     }
     setRunning(false);
   };
@@ -1263,9 +1263,9 @@ function ReconciliationCard() {
     <div style={{ marginTop: 32 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <div>
-          <h3 style={{ color: '#ffa726', margin: 0, fontSize: 14 }}>Deal Reconciliation</h3>
+          <h3 style={{ color: '#ffa726', margin: 0, fontSize: 14 }}>Feed / Store Self-Check</h3>
           <p style={{ color: THEME.t3, margin: '4px 0 0', fontSize: 12 }}>
-            Nightly sweep (02:05 UTC) diffs MT5 Manager vs Supabase: backfills missed deals, patches dealer modifications, deletes ghost deals. Default lookback 14 days.
+            Every 15 minutes (and on Run Now) compares the Live Bridge feed's retained window with the stored deals, re-writes deals that are missing or differ, and never deletes. Store-only deals are counted in Notes and kept.
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
@@ -1291,11 +1291,11 @@ function ReconciliationCard() {
               <th style={{ ...thStyle, textAlign: 'left' }}>Started (Beirut)</th>
               <th style={thStyle}>Trigger</th>
               <th style={thStyle}>Window</th>
-              <th style={thStyle}>MT5</th>
-              <th style={thStyle}>Supa</th>
-              <th style={thStyle}>Backfilled</th>
-              <th style={thStyle}>Ghosts Deleted</th>
-              <th style={thStyle}>Modified</th>
+              <th style={thStyle}>Feed</th>
+              <th style={thStyle}>Store</th>
+              <th style={thStyle}>Missing Re-written</th>
+              <th style={thStyle}>Deleted</th>
+              <th style={thStyle}>Modified Re-written</th>
               <th style={{ ...thStyle, textAlign: 'left' }}>Notes / Error</th>
             </tr>
           </thead>
@@ -1318,7 +1318,7 @@ function ReconciliationCard() {
             {runs.length === 0 && (
               <tr>
                 <td colSpan={9} style={{ ...tdStyle, color: THEME.t3, padding: 24 }}>
-                  No reconciliation runs yet. Click "Run Now" to trigger the first sweep.
+                  No self-check runs yet. Click "Run Now" to run the first one.
                 </td>
               </tr>
             )}
