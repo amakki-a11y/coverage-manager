@@ -136,7 +136,7 @@ public class SettingsController : ControllerBase
     public sealed class UpdateBridgeRequest
     {
         public bool Enabled { get; set; }
-        public string Mode { get; set; } = "Stub";
+        public string Mode { get; set; } = "Disabled";
         public string BaseUrl { get; set; } = "https://bridge.centroidsol.com";
         public string ClientCode { get; set; } = string.Empty;
         public string Username { get; set; } = string.Empty;
@@ -160,7 +160,7 @@ public class SettingsController : ControllerBase
         {
             var existing = await _supabase.GetBridgeSettingsAsync() ?? new BridgeSettings();
             existing.Enabled = body.Enabled;
-            existing.Mode = string.IsNullOrWhiteSpace(body.Mode) ? "Stub" : body.Mode;
+            existing.Mode = string.IsNullOrWhiteSpace(body.Mode) ? BridgeFeedHost.DormantMode : body.Mode;
             existing.BaseUrl = string.IsNullOrWhiteSpace(body.BaseUrl) ? "https://bridge.centroidsol.com" : body.BaseUrl.TrimEnd('/');
             existing.ClientCode = body.ClientCode ?? string.Empty;
             existing.Username = body.Username ?? string.Empty;
@@ -170,7 +170,7 @@ public class SettingsController : ControllerBase
             var saved = await _supabase.UpsertBridgeSettingsAsync(existing);
             if (saved == null) return StatusCode(500, new { error = "Failed to save" });
 
-            var targetMode = saved.Enabled && saved.IsLoginReady() ? "Live" : "Stub";
+            var targetMode = saved.Enabled && saved.IsLoginReady() ? "Live" : BridgeFeedHost.DormantMode;
             try
             {
                 await _bridgeHost.SwitchAsync(targetMode);
@@ -178,8 +178,8 @@ public class SettingsController : ControllerBase
             catch (Exception swEx)
             {
                 _logger.LogError(swEx, "Bridge switch to {Mode} failed after settings save", targetMode);
-                await _bridgeHost.SwitchAsync("Stub");
-                return Ok(new { saved = true, activeMode = "Stub", error = swEx.Message });
+                await _bridgeHost.SwitchAsync(BridgeFeedHost.DormantMode);
+                return Ok(new { saved = true, activeMode = BridgeFeedHost.DormantMode, error = swEx.Message });
             }
 
             return Ok(new { saved = true, activeMode = _bridgeHost.CurrentMode });
@@ -200,7 +200,7 @@ public class SettingsController : ControllerBase
         try
         {
             var s = await _supabase.GetBridgeSettingsAsync();
-            var mode = s?.Enabled == true && s.IsLoginReady() ? "Live" : "Stub";
+            var mode = s?.Enabled == true && s.IsLoginReady() ? "Live" : BridgeFeedHost.DormantMode;
             await _bridgeHost.SwitchAsync(mode);
             return Ok(new { activeMode = _bridgeHost.CurrentMode });
         }

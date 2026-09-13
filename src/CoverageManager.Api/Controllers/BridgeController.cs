@@ -18,7 +18,7 @@ public class BridgeController : ControllerBase
 {
     private readonly ICentroidBridgeService _feed;
     private readonly BridgeExecutionStore _store;
-    private readonly BridgeSupabaseWriter _writer;
+    private readonly IDataStore _store2;
     private readonly DealStore _dealStore;
     private readonly CoverageDealIndex _coverageIndex;
     private readonly ILogger<BridgeController> _logger;
@@ -26,14 +26,14 @@ public class BridgeController : ControllerBase
     public BridgeController(
         ICentroidBridgeService feed,
         BridgeExecutionStore store,
-        BridgeSupabaseWriter writer,
+        IDataStore dataStore,
         DealStore dealStore,
         CoverageDealIndex coverageIndex,
         ILogger<BridgeController> logger)
     {
         _feed = feed;
         _store = store;
-        _writer = writer;
+        _store2 = dataStore;
         _dealStore = dealStore;
         _coverageIndex = coverageIndex;
         _logger = logger;
@@ -112,7 +112,7 @@ public class BridgeController : ControllerBase
             var canonical = string.IsNullOrWhiteSpace(symbol) ? null : symbol.Trim().ToUpperInvariant();
 
             // Prefer persisted rows; fall back to live store if DB returns empty (e.g. fresh session).
-            var rows = await _writer.QueryAsync(fromUtc, toUtc, canonical, limit, ct);
+            var rows = await _store2.QueryBridgeExecutionsAsync(fromUtc, toUtc, canonical, limit, ct);
             if (rows.Count == 0)
             {
                 rows = _store.Query(fromUtc, toUtc, canonical, limit).ToList();

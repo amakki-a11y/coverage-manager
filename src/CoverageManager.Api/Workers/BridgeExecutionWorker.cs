@@ -21,10 +21,8 @@ public class BridgeExecutionWorker : BackgroundService
 {
     private readonly ICentroidBridgeService _feed;
     private readonly BridgeExecutionStore _store;
-    private readonly BridgeSupabaseWriter _writer;
+    private readonly IDataStore _store2;
 
-    // Latches so the "Stub output is not persisted" warning is logged once, not per batch.
-    private bool _stubPersistSuppressedLogged;
     private readonly BridgeBroadcastService _broadcast;
     private readonly CoverageManager.Core.Engines.PositionManager _positionManager;
     private readonly DealStore _dealStore;
@@ -44,7 +42,7 @@ public class BridgeExecutionWorker : BackgroundService
     public BridgeExecutionWorker(
         ICentroidBridgeService feed,
         BridgeExecutionStore store,
-        BridgeSupabaseWriter writer,
+        IDataStore dataStore,
         BridgeBroadcastService broadcast,
         CoverageManager.Core.Engines.PositionManager positionManager,
         DealStore dealStore,
@@ -54,7 +52,7 @@ public class BridgeExecutionWorker : BackgroundService
     {
         _feed = feed;
         _store = store;
-        _writer = writer;
+        _store2 = dataStore;
         _broadcast = broadcast;
         _positionManager = positionManager;
         _dealStore = dealStore;
@@ -98,32 +96,18 @@ public class BridgeExecutionWorker : BackgroundService
 
                     if (buffer.Count > 0)
                     {
-                        // HARD GUARD (v2): synthetic Stub output must NEVER reach the store.
-                        // In v1 this exact loop persisted StubCentroidBridgeService output to
-                        // Supabase continuously from 2026-04-16 onward: by 2026-09-13 that was
-                        // 82,348 rows of which only 1,943 carried a client_mt_deal_id, and
-                        // 62,828 were written across a CLOSED market (Fri 21:00 - Sun 14:00),
-                        // so they cannot be real hedges. The Stub is a UI/pairing fixture; it is
-                        // in-memory only. The store + WebSocket still see the pairs, so the tab
-                        // works exactly as before -- only persistence is suppressed.
-                        var mode = _feed.GetHealth().Mode;
-                        if (string.Equals(mode, "Stub", StringComparison.OrdinalIgnoreCase))
+                        // Everything reaching this loop is now real: v2 retired the synthetic
+                        // StubCentroidBridgeService entirely, so the only producer is the Live
+                        // Centroid dropcopy. (In v1 this loop persisted stub output from
+                        // 2026-04-16 on: 85,000+ fabricated rows, only 1,943 of them real.)
+                        // The protection is structural -- there is no synthetic producer left
+                        // to guard against -- rather than a mode check that a future fake feed
+                        // under a different name would sail straight past.
+                        try { await _store2.UpsertBridgeExecutionsAsync(buffer, stoppingToken).ConfigureAwait(false); }
+                        catch (OperationCanceledException) { break; }
+                        catch (Exception ex)
                         {
-                            if (!_stubPersistSuppressedLogged)
-                            {
-                                _stubPersistSuppressedLogged = true;
-                                _logger.LogWarning(
-                                    "Bridge feed is in Stub mode: synthetic pairs are held in memory and will NOT be persisted.");
-                            }
-                        }
-                        else
-                        {
-                            try { await _writer.UpsertBatchAsync(buffer, stoppingToken).ConfigureAwait(false); }
-                            catch (OperationCanceledException) { break; }
-                            catch (Exception ex)
-                            {
-                                _logger.LogError(ex, "Bridge persist batch failed ({Count} pairs)", buffer.Count);
-                            }
+                            _logger.LogError(ex, "Bridge persist batch failed ({Count} pairs)", buffer.Count);
                         }
                     }
 

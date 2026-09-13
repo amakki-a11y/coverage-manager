@@ -19,7 +19,7 @@ public enum CentroidConnectionState
 public class CentroidHealth
 {
     public CentroidConnectionState State { get; set; }
-    public string Mode { get; set; } = "Stub";
+    public string Mode { get; set; } = "Disabled";
     public DateTime? LastMessageUtc { get; set; }
     public string? LastError { get; set; }
     public long MessagesReceived { get; set; }

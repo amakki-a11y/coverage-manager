@@ -33,6 +33,13 @@ public interface IDataStore
     Task<BridgeSettings?> GetBridgeSettingsAsync();
     Task<BridgeSettings?> UpsertBridgeSettingsAsync(BridgeSettings settings);
 
+    // ── Bridge executions (paired CLIENT <-> COV_OUT dropcopy fills) ──
+    // Unique, not reconstructible from the feed, so it lives in the same store as
+    // everything else in v2 rather than in Supabase behind its own HTTP client.
+    Task<int> UpsertBridgeExecutionsAsync(IReadOnlyCollection<ExecutionPair> pairs, CancellationToken ct = default);
+    Task<IReadOnlyList<ExecutionPair>> QueryBridgeExecutionsAsync(
+        DateTime fromUtc, DateTime toUtc, string? canonicalSymbol, int limit, CancellationToken ct = default);
+
     // ── Trading accounts ──
     Task<List<TradingAccount>> GetTradingAccountsAsync(string? source = null);
     Task<int> UpsertTradingAccountsAsync(IEnumerable<TradingAccount> accounts);

@@ -225,6 +225,124 @@ VALUES (@Enabled, @Mode, @BaseUrl, @ClientCode, @Username, @Password, @Notes) RE
         catch (Exception ex) { _logger.LogError(ex, "UpsertBridgeSettingsAsync failed"); return null; }
     }
 
+    // ===================== Bridge executions =====================
+
+    // cov_fills is jsonb. v1 wrote it with SnakeCaseLower, and the imported v1 rows carry
+    // snake_case keys (deal_id, time_utc, mt_ticket, ...), so the same policy is used here
+    // or v2 would silently fail to read its own imported history.
+    private static readonly System.Text.Json.JsonSerializerOptions CovFillJson = new()
+    {
+        PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.SnakeCaseLower,
+        PropertyNameCaseInsensitive = true,
+    };
+
+    private sealed class BridgeExecRow
+    {
+        public string ClientDealId { get; set; } = string.Empty;
+        public string CenOrdId { get; set; } = string.Empty;
+        public string Symbol { get; set; } = string.Empty;
+        public string Side { get; set; } = "BUY";
+        public decimal ClientVolume { get; set; }
+        public decimal ClientPrice { get; set; }
+        public DateTime ClientTime { get; set; }
+        public long? ClientMtLogin { get; set; }
+        public long? ClientMtTicket { get; set; }
+        public long? ClientMtDealId { get; set; }
+        public decimal CovVolume { get; set; }
+        public string? CovFills { get; set; }
+        public decimal? CoverageRatio { get; set; }
+        public decimal? AvgCovPrice { get; set; }
+        public decimal? PriceEdge { get; set; }
+        public decimal? Pips { get; set; }
+        public int? MaxTimeDiffMs { get; set; }
+        public int? MinTimeDiffMs { get; set; }
+        public DateTime CreatedAt { get; set; }
+    }
+
+    public async Task<int> UpsertBridgeExecutionsAsync(
+        IReadOnlyCollection<ExecutionPair> pairs, CancellationToken ct = default)
+    {
+        if (pairs.Count == 0) return 0;
+        try
+        {
+            await using var c = await OpenAsync();
+            // coverage_ratio is a generated column and created_at defaults -- neither is written.
+            const string sql = @"
+INSERT INTO bridge_executions (client_deal_id, cen_ord_id, symbol, side, client_volume, client_price,
+    client_time, client_mt_login, client_mt_ticket, client_mt_deal_id, cov_volume, cov_fills,
+    avg_cov_price, price_edge, pips, max_time_diff_ms, min_time_diff_ms)
+VALUES (@ClientDealId,@CenOrdId,@Symbol,@Side,@ClientVolume,@ClientPrice,@ClientTime,
+    @ClientMtLogin,@ClientMtTicket,@ClientMtDealId,@CovVolume,@CovFills::jsonb,
+    @AvgCovPrice,@PriceEdge,@Pips,@MaxTimeDiffMs,@MinTimeDiffMs)
+ON CONFLICT (client_deal_id) DO UPDATE SET
+    cen_ord_id=EXCLUDED.cen_ord_id, symbol=EXCLUDED.symbol, side=EXCLUDED.side,
+    client_volume=EXCLUDED.client_volume, client_price=EXCLUDED.client_price,
+    client_time=EXCLUDED.client_time, client_mt_login=EXCLUDED.client_mt_login,
+    client_mt_ticket=EXCLUDED.client_mt_ticket, client_mt_deal_id=EXCLUDED.client_mt_deal_id,
+    cov_volume=EXCLUDED.cov_volume, cov_fills=EXCLUDED.cov_fills,
+    avg_cov_price=EXCLUDED.avg_cov_price, price_edge=EXCLUDED.price_edge, pips=EXCLUDED.pips,
+    max_time_diff_ms=EXCLUDED.max_time_diff_ms, min_time_diff_ms=EXCLUDED.min_time_diff_ms,
+    updated_at=now();";
+            var prms = pairs.Select(p => new
+            {
+                p.ClientDealId, p.CenOrdId, p.Symbol,
+                Side = p.Side.ToString(),
+                p.ClientVolume, p.ClientPrice,
+                ClientTime = U(p.ClientTimeUtc),
+                ClientMtLogin = p.ClientMtLogin.HasValue ? (object)(long)p.ClientMtLogin.Value : DBNull.Value,
+                ClientMtTicket = p.ClientMtTicket.HasValue ? (object)(long)p.ClientMtTicket.Value : DBNull.Value,
+                ClientMtDealId = p.ClientMtDealId.HasValue ? (object)(long)p.ClientMtDealId.Value : DBNull.Value,
+                p.CovVolume,
+                CovFills = System.Text.Json.JsonSerializer.Serialize(p.CovFills ?? new(), CovFillJson),
+                p.AvgCovPrice, p.PriceEdge, p.Pips, p.MaxTimeDiffMs, p.MinTimeDiffMs
+            });
+            await c.ExecuteAsync(new CommandDefinition(sql, prms, cancellationToken: ct, commandTimeout: 30));
+            return pairs.Count;
+        }
+        catch (Exception ex) { _logger.LogError(ex, "UpsertBridgeExecutionsAsync failed ({Count} pairs)", pairs.Count); return 0; }
+    }
+
+    public async Task<IReadOnlyList<ExecutionPair>> QueryBridgeExecutionsAsync(
+        DateTime fromUtc, DateTime toUtc, string? canonicalSymbol, int limit, CancellationToken ct = default)
+    {
+        try
+        {
+            await using var c = await OpenAsync();
+            var sql = @"SELECT * FROM bridge_executions
+                         WHERE client_time >= @from AND client_time <= @to"
+                    + (!string.IsNullOrEmpty(canonicalSymbol) ? " AND symbol = @sym" : "")
+                    + " ORDER BY client_time DESC LIMIT @lim";
+            var rows = await c.QueryAsync<BridgeExecRow>(new CommandDefinition(sql,
+                new { from = U(fromUtc), to = U(toUtc), sym = canonicalSymbol, lim = Math.Clamp(limit, 1, 5000) },
+                cancellationToken: ct));
+            return rows.Select(r => new ExecutionPair
+            {
+                ClientDealId = r.ClientDealId,
+                CenOrdId = r.CenOrdId,
+                Symbol = r.Symbol,
+                Side = Enum.TryParse<BridgeSide>(r.Side, ignoreCase: true, out var side) ? side : BridgeSide.BUY,
+                ClientVolume = r.ClientVolume,
+                ClientPrice = r.ClientPrice,
+                ClientTimeUtc = r.ClientTime,
+                ClientMtLogin = r.ClientMtLogin.HasValue ? (ulong?)r.ClientMtLogin.Value : null,
+                ClientMtTicket = r.ClientMtTicket.HasValue ? (ulong?)r.ClientMtTicket.Value : null,
+                ClientMtDealId = r.ClientMtDealId.HasValue ? (ulong?)r.ClientMtDealId.Value : null,
+                CovVolume = r.CovVolume,
+                CovFills = string.IsNullOrWhiteSpace(r.CovFills)
+                    ? new()
+                    : (System.Text.Json.JsonSerializer.Deserialize<List<CovFill>>(r.CovFills, CovFillJson) ?? new()),
+                AvgCovPrice = r.AvgCovPrice ?? 0m,
+                PriceEdge = r.PriceEdge ?? 0m,
+                Pips = r.Pips ?? 0m,
+                CoverageRatio = r.CoverageRatio ?? 0m,
+                MaxTimeDiffMs = r.MaxTimeDiffMs ?? 0,
+                MinTimeDiffMs = r.MinTimeDiffMs ?? 0,
+                CreatedAtUtc = r.CreatedAt,
+            }).ToList();
+        }
+        catch (Exception ex) { _logger.LogError(ex, "QueryBridgeExecutionsAsync failed"); return Array.Empty<ExecutionPair>(); }
+    }
+
     // ===================== Trading accounts =====================
 
     public async Task<List<TradingAccount>> GetTradingAccountsAsync(string? source = null)

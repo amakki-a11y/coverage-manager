@@ -16,9 +16,9 @@ public class BridgeSettings
     [JsonPropertyName("enabled")] public bool Enabled { get; set; }
 
     /// <summary>
-    /// "Stub" | "Live". Only honored when Enabled=true.
+    /// "Live" (real Centroid dropcopy) or "Disabled". The synthetic "Stub" mode was retired in v2.
     /// </summary>
-    [JsonPropertyName("mode")] public string Mode { get; set; } = "Stub";
+    [JsonPropertyName("mode")] public string Mode { get; set; } = "Disabled";
 
     /// <summary>
     /// Base URL. Default: https://bridge.centroidsol.com

@@ -1,5 +1,6 @@
 using CoverageManager.Api.Services;
 using CoverageManager.Core.Models;
+using CoverageManager.Core.Models.Bridge;
 using CoverageManager.Core.Models.EquityPnL;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -114,7 +115,7 @@ public class PostgresServiceTests
         await using var c = new NpgsqlConnection(AppCs);
         await c.OpenAsync();
         await using var cmd = new NpgsqlCommand(
-            "TRUNCATE deals, symbol_mappings, trading_accounts, exposure_snapshots, equity_pnl_client_config RESTART IDENTITY CASCADE", c);
+            "TRUNCATE deals, symbol_mappings, trading_accounts, exposure_snapshots, equity_pnl_client_config, bridge_executions RESTART IDENTITY CASCADE", c);
         await cmd.ExecuteNonQueryAsync();
     }
 
@@ -214,6 +215,65 @@ public class PostgresServiceTests
         var nearest = await _svc.GetNearestSnapshotsBeforeAsync(new DateTime(2026,4,1,0,0,0,DateTimeKind.Utc));
         Assert.IsTrue(nearest.ContainsKey("XAUUSD"));
         Assert.AreEqual(2300.5m, nearest["XAUUSD"].NetPnL);
+    }
+
+    [TestMethod]
+    public async Task BridgeExecutions_RoundTrip_AndReadsV1ShapedCovFills()
+    {
+        RequireEnabled();
+
+        // 1. write/read a pair through the store (the bridge_executions port)
+        var pair = new ExecutionPair
+        {
+            ClientDealId = "EXID-1", CenOrdId = "ORD-1", Symbol = "XAUUSD", Side = BridgeSide.SELL,
+            ClientVolume = 2m, ClientPrice = 2400.5m,
+            ClientTimeUtc = new DateTime(2026, 4, 17, 1, 41, 38, DateTimeKind.Utc),
+            ClientMtLogin = 5001UL, ClientMtTicket = 21365693UL, ClientMtDealId = 284872UL,
+            CovVolume = 2m, AvgCovPrice = 2400.4m, PriceEdge = 0.1m, Pips = 10m,
+            MaxTimeDiffMs = 120, MinTimeDiffMs = 0,
+            CovFills = new List<CovFill>
+            {
+                new() { DealId = "mk|284872", Volume = 2m, Price = 4773.69m,
+                        TimeUtc = new DateTime(2026,4,17,1,41,38,DateTimeKind.Utc),
+                        TimeDiffMs = 0, LpName = "FXGROW_OZ_LIVE", MtTicket = 21365693UL,
+                        RawPrice = 4773.68m, ExtMarkup = -0.02m }
+            }
+        };
+        Assert.AreEqual(1, await _svc.UpsertBridgeExecutionsAsync(new[] { pair }));
+
+        var back = await _svc.QueryBridgeExecutionsAsync(
+            new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), WinTo, null, 100);
+        var got = back.Single(p => p.ClientDealId == "EXID-1");
+        Assert.AreEqual(BridgeSide.SELL, got.Side);
+        Assert.AreEqual(284872UL, got.ClientMtDealId);
+        Assert.AreEqual(1m, got.CoverageRatio, "generated column: cov_volume / client_volume");
+        Assert.AreEqual(1, got.CovFills.Count, "cov_fills jsonb must round-trip");
+        Assert.AreEqual("FXGROW_OZ_LIVE", got.CovFills[0].LpName);
+        Assert.AreEqual(4773.68m, got.CovFills[0].RawPrice);
+
+        // 2. a row shaped exactly like v1's (snake_case cov_fills keys written by the old
+        //    Supabase writer) must still deserialize -- otherwise v2 silently loses the
+        //    coverage legs of every imported historical pair.
+        await using (var c = new NpgsqlConnection(AppCs))
+        {
+            await c.OpenAsync();
+            await using var cmd = new NpgsqlCommand(@"
+INSERT INTO bridge_executions (client_deal_id, cen_ord_id, symbol, side, client_volume, client_price,
+    client_time, client_mt_deal_id, cov_volume, cov_fills)
+VALUES ('V1-ROW','ORD-V1','US30','BUY',1,40000,'2026-04-17T01:41:38Z',999,1,
+ '[{""price"": 4773.69, ""volume"": 2, ""deal_id"": ""mk|284872"", ""lp_name"": ""FXGROW_OZ_LIVE"",
+    ""time_utc"": ""2026-04-17T01:41:38.48417Z"", ""mt_ticket"": 21365693, ""raw_price"": 4773.68,
+    ""ext_markup"": -0.02, ""time_diff_ms"": 0}]'::jsonb);", c);
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        var v1 = (await _svc.QueryBridgeExecutionsAsync(
+            new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), WinTo, "US30", 100))
+            .Single(p => p.ClientDealId == "V1-ROW");
+        Assert.AreEqual(1, v1.CovFills.Count, "v1-shaped snake_case cov_fills must deserialize");
+        Assert.AreEqual("mk|284872", v1.CovFills[0].DealId);
+        Assert.AreEqual(21365693UL, v1.CovFills[0].MtTicket);
+        Assert.AreEqual(-0.02m, v1.CovFills[0].ExtMarkup);
     }
 
     [TestMethod]

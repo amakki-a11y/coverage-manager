@@ -52,10 +52,10 @@ try
     builder.Services.AddHttpClient();
 
     // Supabase:ReadOnly = true blocks every write to Supabase at the HTTP layer, on every factory
-    // client. In v2 the domain store is Postgres, so this now guards only the ONE remaining
-    // Supabase writer -- BridgeSupabaseWriter (bridge_executions), which still has to be migrated
-    // to local Postgres before cutover. The ledger of blocked writes is on
-    // /api/exposure/diagnostics.supabaseReadOnly.
+    // client. As of the bridge_executions port there is NO Supabase writer left in v2 -- the
+    // whole domain store is Postgres -- so this is now a belt-and-braces backstop that would
+    // catch any future code that reaches for Supabase by mistake. The ledger of blocked writes
+    // is on /api/exposure/diagnostics.supabaseReadOnly.
     var supabaseReadOnly = builder.Configuration.GetValue("Supabase:ReadOnly", false);
     var supabaseHost = Uri.TryCreate(builder.Configuration["Supabase:Url"], UriKind.Absolute, out var supabaseUri) ? supabaseUri.Host : "";
     builder.Services.AddSingleton(new SupabaseReadOnlyLedger(supabaseReadOnly, supabaseHost));
@@ -80,9 +80,9 @@ try
     // Broadcast service (WebSocket push)
     builder.Services.AddSingleton<ExposureBroadcastService>();
 
-    // MT5 API provider: "Manager" (MetaQuotes Manager API DLLs, the default) or
-    // "LiveBridge" (push feed; placeholder until the Live Bridge publishes it).
-    // Normalized here so a typo fails at startup instead of inside the reconnect loop.
+    // MT5 API provider. v2 has exactly one: the Live Bridge consumer feed. Normalized here so
+    // a stale "Manager" value fails at startup with a migration message instead of looping
+    // inside the reconnect backoff.
     var mt5Provider = MT5ApiProviders.Normalize(builder.Configuration["MT5:Provider"]);
     var liveBridgeOptions = builder.Configuration.GetSection(LiveBridgeOptions.SectionName).Get<LiveBridgeOptions>()
                             ?? new LiveBridgeOptions();
@@ -90,7 +90,8 @@ try
     builder.Services.AddSingleton<IMT5ApiFactory>(sp =>
         new MT5ApiFactory(mt5Provider, liveBridgeOptions, sp.GetRequiredService<ILoggerFactory>()));
 
-    // MT5 Manager connection (reads accounts from Supabase, connects, snapshots positions)
+    // B-Book feed connection (Live Bridge). Keeps the historical class name; under the feed
+    // it never reads account_settings -- see MT5ApiFactory.RequiresManagerAccount.
     builder.Services.AddSingleton<MT5ManagerConnection>(sp =>
     {
         var supabase = sp.GetRequiredService<IDataStore>();
@@ -166,14 +167,12 @@ try
 
     builder.Services.AddSingleton<BridgeBroadcastService>();
 
-    builder.Services.AddSingleton<BridgeSupabaseWriter>(sp =>
-        new BridgeSupabaseWriter(
-            sp.GetRequiredService<IConfiguration>(),
-            sp.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(BridgeSupabaseWriter)),
-            sp.GetRequiredService<ILogger<BridgeSupabaseWriter>>()));
+    // bridge_executions now goes through IDataStore -> PostgresService like everything else.
+    // BridgeSupabaseWriter (its own HTTP client straight to Supabase) was deleted in v2.
 
-    // Both feed implementations are registered as singletons; BridgeFeedHost picks one at runtime.
-    builder.Services.AddSingleton<StubCentroidBridgeService>();
+    // Live (real Centroid dropcopy) is the only feed implementation in v2 -- the synthetic
+    // StubCentroidBridgeService was retired. BridgeFeedHost stays dormant unless Live is
+    // explicitly configured and enabled.
     builder.Services.AddSingleton<RestCentroidBridgeService>();
     builder.Services.AddSingleton<BridgeFeedHost>();
     // Controllers & worker depend on ICentroidBridgeService — route that to the host facade.
@@ -299,18 +298,28 @@ try
         }
         else
         {
-            var initialMode = bridgeSettings?.Enabled == true && bridgeSettings.IsLoginReady()
-                ? "Live"
-                : (app.Configuration["Centroid:Mode"] ?? "Stub");
-            try
+            // v2: the ONLY feed is Live (real Centroid dropcopy). It starts solely when the
+            // settings are enabled AND fully configured; otherwise the host stays dormant.
+            // There is no synthetic fallback any more -- a failure leaves it dormant rather
+            // than quietly producing fabricated pairs, which is what v1 did for five months.
+            var ready = bridgeSettings?.Enabled == true && bridgeSettings.IsLoginReady();
+            if (!ready)
             {
-                await bridgeHost.SwitchAsync(initialMode);
-                Log.Information("Centroid Bridge feed started in {Mode} mode", initialMode);
+                Log.Information("Centroid Bridge feed dormant (no Live credentials configured)");
+                await bridgeHost.SwitchAsync(BridgeFeedHost.DormantMode);
             }
-            catch (Exception ex)
+            else
             {
-                Log.Error(ex, "Failed to start Bridge feed in {Mode}, falling back to Stub", initialMode);
-                try { await bridgeHost.SwitchAsync("Stub"); } catch { /* ignore */ }
+                try
+                {
+                    await bridgeHost.SwitchAsync("Live");
+                    Log.Information("Centroid Bridge feed started in Live mode");
+                }
+                catch (Exception ex)
+                {
+                    Log.Error(ex, "Failed to start the Live Bridge feed; leaving it dormant");
+                    try { await bridgeHost.SwitchAsync(BridgeFeedHost.DormantMode); } catch { /* ignore */ }
+                }
             }
         }
     }

@@ -21,7 +21,10 @@ public class BridgeFeedHost : IAsyncDisposable
     private IHostedService? _activeAsHosted;
     private IDisposable? _activeSubscription;
     private CancellationTokenSource? _activeCts;
-    private string _mode = "Stub";
+    /// <summary>Mode name used whenever no Centroid feed is running. The v2 default.</summary>
+    public const string DormantMode = "Disabled";
+
+    private string _mode = DormantMode;
 
     public BridgeFeedHost(IServiceProvider services, ILogger<BridgeFeedHost> logger)
     {
@@ -71,15 +74,30 @@ public class BridgeFeedHost : IAsyncDisposable
         // 1. Tear down the current feed.
         await StopActiveAsync();
 
-        // 2. Pick a new implementation. Any new mode needs a line here.
-        ICentroidBridgeService svc = string.Equals(mode, "Live", StringComparison.OrdinalIgnoreCase)
-            ? _services.GetRequiredService<RestCentroidBridgeService>()
-            : _services.GetRequiredService<StubCentroidBridgeService>();
+        // 2. Pick a new implementation. Live (real Centroid dropcopy) is the ONLY feed in v2.
+        //    The synthetic Stub was retired: in v1 it ran in production from 2026-04-16 and
+        //    wrote 85,000+ fabricated pairs into the store, of which only 1,943 were real.
+        //    Anything that is not "Live" leaves the host DORMANT (_active stays null, which
+        //    every accessor here already handles), so the tab and pairing engine survive
+        //    untouched but no synthetic data can ever be produced.
+        if (!string.Equals(mode, "Live", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.Equals(mode, "Stub", StringComparison.OrdinalIgnoreCase))
+            {
+                // A legacy bridge_settings row may still say "Stub"; do not crash on it.
+                _logger.LogWarning("Centroid mode 'Stub' was retired in v2; the feed stays dormant.");
+            }
+            lock (_lock) { _mode = DormantMode; }
+            _logger.LogInformation("BridgeFeedHost dormant (no Centroid feed running)");
+            return;
+        }
+
+        ICentroidBridgeService svc = _services.GetRequiredService<RestCentroidBridgeService>();
 
         // 3. Pipe its deals into our subscribers so downstream listeners don't reconnect.
         var sub = svc.Subscribe(FanOut);
 
-        // 4. Start it if it's an IHostedService (Stub + Fix both are).
+        // 4. Start it if it's an IHostedService.
         var hosted = svc as IHostedService;
         var cts = new CancellationTokenSource();
         if (hosted != null)

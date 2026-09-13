@@ -301,6 +301,18 @@ public class SupabaseService : IDataStore
         }
     }
 
+    // ── Bridge executions ──
+    // Deliberately unsupported here. In v2 bridge_executions lives ONLY in local Postgres
+    // (PostgresService); v1's separate BridgeSupabaseWriter was deleted. SupabaseService is
+    // retained purely as a reference/fallback implementation of the rest of the surface, so
+    // these fail loudly rather than silently writing coverage-pairing data somewhere else.
+    public Task<int> UpsertBridgeExecutionsAsync(IReadOnlyCollection<ExecutionPair> pairs, CancellationToken ct = default)
+        => throw new NotSupportedException("bridge_executions is Postgres-only in v2; use PostgresService.");
+
+    public Task<IReadOnlyList<ExecutionPair>> QueryBridgeExecutionsAsync(
+        DateTime fromUtc, DateTime toUtc, string? canonicalSymbol, int limit, CancellationToken ct = default)
+        => throw new NotSupportedException("bridge_executions is Postgres-only in v2; use PostgresService.");
+
     // ── Trading Accounts ──
 
     public async Task<List<TradingAccount>> GetTradingAccountsAsync(string? source = null)
