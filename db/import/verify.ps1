@@ -71,8 +71,14 @@ if ($RetentionMonths -lt 0) {
 }
 $cutoffSql = "date_trunc('day', (now() AT TIME ZONE 'UTC')) AT TIME ZONE 'UTC' - interval '$RetentionMonths months'"
 function WindowWhere {
+  # Must mirror import.ps1 exactly: retention window AND any RowFilter, applied to BOTH
+  # sides. Otherwise a deliberately-filtered import reads as "missing rows" against an
+  # unfiltered source.
   param($t)
-  if ($RetentionMonths -gt 0 -and $t.WindowColumn) { return " WHERE `"$($t.WindowColumn)`" >= $cutoffSql" }
+  $preds = @()
+  if ($RetentionMonths -gt 0 -and $t.WindowColumn) { $preds += "`"$($t.WindowColumn)`" >= $cutoffSql" }
+  if ($t.RowFilter) { $preds += "($($t.RowFilter))" }
+  if ($preds.Count -gt 0) { return " WHERE " + ($preds -join ' AND ') }
   return ''
 }
 Write-Host ("retention: {0}" -f $(if ($RetentionMonths -gt 0) { "rolling $RetentionMonths months on windowed tables" } else { "DISABLED (full history)" }))

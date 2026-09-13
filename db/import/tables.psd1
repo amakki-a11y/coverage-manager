@@ -51,6 +51,12 @@
 
   Tables = @(
     @{ Name='symbol_mappings';                 Order=10;  Mode='config-exact';   Keys=@('id'); Checks=@('count','checksum') }
+    # NOTE: 'config-exact' describes the LOAD semantics (authoritative mirror: truncate +
+    # load), not that the data is static. trading_accounts is live-mutating -- v1 rewrites
+    # balance/equity/synced_at continuously (measured 52 rows touched in the last hour, and
+    # new logins appearing). Against a LIVE v1 its exact-match verify checks therefore drift
+    # and cannot pass; they are only meaningful once v1's writers are frozen, which is what
+    # the pre-parallel-run delta re-import is for. Same applies to deals and bridge_executions.
     @{ Name='trading_accounts';                Order=20;  Mode='config-exact';   Keys=@('source','login'); Checks=@('count','sum:balance','sum:equity') }
     @{ Name='moved_accounts';                  Order=30;  Mode='config-exact';   Keys=@('login'); Checks=@('count') }
 
@@ -78,6 +84,11 @@
     # simply re-running. Tune with -ChunkSpan / -PaceMs on the command line.
     @{ Name='deals';                           Order=80;  Mode='archive-upsert'; Keys=@('source','deal_id'); WindowColumn='deal_time'; ChunkColumn='deal_id'; ChunkSpan=50000; PaceMs=200; Checks=@('count','sum:profit','sum:commission','sum:swap','sum:fee') }
     @{ Name='trade_audit_log';                 Order=85;  Mode='archive-upsert'; Keys=@('id'); Checks=@('count') }
-    @{ Name='bridge_executions';               Order=90;  Mode='archive-upsert'; Keys=@('client_deal_id'); Checks=@('count','sum:cov_volume') }
+    # RowFilter (owner decision 2026-09-13): v1's bridge_executions is ~97% synthetic Stub
+    # output -- 82,348 rows of which only 1,943 carry a client_mt_deal_id, and 62,828 were
+    # written across a CLOSED market, so they cannot be real hedges. Carry ONLY real pairs.
+    # The filter is applied to the source extract AND to both sides of verify, so the
+    # comparison stays apples-to-apples. The stub rows are NOT a cutover blocker.
+    @{ Name='bridge_executions';               Order=90;  Mode='archive-upsert'; Keys=@('client_deal_id'); RowFilter='client_mt_deal_id IS NOT NULL'; Checks=@('count','sum:cov_volume') }
   )
 }

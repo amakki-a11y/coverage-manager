@@ -177,13 +177,20 @@ foreach ($t in $tables) {
 
     $colList = ($cols | ForEach-Object { "`"$_`"" }) -join ', '
 
-    # Rolling-retention filter: only tables declaring a WindowColumn are windowed.
-    $where = ''
+    # Predicates: the rolling-retention window (tables declaring a WindowColumn) and an
+    # optional RowFilter that excludes rows we deliberately do not carry. Both are applied
+    # to the source extract here and to BOTH sides in verify.ps1, so counts stay comparable.
+    $preds = @()
     if ($RetentionMonths -gt 0 -and $t.WindowColumn) {
       if ($srcCols -notcontains $t.WindowColumn) { throw "WindowColumn '$($t.WindowColumn)' not present on source table $name" }
-      $where = " WHERE `"$($t.WindowColumn)`" >= $cutoffSql"
+      $preds += "`"$($t.WindowColumn)`" >= $cutoffSql"
       Write-Host "  window: $($t.WindowColumn) >= now() - $RetentionMonths months (rolling retention)"
     }
+    if ($t.RowFilter) {
+      $preds += "($($t.RowFilter))"
+      Write-Host "  row filter: $($t.RowFilter)"
+    }
+    $where = if ($preds.Count -gt 0) { " WHERE " + ($preds -join ' AND ') } else { '' }
 
     if ($DryRun) { Write-Host "  would import columns: $colList$where"; continue }
 

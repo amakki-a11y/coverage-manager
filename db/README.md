@@ -212,6 +212,30 @@ writers are stopped, which is what the pre-parallel-run delta re-import is for.
 `deals` by contrast matched **exactly**, because markets were closed (max deal_time
 00:15:02Z) -- a complete, static snapshot.
 
+### Amendment 2026-09-13 — bridge_executions re-scoped to real rows only
+
+v1's `bridge_executions` is ~97% synthetic **Stub** output. Independently measured on v1:
+**82,348 rows, 78,091 with synthetic `ord-`/`c-ord-` ids, only 1,943 with a
+`client_mt_deal_id`, and 62,828 written across a CLOSED market** (Fri 21:00 - Sun 14:00),
+so those cannot be real hedges. Owner decision: carry only real pairs; the stub rows are
+**not** a cutover blocker.
+
+Done: manifest `RowFilter = 'client_mt_deal_id IS NOT NULL'` (applied to the extract and to
+**both** sides of verify); the 51,020 synthetic rows already imported were purged from
+`coverage_v2`; re-import yields **1,943 / 1,943 PASS**, `sum:cov_volume` 128,611.25 exact.
+
+Two further findings: the 1,943 real rows are **all from a single day, 2026-04-17**
+(14 symbols) - one day of genuine dropcopy five months ago, not ongoing coverage data. And
+v1 `bridge_settings` is **`enabled=false`, `mode=Live`, with no password set**, so no real
+Centroid dropcopy is configured or could connect.
+
+**Live-source drift is expected on a re-verify.** A later full verify showed `deals`
+src 1,997,912 vs tgt 1,997,722 (+190) and `trading_accounts` +18 with balances moved -
+markets had reopened and v1 kept writing. Not defects; this is what the pre-parallel-run
+delta re-import exists for. Also observed: v1 `deals.deal_time` runs ~3 h ahead of UTC
+(MT5 server clock, UTC+3, stored in a `timestamptz`) - immaterial at a 12-month boundary
+but worth knowing.
+
 **v1 data quirk noted:** every v1 `bridge_executions.created_at` is `0001-01-01`
 (DateTime.MinValue) -- v1's writer sends an unset value instead of letting the DB default
 apply. Copied through faithfully; nothing reads that column, but it is useless for
