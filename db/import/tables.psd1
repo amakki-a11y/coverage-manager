@@ -33,10 +33,11 @@
   #                        verify.ps1 applies the SAME predicate to BOTH sides so
   #                        counts/sums stay apples-to-apples.
   #     * prune policy  -- the same cutoff expression removes aged-out rows locally
-  #                        (see db/README.md "Retention"; the automated pruner is a
-  #                        Phase 2 runtime job and is NOT built yet).
+  #                        (db/README.md "Retention"; run nightly by
+  #                        DealRetentionPruneService -- keep Retention:Months equal).
   #
-  #   Cutoff is UTC-day-stable: date_trunc('day', now() UTC) - RetentionMonths.
+  #   Cutoff is UTC midnight - RetentionMonths, session-timezone independent:
+  #   (date_trunc('day', now() AT TIME ZONE 'UTC') - interval 'N months') AT TIME ZONE 'UTC'.
   #   Set RetentionMonths = 0 (or pass -RetentionMonths 0) to disable windowing.
   #
   #   Deeper look-back than the window will be served by a future ON-DEMAND,

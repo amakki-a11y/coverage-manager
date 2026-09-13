@@ -69,7 +69,7 @@ if ($Only) { $tables = $tables | Where-Object { $Only -contains $_.Name } }
 if ($RetentionMonths -lt 0) {
   $RetentionMonths = if ($null -ne $manifest.RetentionMonths) { [int]$manifest.RetentionMonths } else { 0 }
 }
-$cutoffSql = "date_trunc('day', (now() AT TIME ZONE 'UTC')) AT TIME ZONE 'UTC' - interval '$RetentionMonths months'"
+$cutoffSql = "(date_trunc('day', (now() AT TIME ZONE 'UTC')) - interval '$RetentionMonths months') AT TIME ZONE 'UTC'"
 function WindowWhere {
   # Must mirror import.ps1 exactly: retention window AND any RowFilter, applied to BOTH
   # sides. Otherwise a deliberately-filtered import reads as "missing rows" against an

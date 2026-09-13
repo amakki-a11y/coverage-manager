@@ -74,6 +74,16 @@ public interface IDataStore
     /// </summary>
     Task<int> DetectAndLogDealChangesAsync(IEnumerable<DealRecord> incomingDeals, IReadOnlyDictionary<long, DealRecord> existing, string source);
 
+    // ── Deal retention (12-month rolling window, V2_PLAN §5.5) ──
+    /// <summary>
+    /// Deletes deals with <c>deal_time &lt; cutoffUtc</c> in batches, and nothing else. Returns rows deleted
+    /// and batches used. Unlike the rest of this surface it THROWS on failure: for a destructive
+    /// operation a swallowed error would be recorded as a successful "deleted 0".
+    /// </summary>
+    Task<(long Deleted, int Batches)> DeleteDealsOlderThanAsync(DateTime cutoffUtc, int batchSize, CancellationToken ct = default);
+    Task<RetentionPruneRun?> InsertRetentionPruneRunAsync(RetentionPruneRun run);
+    Task<List<RetentionPruneRun>> ListRetentionPruneRunsAsync(int limit = 30);
+
     // ── Audit log ──
     Task InsertAuditEntriesAsync(IEnumerable<TradeAuditEntry> entries);
     Task<List<TradeAuditEntry>> GetAuditLogAsync(DateTime? from = null, string? symbol = null, long? login = null);

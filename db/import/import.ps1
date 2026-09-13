@@ -110,12 +110,13 @@ $manifest = Import-PowerShellDataFile -Path $ManifestPath
 $tables = $manifest.Tables | Sort-Object { [int]$_.Order }
 if ($Only) { $tables = $tables | Where-Object { $Only -contains $_.Name } }
 
-# Retention window (V2_PLAN 5.5). UTC-day-stable so import and a later verify on the
-# same UTC day compute an identical cutoff on both servers regardless of session TZ.
+# Retention window (V2_PLAN 5.5). Months are subtracted from the zone-less UTC timestamp and
+# the zone re-attached last, so the cutoff does not depend on the session timezone (Supabase
+# sessions are UTC, this server's are America/Los_Angeles) -- import and verify agree.
 if ($RetentionMonths -lt 0) {
   $RetentionMonths = if ($null -ne $manifest.RetentionMonths) { [int]$manifest.RetentionMonths } else { 0 }
 }
-$cutoffSql = "date_trunc('day', (now() AT TIME ZONE 'UTC')) AT TIME ZONE 'UTC' - interval '$RetentionMonths months'"
+$cutoffSql = "(date_trunc('day', (now() AT TIME ZONE 'UTC')) - interval '$RetentionMonths months') AT TIME ZONE 'UTC'"
 
 New-Item -ItemType Directory -Force -Path $WorkDir | Out-Null
 Write-Host "psql:   $script:Psql"

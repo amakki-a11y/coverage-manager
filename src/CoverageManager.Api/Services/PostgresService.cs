@@ -47,7 +47,12 @@ public class PostgresService : IDataStore
     private static string BuildConnectionString(IConfiguration config)
     {
         var explicitCs = config["Postgres:ConnectionString"];
-        if (!string.IsNullOrWhiteSpace(explicitCs)) return explicitCs;
+        if (!string.IsNullOrWhiteSpace(explicitCs))
+        {
+            var e = new NpgsqlConnectionStringBuilder(explicitCs);
+            if (string.IsNullOrEmpty(e.Timezone)) e.Timezone = "UTC";
+            return e.ConnectionString;
+        }
 
         var b = new NpgsqlConnectionStringBuilder
         {
@@ -58,6 +63,11 @@ public class PostgresService : IDataStore
             // Pooling defaults are fine; keep the app resilient to short DB blips.
             Timeout = 15,
             CommandTimeout = 30,
+            // Sessions default to the SERVER's zone (America/Los_Angeles on this box). Timestamps are
+            // bound as UTC and compared absolutely, so today's queries are unaffected, but date_trunc
+            // or month arithmetic on a timestamptz runs in the session zone -- which is exactly how the
+            // retention cutoff SQL went wrong. Pin every v2 session to UTC.
+            Timezone = "UTC",
         };
 
         var pw = config["Postgres:Password"];
@@ -674,6 +684,64 @@ VALUES (@Source,@DealId,@PositionId,@Login,@Symbol,@FieldChanged,@OldValue,@NewV
     }
 
     private static string Truncate(string? s, int max) => string.IsNullOrEmpty(s) ? "" : s.Length <= max ? s : s.Substring(0, max) + "...";
+
+    // ===================== Deal retention =====================
+
+    public async Task<(long Deleted, int Batches)> DeleteDealsOlderThanAsync(
+        DateTime cutoffUtc, int batchSize, CancellationToken ct = default)
+    {
+        // Throws on failure by design (see IDataStore). Batched so a large first prune never holds one
+        // long lock on the deals table. The predicate is the ONLY thing that selects rows: deal_time < cutoff.
+        var n = Math.Clamp(batchSize, 100, 200_000);
+        long total = 0;
+        var batches = 0;
+        await using var c = await OpenAsync();
+        const string sql = @"
+DELETE FROM deals
+ WHERE ctid IN (SELECT ctid FROM deals WHERE deal_time < @cutoff LIMIT @n);";
+        while (true)
+        {
+            ct.ThrowIfCancellationRequested();
+            var affected = await c.ExecuteAsync(new CommandDefinition(sql,
+                new { cutoff = U(cutoffUtc), n }, commandTimeout: 300, cancellationToken: ct));
+            batches++;
+            total += affected;
+            if (affected < n) break;
+        }
+        return (total, batches);
+    }
+
+    public async Task<RetentionPruneRun?> InsertRetentionPruneRunAsync(RetentionPruneRun run)
+    {
+        try
+        {
+            await using var c = await OpenAsync();
+            const string sql = @"
+INSERT INTO retention_prune_runs (trigger_type, retention_months, cutoff_utc, started_at, finished_at,
+    deleted, batches, error, notes)
+VALUES (@TriggerType, @RetentionMonths, @CutoffUtc, @StartedAt, @FinishedAt, @Deleted, @Batches, @Error, @Notes)
+RETURNING *;";
+            return await c.QueryFirstOrDefaultAsync<RetentionPruneRun>(sql, new
+            {
+                run.TriggerType, run.RetentionMonths, CutoffUtc = U(run.CutoffUtc), StartedAt = U(run.StartedAt),
+                FinishedAt = Un(run.FinishedAt), run.Deleted, run.Batches, run.Error, run.Notes
+            });
+        }
+        catch (Exception ex) { _logger.LogError(ex, "InsertRetentionPruneRunAsync failed"); return null; }
+    }
+
+    public async Task<List<RetentionPruneRun>> ListRetentionPruneRunsAsync(int limit = 30)
+    {
+        try
+        {
+            await using var c = await OpenAsync();
+            var rows = await c.QueryAsync<RetentionPruneRun>(
+                "SELECT * FROM retention_prune_runs ORDER BY started_at DESC LIMIT @limit",
+                new { limit = Math.Clamp(limit, 1, 500) });
+            return rows.ToList();
+        }
+        catch (Exception ex) { _logger.LogError(ex, "ListRetentionPruneRunsAsync failed"); return new(); }
+    }
 
     // ===================== Audit log =====================
 

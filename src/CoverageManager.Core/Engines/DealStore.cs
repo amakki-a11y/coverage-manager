@@ -350,92 +350,16 @@ public class DealStore
     }
 
     /// <summary>
-    /// Get realized P&L summary grouped by symbol.
-    /// Volume includes ALL deals (IN + OUT) to match MT5 Manager totals.
-    /// P&L only from OUT deals (only closing deals carry profit/loss).
+    /// Get realized P&L summary grouped by symbol, optionally limited to [from, to + 1 day).
+    /// Rules live in <see cref="DealPnLAggregator"/> so this and the Postgres-backed history reader agree.
     /// </summary>
-    public IReadOnlyList<SymbolPnL> GetPnLBySymbol(DateTime? from = null, DateTime? to = null)
-    {
-        var allDeals = _deals.Values
-            // Trade deals only — balance (2), credit (3), correction (5) etc
-            // are now persisted in DealStore so the Equity P&L feature can see
-            // them via Supabase, but they must not pollute symbol-level
-            // aggregations. Action 0 = BUY, 1 = SELL; anything else is a
-            // bookkeeping entry with no meaningful symbol/price.
-            .Where(d => d.Action < 2)
-            .Where(d => !string.IsNullOrEmpty(d.Symbol))
+    public IReadOnlyList<SymbolPnL> GetPnLBySymbol(DateTime? from = null, DateTime? to = null) =>
+        DealPnLAggregator.BySymbol(_deals.Values
             .Where(d => from == null || d.Time >= from.Value)
-            .Where(d => to == null || d.Time < to.Value.AddDays(1))
-            .ToList();
+            .Where(d => to == null || d.Time < to.Value.AddDays(1)));
 
-        return allDeals
-            .GroupBy(d => d.Symbol)
-            .Select(g =>
-            {
-                var outDeals = g.Where(d => d.Entry == 1 || d.Entry == 2 || d.Entry == 3).ToList();
-                return new SymbolPnL
-                {
-                    Symbol = g.Key,
-                    DealCount = g.Count(),
-                    // P&L only from OUT deals (closes carry profit)
-                    TotalProfit = outDeals.Sum(d => d.Profit),
-                    TotalCommission = g.Sum(d => d.Commission), // Commission on both IN + OUT
-                    TotalSwap = outDeals.Sum(d => d.Swap),
-                    TotalFee = g.Sum(d => d.Fee), // Fee on both IN + OUT
-                    // Volume from ALL deals (IN + OUT) — matches MT5 Manager
-                    TotalVolume = g.Sum(d => d.VolumeLots),
-                    BuyVolume = g.Where(d => d.Direction == "BUY").Sum(d => d.VolumeLots),
-                    SellVolume = g.Where(d => d.Direction == "SELL").Sum(d => d.VolumeLots)
-                };
-            })
-            .OrderByDescending(p => Math.Abs(p.NetPnL))
-            .ToList()
-            .AsReadOnly();
-    }
-
-    /// <summary>
-    /// Get realized P&L grouped by date then symbol.
-    /// </summary>
-    public IReadOnlyList<DailyPnL> GetPnLByDay()
-    {
-        return _deals.Values
-            // Trade deals only — see `GetPnLBySymbol` for rationale.
-            .Where(d => d.Action < 2)
-            .Where(d => !string.IsNullOrEmpty(d.Symbol))
-            .GroupBy(d => d.Time.Date)
-            .OrderByDescending(g => g.Key)
-            .Select(dayGroup => new DailyPnL
-            {
-                Date = dayGroup.Key,
-                DealCount = dayGroup.Count(),
-                TotalProfit = dayGroup.Where(d => d.Entry == 1 || d.Entry == 2 || d.Entry == 3).Sum(d => d.Profit),
-                TotalCommission = dayGroup.Sum(d => d.Commission),
-                TotalSwap = dayGroup.Where(d => d.Entry == 1 || d.Entry == 2 || d.Entry == 3).Sum(d => d.Swap),
-                TotalFee = dayGroup.Sum(d => d.Fee),
-                Symbols = dayGroup
-                    .GroupBy(d => d.Symbol)
-                    .Select(sg =>
-                    {
-                        var outDeals = sg.Where(d => d.Entry == 1 || d.Entry == 2 || d.Entry == 3).ToList();
-                        return new SymbolPnL
-                        {
-                            Symbol = sg.Key,
-                            DealCount = sg.Count(),
-                            TotalProfit = outDeals.Sum(d => d.Profit),
-                            TotalCommission = sg.Sum(d => d.Commission),
-                            TotalSwap = outDeals.Sum(d => d.Swap),
-                            TotalFee = sg.Sum(d => d.Fee),
-                            TotalVolume = sg.Sum(d => d.VolumeLots),
-                            BuyVolume = sg.Where(d => d.Direction == "BUY").Sum(d => d.VolumeLots),
-                            SellVolume = sg.Where(d => d.Direction == "SELL").Sum(d => d.VolumeLots)
-                        };
-                    })
-                    .OrderByDescending(p => Math.Abs(p.NetPnL))
-                    .ToList()
-            })
-            .ToList()
-            .AsReadOnly();
-    }
+    /// <summary>Get realized P&L grouped by date then symbol (rules in <see cref="DealPnLAggregator"/>).</summary>
+    public IReadOnlyList<DailyPnL> GetPnLByDay() => DealPnLAggregator.ByDay(_deals.Values);
 
     /// <summary>
     /// Per-login trade-balance flow for the Equity P&amp;L reconciliation path.

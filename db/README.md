@@ -91,21 +91,31 @@ they cannot drift:
 | Enforcement point | Where | Status |
 |---|---|---|
 | **Import scope** | tables declaring `WindowColumn` (today: `deals.deal_time`) are filtered on extract; `verify.ps1` applies the *same* predicate to **both** sides | implemented |
-| **Prune policy** | same cutoff removes aged-out rows locally | policy recorded below; the automated pruner is a **Phase 2 runtime job, not built yet** |
+| **Prune policy** | same cutoff removes aged-out rows locally | **built:** `DealRetentionPruneService`, nightly at `Retention:PruneAtUtc` (03:15 UTC), batched, refuses `Retention:Months` < 12, every run recorded in `retention_prune_runs` |
 
-Cutoff is UTC-day-stable, so an import and a later verify on the same UTC day agree
-regardless of either server's session timezone:
+Cutoff is UTC midnight minus 12 months, computed so that it does NOT depend on the session
+timezone -- an import and a later verify on the same UTC day agree on both servers:
 
 ```sql
-date_trunc('day', (now() AT TIME ZONE 'UTC')) AT TIME ZONE 'UTC' - interval '12 months'
+(date_trunc('day', (now() AT TIME ZONE 'UTC')) - interval '12 months') AT TIME ZONE 'UTC'
 ```
 
-Prune statement (run deliberately; not yet scheduled):
+The months are subtracted from the zone-less UTC timestamp and the zone is re-attached last.
+An earlier form, `date_trunc(...) AT TIME ZONE 'UTC' - interval '12 months'`, subtracted from a
+`timestamptz`, and Postgres does that month arithmetic in the SESSION timezone. This server's
+sessions default to America/Los_Angeles while Supabase sessions default to UTC, so on month-end
+and DST-edge days the two sides disagreed (e.g. for 2028-02-29 the old form gave 2027-03-01 00:00Z
+in an LA session instead of 2027-02-28). Found 2026-09-13 by a test; the executed import was not
+affected (it ran on an ordinary day and v1 held nothing near a 12-month boundary). The C# pruner
+(`RetentionPolicy.CutoffUtc`) computes the same UTC value, and a test asserts the SQL equals it
+under UTC, Los Angeles and Beirut sessions.
+
+Prune statement (what the nightly job runs, batched; for a deliberate manual run):
 
 ```sql
 DELETE FROM deals
- WHERE deal_time < date_trunc('day', (now() AT TIME ZONE 'UTC')) AT TIME ZONE 'UTC'
-                   - interval '12 months';
+ WHERE deal_time < (date_trunc('day', (now() AT TIME ZONE 'UTC')) - interval '12 months')
+                   AT TIME ZONE 'UTC';
 ```
 
 Pass `-RetentionMonths 0` to `import.ps1` / `verify.ps1` to disable windowing and move

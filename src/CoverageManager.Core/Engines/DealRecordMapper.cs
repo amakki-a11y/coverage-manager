@@ -34,6 +34,29 @@ public static class DealRecordMapper
         DealTime = d.Time
     };
 
+    /// <summary>
+    /// Stored row back to the in-memory deal shape, for Postgres-backed history. The inverse of
+    /// <see cref="FromClosedDeal"/> for every field the P&amp;L rules read.
+    /// </summary>
+    public static ClosedDeal ToClosedDeal(DealRecord r) => new()
+    {
+        DealId = (ulong)r.DealId,
+        Login = (ulong)r.Login,
+        Symbol = r.Symbol,
+        Direction = r.Direction,
+        VolumeLots = r.Volume,
+        Price = r.Price,
+        Profit = r.Profit,
+        Commission = r.Commission,
+        Swap = r.Swap,
+        Fee = r.Fee,
+        Entry = (uint)r.Entry,
+        Action = (uint)r.Action,
+        OrderId = (ulong)(r.OrderId ?? 0),
+        PositionId = (ulong)(r.PositionId ?? 0),
+        Time = r.DealTime.Kind == DateTimeKind.Utc ? r.DealTime : DateTime.SpecifyKind(r.DealTime, DateTimeKind.Utc),
+    };
+
     /// <summary>Mapped canonical name when a symbol mapping exists, else the raw symbol with a short
     /// trailing ".xx" suffix and trailing dashes removed, uppercased.</summary>
     public static string ResolveCanonical(string rawSymbol, PositionManager positionManager)

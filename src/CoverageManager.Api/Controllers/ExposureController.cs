@@ -48,6 +48,7 @@ public class ExposureController : ControllerBase
     private readonly ILogger<ExposureController> _logger;
     private readonly SupabaseReadOnlyLedger _readOnlyLedger;
     private readonly DataSyncService _dataSync;
+    private readonly DealHistoryReader _history;
 
     public ExposureController(
         ExposureEngine exposureEngine,
@@ -61,7 +62,8 @@ public class ExposureController : ControllerBase
         IHttpClientFactory httpFactory,
         ILogger<ExposureController> logger,
         SupabaseReadOnlyLedger readOnlyLedger,
-        DataSyncService dataSync)
+        DataSyncService dataSync,
+        DealHistoryReader history)
     {
         _exposureEngine = exposureEngine;
         _positionManager = positionManager;
@@ -75,6 +77,7 @@ public class ExposureController : ControllerBase
         _logger = logger;
         _readOnlyLedger = readOnlyLedger;
         _dataSync = dataSync;
+        _history = history;
     }
 
     /// <summary>
@@ -382,29 +385,48 @@ public class ExposureController : ControllerBase
     }
 
     /// <summary>
-    /// POST /api/exposure/pnl/reload?from=2026-03-01&to=2026-03-31 — reload deals for date range
+    /// POST /api/exposure/pnl/reload?from=2026-03-01&to=2026-03-31 — realized P&L for a date range (P&L tab).
+    ///
+    /// v2: served from the Postgres-backed history (<see cref="DealHistoryReader"/>), overlaid with the
+    /// not-yet-persisted working set. It used to reload the in-memory store from the MT5 provider and then
+    /// aggregate EVERYTHING in memory with no date filter -- under the Live Bridge feed that can only reach
+    /// 48 h back, so a 12-month range showed an arbitrary in-memory slice instead of the range asked for.
+    /// It no longer mutates the in-memory store and no longer needs the feed to be connected.
+    /// Dates are UTC days as before; the range is [from, to + 1 day). Nothing older than the 12-month
+    /// retention floor is stored, and a request reaching past it says so (clampedByRetention).
+    /// Route and response fields are unchanged for the P&L tab; totalDeals now counts the trade deals in
+    /// the range rather than every deal held in memory.
     /// </summary>
     [HttpPost("pnl/reload")]
-    public IActionResult ReloadPnL([FromQuery] DateTime from, [FromQuery] DateTime to)
+    public async Task<IActionResult> ReloadPnL([FromQuery] DateTime from, [FromQuery] DateTime to)
     {
-        if (!_mt5Connection.IsConnected)
-            return StatusCode(503, "MT5 not connected");
-
-        var fromOffset = new DateTimeOffset(from.Date, TimeSpan.Zero);
-        var toOffset = new DateTimeOffset(to.Date.AddDays(1), TimeSpan.Zero); // Include full end day
-
-        var count = _mt5Connection.ReloadDeals(fromOffset, toOffset);
-        if (count < 0)
-            return StatusCode(503, "MT5 not ready");
-
-        var pnl = _dealStore.GetPnLBySymbol();
-        var daily = _dealStore.GetPnLByDay();
-        return Ok(new
+        try
         {
-            totalDeals = _dealStore.DealCount,
-            symbols = pnl,
-            daily
-        });
+            var fromUtc = DateTime.SpecifyKind(from.Date, DateTimeKind.Utc);
+            var toUtc = DateTime.SpecifyKind(to.Date.AddDays(1), DateTimeKind.Utc);
+            if (toUtc <= fromUtc)
+                return BadRequest(new { error = "'to' must not be before 'from'" });
+
+            var history = await _history.GetClosedDealsAsync(fromUtc, toUtc);
+            var symbols = DealPnLAggregator.BySymbol(history.Deals);
+            return Ok(new
+            {
+                totalDeals = symbols.Sum(s => s.DealCount),
+                symbols,
+                daily = DealPnLAggregator.ByDay(history.Deals),
+                source = "postgres",
+                effectiveFromUtc = history.EffectiveFromUtc,
+                retentionFloorUtc = history.RetentionFloorUtc,
+                clampedByRetention = history.ClampedByRetention,
+                fromStore = history.FromStore,
+                fromWorkingSetOnly = history.FromWorkingSetOnly,
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "P&L range load failed for {From:yyyy-MM-dd}..{To:yyyy-MM-dd}", from, to);
+            return StatusCode(500, new { error = "Could not load P&L for that range" });
+        }
     }
 
     /// <summary>

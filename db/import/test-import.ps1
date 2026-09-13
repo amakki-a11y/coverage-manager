@@ -125,25 +125,30 @@ INSERT INTO alert_rules (id, symbol, trigger_type, operator, value, severity, en
 INSERT INTO alert_events (id, threshold_id, trigger_type, symbol, severity, message, threshold_value, actual_value, triggered_at, acknowledged) VALUES
   ('88888888-8888-8888-8888-888888888888','77777777-7777-7777-7777-777777777777','exposure','XAUUSD','warning','over',100,120,'2026-04-01T09:00:00Z',false);
 
--- deals: settled window is 2026-01-01 .. 2027-01-01. Expected XAUUSD settled = 135:
+-- deals: times are now()-relative (import windows on the REAL clock; absolute dates would age out
+-- of the 12-month window and fail this test on correct code). Settled window = now-400d .. now+1d.
+-- Expected XAUUSD settled = 135:
 --   OUT (canonical XAUUSD):        profit 100 + swap -2 + comm -5 + fee -1 = 92
 --   IN  (canonical XAUUSD):        entry=0 -> profit/swap excluded; comm -5 + fee 0 = -5
 --   OUT (canonical XAUUSD.c -> normalizes to XAUUSD): 50 + 0 + comm -2 + fee 0 = 48
 --   BALANCE (action=2):            excluded entirely
 --   => 92 - 5 + 48 = 135
 INSERT INTO deals (source, deal_id, login, symbol, canonical_symbol, direction, action, entry, volume, price, profit, commission, swap, fee, order_id, position_id, deal_time, legacy_note) VALUES
-  ('bbook',1001,5001,'XAUUSD-','XAUUSD','SELL',1,1,1,2400.5, 100,-5,-2,-1, 9001,8001,'2026-04-02T10:00:00Z','n1'),
-  ('bbook',1002,5001,'XAUUSD-','XAUUSD','BUY', 0,0,1,2399.0,   0,-5, 0, 0, 9001,8001,'2026-04-01T10:00:00Z','n2'),
-  ('bbook',1003,5002,'XAUUSD.c','XAUUSD.c','SELL',1,1,1,2401.0,50,-2, 0, 0, 9002,8002,'2026-04-03T10:00:00Z','n3'),
-  ('bbook',1004,5001,'','', 'BALANCE',2,0,0,0, 1000, 0, 0, 0, NULL, NULL,'2026-04-04T10:00:00Z','deposit'),
+  ('bbook',1001,5001,'XAUUSD-','XAUUSD','SELL',1,1,1,2400.5, 100,-5,-2,-1, 9001,8001,now() - interval '11 days','n1'),
+  ('bbook',1002,5001,'XAUUSD-','XAUUSD','BUY', 0,0,1,2399.0,   0,-5, 0, 0, 9001,8001,now() - interval '12 days','n2'),
+  ('bbook',1003,5002,'XAUUSD.c','XAUUSD.c','SELL',1,1,1,2401.0,50,-2, 0, 0, 9002,8002,now() - interval '10 days','n3'),
+  ('bbook',1004,5001,'','', 'BALANCE',2,0,0,0, 1000, 0, 0, 0, NULL, NULL,now() - interval '9 days','deposit'),
   -- Out of the rolling 12-month retention window (V2_PLAN 5.5): must NOT be imported.
   ('bbook',1005,5001,'XAUUSD-','XAUUSD','SELL',1,1,1,2000.0, 999,-9,-9,-9, 9005,8005,'2019-01-01T10:00:00Z','ancient');
 
 INSERT INTO trade_audit_log (source, deal_id, login, symbol, field_changed, old_value, new_value, changed_by, change_type, detected_at) VALUES
   ('bbook',1001,5001,'XAUUSD','profit','90','100','recon','modified','2026-04-02T11:00:00Z');
 
-INSERT INTO bridge_executions (client_deal_id, cen_ord_id, symbol, side, client_volume, client_price, client_time, cov_volume, cov_fills, avg_cov_price, price_edge, pips) VALUES
-  ('EXID-1','ORD-1','XAUUSD','SELL',2,2400.5,'2026-04-02T10:00:00Z',2,'[{"dealId":"d1","volume":2,"price":2400.4,"time":"2026-04-02T10:00:00Z","timeDiffMs":120}]'::jsonb,2400.4,0.1,10);
+-- bridge_executions: one REAL pair (has client_mt_deal_id) and one synthetic Stub pair (does not).
+-- The RowFilter must carry the real one and drop the stub one.
+INSERT INTO bridge_executions (client_deal_id, cen_ord_id, symbol, side, client_volume, client_price, client_time, client_mt_deal_id, cov_volume, cov_fills, avg_cov_price, price_edge, pips) VALUES
+  ('EXID-1','ORD-1','XAUUSD','SELL',2,2400.5,'2026-04-02T10:00:00Z',284872,2,'[{"dealId":"d1","volume":2,"price":2400.4,"time":"2026-04-02T10:00:00Z","timeDiffMs":120}]'::jsonb,2400.4,0.1,10),
+  ('ord-1789000000000','c-ord-1789000000000','XAUUSD','BUY',1,2400.5,'2026-04-02T11:00:00Z',NULL,1,'[]'::jsonb,2400.4,0.1,10);
 '@
 $seedFile = Join-Path $env:TEMP "cmv2_seed.sql"
 Set-Content -Path $seedFile -Value $seed -Encoding ascii
@@ -164,10 +169,10 @@ Write-Host "=== 6. assertions ==="
 Assert 'import.ps1 exit 0' ($importExit -eq 0) "exit=$importExit"
 Assert 'verify.ps1 exit 0' ($verifyExit -eq 0) "exit=$verifyExit"
 
-$settled = PgScalar -Db $TgtDb -Sql "SELECT COALESCE(net_pnl,0) FROM aggregate_bbook_settled_pnl('2026-01-01T00:00:00Z','2027-01-01T00:00:00Z') WHERE canonical_key='XAUUSD';"
+$settled = PgScalar -Db $TgtDb -Sql "SELECT COALESCE(net_pnl,0) FROM aggregate_bbook_settled_pnl(now() - interval '400 days', now() + interval '1 day') WHERE canonical_key='XAUUSD';"
 Assert 'settled(XAUUSD)=135 (canonical .c merged, IN excl profit, BALANCE excluded)' ([decimal]$settled -eq [decimal]135) "got $settled"
 
-$full = PgScalar -Db $TgtDb -Sql "SELECT total_volume||'/'||buy_volume||'/'||sell_volume FROM aggregate_bbook_pnl_full('2026-01-01T00:00:00Z','2027-01-01T00:00:00Z') WHERE symbol='XAUUSD';"
+$full = PgScalar -Db $TgtDb -Sql "SELECT total_volume||'/'||buy_volume||'/'||sell_volume FROM aggregate_bbook_pnl_full(now() - interval '400 days', now() + interval '1 day') WHERE symbol='XAUUSD';"
 Assert 'pnl_full(XAUUSD) volume total/buy/sell = 3/1/2' ($full -eq '3/1/2') "got $full"
 
 $hasLegacy = PgScalar -Db $TgtDb -Sql "SELECT count(*) FROM information_schema.columns WHERE table_name='deals' AND column_name='legacy_note';"
@@ -181,6 +186,11 @@ $srcTotal = PgScalar -Db $SrcDb -Sql "SELECT count(*) FROM deals;"
 $aged     = PgScalar -Db $TgtDb -Sql "SELECT count(*) FROM deals WHERE deal_id = 1005;"
 Assert 'source really held the aged row (fixture sanity)' ($srcTotal -eq '5') "src count=$srcTotal"
 Assert 'rolling 12-month window excluded the aged deal from the target' ($aged -eq '0') "deal_id 1005 rows=$aged"
+
+$bridgeReal = PgScalar -Db $TgtDb -Sql "SELECT count(*) FROM bridge_executions WHERE client_deal_id = 'EXID-1';"
+$bridgeStub = PgScalar -Db $TgtDb -Sql "SELECT count(*) FROM bridge_executions WHERE client_mt_deal_id IS NULL;"
+Assert 'bridge_executions: the real pair (client_mt_deal_id set) is imported' ($bridgeReal -eq '1') "count=$bridgeReal"
+Assert 'bridge_executions: the synthetic stub pair is filtered out' ($bridgeStub -eq '0') "count=$bridgeStub"
 
 $schedCount = PgScalar -Db $TgtDb -Sql "SELECT count(*) FROM snapshot_schedules;"
 Assert 'snapshot_schedules mirrored to 3 (seed replaced, no dup)' ($schedCount -eq '3') "count=$schedCount"

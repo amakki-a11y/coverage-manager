@@ -313,6 +313,18 @@ public class SupabaseService : IDataStore
         DateTime fromUtc, DateTime toUtc, string? canonicalSymbol, int limit, CancellationToken ct = default)
         => throw new NotSupportedException("bridge_executions is Postgres-only in v2; use PostgresService.");
 
+    // ── Deal retention ──
+    // v1 never prunes and this class must never delete v1 history: the 12-month retention pruner
+    // is a v2 (local Postgres) job only.
+    public Task<(long Deleted, int Batches)> DeleteDealsOlderThanAsync(DateTime cutoffUtc, int batchSize, CancellationToken ct = default)
+        => throw new NotSupportedException("Deal retention pruning is v2 (local Postgres) only; v1 history is never pruned.");
+
+    public Task<RetentionPruneRun?> InsertRetentionPruneRunAsync(RetentionPruneRun run)
+        => throw new NotSupportedException("retention_prune_runs is v2 (local Postgres) only.");
+
+    public Task<List<RetentionPruneRun>> ListRetentionPruneRunsAsync(int limit = 30)
+        => throw new NotSupportedException("retention_prune_runs is v2 (local Postgres) only.");
+
     // ── Trading Accounts ──
 
     public async Task<List<TradingAccount>> GetTradingAccountsAsync(string? source = null)

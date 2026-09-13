@@ -208,6 +208,14 @@ try
     builder.Services.AddSingleton<FeedStoreSelfCheckService>();
     builder.Services.AddHostedService(sp => sp.GetRequiredService<FeedStoreSelfCheckService>());
 
+    // v2 history + retention (V2_PLAN 5.5, 9a). DealHistoryReader serves closed-deal ranges from Postgres
+    // (plus the not-yet-persisted working set) -- the 12-month look-back never comes from the 48 h FeedBook.
+    // DealRetentionPruneService deletes deals older than the rolling 12-month window, nightly.
+    builder.Services.AddSingleton(sp => new DealHistoryReader(
+        sp.GetRequiredService<IDataStore>(), dealStore, sp.GetRequiredService<IConfiguration>()));
+    builder.Services.AddSingleton<DealRetentionPruneService>();
+    builder.Services.AddHostedService(sp => sp.GetRequiredService<DealRetentionPruneService>());
+
     // CashMovementSyncService was RETIRED in v2 Phase 2 (source consolidation).
     // It existed because MT5 Manager's CIMTDealSink didn't fire for admin balance/credit
     // transfers, so a 15-min / 7-day-lookback sweep had to backfill them. The Live Bridge

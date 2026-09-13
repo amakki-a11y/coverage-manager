@@ -1,4 +1,5 @@
 using CoverageManager.Api.Services;
+using CoverageManager.Core.Engines;
 using CoverageManager.Core.Models;
 using CoverageManager.Core.Models.Bridge;
 using CoverageManager.Core.Models.EquityPnL;
@@ -115,7 +116,7 @@ public class PostgresServiceTests
         await using var c = new NpgsqlConnection(AppCs);
         await c.OpenAsync();
         await using var cmd = new NpgsqlCommand(
-            "TRUNCATE deals, symbol_mappings, trading_accounts, exposure_snapshots, equity_pnl_client_config, bridge_executions, trade_audit_log, reconciliation_runs RESTART IDENTITY CASCADE", c);
+            "TRUNCATE deals, symbol_mappings, trading_accounts, exposure_snapshots, equity_pnl_client_config, bridge_executions, trade_audit_log, reconciliation_runs, retention_prune_runs RESTART IDENTITY CASCADE", c);
         await cmd.ExecuteNonQueryAsync();
     }
 
@@ -381,6 +382,157 @@ VALUES ('V1-ROW','ORD-V1','US30','BUY',1,40000,'2026-04-17T01:41:38Z',999,1,
         Assert.AreEqual("feed not connected", run.Error);
         Assert.AreEqual(0, run.Backfilled + run.Modified + run.GhostDeleted);
         Assert.AreEqual(1, (await _svc.GetDealsAsync("bbook", t.AddHours(-1), DateTime.UtcNow.AddDays(1))).Count);
+    }
+
+    // ---- 12-month retention pruner + Postgres-backed history ----
+
+    private static DealRetentionPruneService Pruner(int months, int batchSize = 100) =>
+        new(_svc, new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Retention:Months"] = months.ToString(), ["Retention:BatchSize"] = batchSize.ToString(),
+        }).Build(), NullLogger<DealRetentionPruneService>.Instance);
+
+    private async Task<long> CountAsync(string sql)
+    {
+        await using var c = new NpgsqlConnection(AppCs);
+        await c.OpenAsync();
+        await using var cmd = new NpgsqlCommand(sql, c);
+        return Convert.ToInt64(await cmd.ExecuteScalarAsync());
+    }
+
+    [TestMethod]
+    public async Task RetentionPruner_DeletesOnlyOlderThanCutoff_NeverTheRetainedWindow()
+    {
+        RequireEnabled();
+        var now = new DateTime(2026, 9, 13, 18, 0, 0, DateTimeKind.Utc);
+        var cutoff = new DateTime(2025, 9, 13, 0, 0, 0, DateTimeKind.Utc);
+        Assert.AreEqual(cutoff, RetentionPolicy.CutoffUtc(now, 12));
+
+        var rows = new List<DealRecord>
+        {
+            StoreDeal(9001, 10m, cutoff.AddSeconds(-1)),              // just outside -> delete
+            StoreDeal(9002, 10m, new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)), // far outside -> delete
+            StoreDeal(9006, 500m, cutoff.AddDays(-1), action: 2),     // old cash movement: the rule covers all deal rows
+            StoreDeal(9003, 10m, cutoff),                             // EXACTLY at the boundary -> keep (deal_time >= cutoff)
+            StoreDeal(9004, 10m, cutoff.AddSeconds(1)),               // just inside -> keep
+            StoreDeal(9005, 10m, now.AddHours(-1)),                   // recent -> keep
+        };
+        // 250 more old rows so the batched delete has to loop (batch size 100 -> 3 batches).
+        rows.AddRange(Enumerable.Range(0, 250).Select(i => StoreDeal(20_000 + i, 1m, cutoff.AddDays(-2).AddMinutes(-i))));
+        await _svc.UpsertDealsAsync(rows);
+
+        // Other history tables are NOT covered by the retention decision and must be untouched.
+        await using (var c = new NpgsqlConnection(AppCs))
+        {
+            await c.OpenAsync();
+            await using var cmd = new NpgsqlCommand(@"
+INSERT INTO trade_audit_log (source, deal_id, login, symbol, field_changed, detected_at) VALUES ('bbook', 9002, 5001, 'XAUUSD', 'profit', '2024-01-01T00:00:00Z');
+INSERT INTO bridge_executions (client_deal_id, cen_ord_id, symbol, side, client_volume, client_price, client_time, client_mt_deal_id)
+VALUES ('OLD-1', 'ORD-OLD', 'XAUUSD', 'BUY', 1, 2400, '2024-01-01T00:00:00Z', 1);", c);
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        var run = await Pruner(12).RunNowAsync("manual", now);
+
+        Assert.IsNull(run.Error, run.Error);
+        Assert.AreEqual(cutoff, run.CutoffUtc.ToUniversalTime());
+        Assert.AreEqual(253, run.Deleted, "9001 + 9002 + 9006 + the 250 old rows");
+        Assert.IsTrue(run.Batches >= 3, $"batched delete looped ({run.Batches} batches)");
+
+        var left = (await _svc.GetDealsAsync("bbook", new DateTime(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc), now.AddDays(1)))
+            .Select(d => d.DealId).OrderBy(x => x).ToArray();
+        CollectionAssert.AreEqual(new long[] { 9003, 9004, 9005 }, left, "the whole retained window survives, boundary included");
+        Assert.AreEqual(3, await CountAsync($"SELECT count(*) FROM deals WHERE deal_time >= '{cutoff:O}'"), "nothing retained was deleted");
+        Assert.AreEqual(1, await CountAsync("SELECT count(*) FROM trade_audit_log"), "trade_audit_log untouched");
+        Assert.AreEqual(1, await CountAsync("SELECT count(*) FROM bridge_executions"), "bridge_executions untouched");
+
+        var runs = await _svc.ListRetentionPruneRunsAsync(5);
+        Assert.IsTrue(runs.Any(r => r.Deleted == 253 && r.Error == null), "the run is recorded");
+
+        var again = await Pruner(12).RunNowAsync("manual", now);
+        Assert.AreEqual(0, again.Deleted, "idempotent: a second run on the same day deletes nothing");
+    }
+
+    [TestMethod]
+    public async Task RetentionPruner_ConfiguredBelowTwelveMonths_IsRefused_NothingDeleted()
+    {
+        RequireEnabled();
+        var now = new DateTime(2026, 9, 13, 18, 0, 0, DateTimeKind.Utc);
+        await _svc.UpsertDealsAsync(new[]
+        {
+            StoreDeal(9101, 10m, now.AddMonths(-7)),   // inside 12 months but outside a mistaken 6
+            StoreDeal(9102, 10m, now.AddMonths(-13)),  // outside even 12: still NOT deleted on a refused run
+        });
+
+        var run = await Pruner(6).RunNowAsync("scheduled", now);
+
+        StringAssert.StartsWith(run.Error, "refused");
+        Assert.AreEqual(0, run.Deleted);
+        Assert.AreEqual(2, await CountAsync("SELECT count(*) FROM deals"), "a refused run deletes nothing at all");
+        Assert.IsTrue((await _svc.ListRetentionPruneRunsAsync(5)).Any(r => r.Error != null && r.Error.StartsWith("refused")),
+            "the refusal is recorded");
+    }
+
+    [TestMethod]
+    public async Task RetentionCutoff_EqualsTheDocumentedSql()
+    {
+        RequireEnabled();
+        var samples = new[]
+        {
+            new DateTime(2026, 9, 13, 18, 0, 0, DateTimeKind.Utc),
+            new DateTime(2027, 3, 31, 23, 59, 59, DateTimeKind.Utc),
+            new DateTime(2028, 2, 29, 0, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+        };
+        await using var c = new NpgsqlConnection(AppCs);
+        await c.OpenAsync();
+        // Non-UTC session zones are the point: subtracting months from a timestamptz happens in the
+        // session zone, which is exactly how the first version of this SQL went wrong.
+        foreach (var zone in new[] { "UTC", "America/Los_Angeles", "Asia/Beirut" })
+        {
+            await using (var set = new NpgsqlCommand($"SET TimeZone = '{zone}'", c)) await set.ExecuteNonQueryAsync();
+            foreach (var now in samples)
+            {
+                // The expression from db/README.md / import.ps1 with now() replaced by a parameter.
+                await using var cmd = new NpgsqlCommand(
+                    "SELECT (date_trunc('day', (@now AT TIME ZONE 'UTC')) - interval '12 months') AT TIME ZONE 'UTC'", c);
+                cmd.Parameters.AddWithValue("now", now);
+                var sql = ((DateTime)(await cmd.ExecuteScalarAsync())!).ToUniversalTime();
+                Assert.AreEqual(RetentionPolicy.CutoffUtc(now, 12), sql, $"cutoff for {now:O} in a {zone} session");
+            }
+        }
+    }
+
+    [TestMethod]
+    public async Task HistoryReader_ServesTheRangeFromPostgres_OverlaysTheUnpersistedTail_ClampsAtRetention()
+    {
+        RequireEnabled();
+        var now = new DateTime(2026, 9, 13, 18, 0, 0, DateTimeKind.Utc);
+        var floor = RetentionPolicy.CutoffUtc(now, 12);
+
+        await _svc.UpsertDealsAsync(new[]
+        {
+            StoreDeal(9201, 100m, now.AddMonths(-11)),   // old but retained: only Postgres has it (FeedBook is 48 h)
+            StoreDeal(9202, 10m, now.AddDays(-2)),       // persisted with an older value
+            StoreDeal(9203, 10m, floor.AddDays(-30)),    // older than retention: must not be served
+        });
+
+        var workingSet = new DealStore();
+        workingSet.AddDeal(FeedDeal(9202, 20m, now.AddDays(-2)));   // newer value of a persisted deal
+        workingSet.AddDeal(FeedDeal(9204, 5m, now.AddMinutes(-1))); // delivered, not yet persisted
+
+        var reader = new DealHistoryReader(_svc, workingSet, new ConfigurationBuilder().Build(), () => now);
+        var h = await reader.GetClosedDealsAsync(now.AddMonths(-13), now.AddDays(1));
+
+        Assert.IsTrue(h.ClampedByRetention, "a request older than the retained window is clamped and says so");
+        Assert.AreEqual(floor, h.EffectiveFromUtc);
+        CollectionAssert.AreEqual(new ulong[] { 9201, 9202, 9204 }, h.Deals.Select(d => d.DealId).ToArray());
+        Assert.AreEqual(20m, h.Deals.Single(d => d.DealId == 9202).Profit, "the in-memory value wins over the stored row");
+        Assert.AreEqual(1, h.FromWorkingSetOnly);
+        Assert.AreEqual(1, h.WorkingSetOverrides);
+
+        var bySymbol = DealPnLAggregator.BySymbol(h.Deals);
+        Assert.AreEqual(125m, bySymbol.Single().TotalProfit, "100 + 20 + 5 -- the 11-month-old deal is in the P&L");
     }
 
     [TestMethod]
