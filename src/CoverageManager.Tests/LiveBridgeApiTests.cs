@@ -14,6 +14,16 @@ namespace CoverageManager.Tests;
 [TestClass]
 public class LiveBridgeApiTests
 {
+    /// <summary>
+    /// Time base for every fixture: one hour ago, whole seconds. The fixtures used to be absolute
+    /// (1_789_000_000 = 2026-09-10 00:26 UTC). The adapter forgets deals older than
+    /// LiveBridgeOptions.DealRetentionHours (48 h) on its first prune after connect, so from
+    /// 2026-09-12 00:26 UTC every deal fixture was "too old": re-sending an identical deal then
+    /// looked new and raised a second OnDealAdd, and SequenceRule_* failed on a correct adapter.
+    /// Relative offsets between fixtures are preserved exactly.
+    /// </summary>
+    private static readonly long T0 = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - 3600;
+
     private const string Key = FakeFeedServer.DefaultKey;
 
     private static string TempStatePath()
@@ -46,11 +56,11 @@ public class LiveBridgeApiTests
         }
     }
 
-    private static string P1 => FeedPayloadJson.Position(501, 1001, "XAUUSD", 0, 0.10m, 2400.5, 2401.0, 5.0, -0.2, 1_789_000_000);
-    private static string P2 => FeedPayloadJson.Position(502, 1001, "EURUSD", 1, 1.00m, 1.08547, 1.08500, 47.0, 0, 1_789_000_100);
+    private static string P1 => FeedPayloadJson.Position(501, 1001, "XAUUSD", 0, 0.10m, 2400.5, 2401.0, 5.0, -0.2, T0);
+    private static string P2 => FeedPayloadJson.Position(502, 1001, "EURUSD", 1, 1.00m, 1.08547, 1.08500, 47.0, 0, T0 + 100);
     private static string A1 => FeedPayloadJson.Account(1001, "real\\A-Book", 100, "USD", 10_000, 500, 10_552.0, 52.0, 120.0, 10_432.0, true, "Alice");
     private static string A2 => FeedPayloadJson.Account(2002, "demo\\B", 500, "EUR", 1_000, 0, 1_000, 0, 0, 1_000, true);
-    private static string T1 => FeedPayloadJson.Tick("XAUUSD", 2400.9, 2401.3, 1_789_000_000_123);
+    private static string T1 => FeedPayloadJson.Tick("XAUUSD", 2400.9, 2401.3, T0 * 1000L + 123);
 
     private static string Rec(string stream, string action, long seq, string payload) => FakeFeedConnection.Record(stream, action, seq, payload);
 
@@ -134,7 +144,7 @@ public class LiveBridgeApiTests
         Assert.AreEqual(2401.0m, p1.PriceCurrent);
         Assert.AreEqual(5.0m, p1.Profit);
         Assert.AreEqual(-0.2m, p1.Storage);
-        Assert.AreEqual(1_789_000_000_000L, p1.TimeMsc);
+        Assert.AreEqual(T0 * 1000L, p1.TimeMsc);
         Assert.AreEqual(0u, p1.Action);
         Assert.AreEqual(0, api.GetPositions(2002).Count);
 
@@ -153,7 +163,7 @@ public class LiveBridgeApiTests
         var tick = api.GetTickLast("XAUUSD")!;
         Assert.AreEqual(2400.9m, tick.Bid);
         Assert.AreEqual(2401.3m, tick.Ask);
-        Assert.AreEqual(1_789_000_000_123L, tick.TimeMsc);
+        Assert.AreEqual(T0 * 1000L + 123, tick.TimeMsc);
         Assert.IsNull(api.GetTickLast("EURUSD"));
 
         Assert.AreEqual(0, api.RequestDeals(1001, DateTimeOffset.UnixEpoch, DateTimeOffset.UtcNow).Count);
@@ -183,13 +193,13 @@ public class LiveBridgeApiTests
         var events = Captured.Attach(api);
 
         await connection.RecordAsync("positions", "add", 101, P1);
-        await connection.RecordAsync("positions", "update", 102, FeedPayloadJson.Position(501, 1001, "XAUUSD", 0, 0.10m, 2400.5, 2405.0, 45.0, -0.2, 1_789_000_000));
-        await connection.RecordAsync("positions", "delete", 103, FeedPayloadJson.Position(501, 1001, "XAUUSD", 0, 0.10m, 2400.5, 2405.0, 45.0, -0.2, 1_789_000_000, closingDeal: 777));
-        await connection.RecordAsync("deals", "add", 201, FeedPayloadJson.Deal(777, 1001, "XAUUSD", 1, 1, 0.10m, 2405.0, 45.0, -0.2, -0.7, 1_789_000_500, 9001, 501, "close", fee: -0.05));
+        await connection.RecordAsync("positions", "update", 102, FeedPayloadJson.Position(501, 1001, "XAUUSD", 0, 0.10m, 2400.5, 2405.0, 45.0, -0.2, T0));
+        await connection.RecordAsync("positions", "delete", 103, FeedPayloadJson.Position(501, 1001, "XAUUSD", 0, 0.10m, 2400.5, 2405.0, 45.0, -0.2, T0, closingDeal: 777));
+        await connection.RecordAsync("deals", "add", 201, FeedPayloadJson.Deal(777, 1001, "XAUUSD", 1, 1, 0.10m, 2405.0, 45.0, -0.2, -0.7, T0 + 500, 9001, 501, "close", fee: -0.05));
         await connection.RecordAsync("accounts", "state", 301, A1);
         await connection.RecordsAsync("ticks",
-            Rec("ticks", "tick", 401, FeedPayloadJson.Tick("XAUUSD", 2404.9, 2405.3, 1_789_000_000_500)),
-            Rec("ticks", "tick", 402, FeedPayloadJson.Tick("EURUSD", 1.08500, 1.08512, 1_789_000_000_501)));
+            Rec("ticks", "tick", 401, FeedPayloadJson.Tick("XAUUSD", 2404.9, 2405.3, T0 * 1000L + 500)),
+            Rec("ticks", "tick", 402, FeedPayloadJson.Tick("EURUSD", 1.08500, 1.08512, T0 * 1000L + 501)));
 
         await WaitUntilAsync(() => events.Ticks.Count == 2 && events.Deleted.Count == 1 && events.Deals.Count == 1 && events.Users.Count == 1, what: "the live events");
 
@@ -211,14 +221,14 @@ public class LiveBridgeApiTests
         Assert.AreEqual(-0.2m, deal.Storage);
         Assert.AreEqual(-0.7m, deal.Commission);
         Assert.AreEqual(-0.05m, deal.Fee);
-        Assert.AreEqual(1_789_000_500_000L, deal.TimeMsc);
+        Assert.AreEqual((T0 + 500) * 1000L, deal.TimeMsc);
         Assert.AreEqual(9001UL, deal.OrderId);
         Assert.AreEqual(501UL, deal.PositionId);
         Assert.AreEqual("close", deal.Comment);
-        var window = api.RequestDeals(1001, DateTimeOffset.FromUnixTimeSeconds(1_789_000_000), DateTimeOffset.FromUnixTimeSeconds(1_789_001_000));
+        var window = api.RequestDeals(1001, DateTimeOffset.FromUnixTimeSeconds(T0), DateTimeOffset.FromUnixTimeSeconds(T0 + 1000));
         Assert.AreEqual(777UL, window.Single().DealId);
         Assert.AreEqual(0, api.RequestDeals(2002, DateTimeOffset.UnixEpoch, DateTimeOffset.UtcNow).Count, "another login");
-        Assert.AreEqual(0, api.RequestDeals(1001, DateTimeOffset.FromUnixTimeSeconds(1_789_000_600), DateTimeOffset.UtcNow).Count, "outside the window");
+        Assert.AreEqual(0, api.RequestDeals(1001, DateTimeOffset.FromUnixTimeSeconds(T0 + 600), DateTimeOffset.UtcNow).Count, "outside the window");
 
         Assert.AreEqual(10_552.0m, events.Users.Single().Equity);
         Assert.AreEqual(2, events.Ticks.Count);
@@ -242,15 +252,15 @@ public class LiveBridgeApiTests
         var (connection, _) = await ConnectSnapshotAsync(api, server, seqDeals: 200);
         var events = Captured.Attach(api);
 
-        var d1 = FeedPayloadJson.Deal(801, 1001, "XAUUSD", 0, 0, 0.5m, 2400, 0, 0, 0, 1_789_000_000, 1, 1);
+        var d1 = FeedPayloadJson.Deal(801, 1001, "XAUUSD", 0, 0, 0.5m, 2400, 0, 0, 0, T0, 1, 1);
         await connection.RecordAsync("deals", "add", 250, d1);
         await connection.RecordAsync("deals", "add", 250, d1);   // the same record twice (a replay boundary)
-        await connection.RecordAsync("deals", "add", 240, FeedPayloadJson.Deal(802, 1001, "XAUUSD", 0, 0, 0.5m, 2400, 0, 0, 0, 1_789_000_000, 2, 2));   // at or below the last: ignored
+        await connection.RecordAsync("deals", "add", 240, FeedPayloadJson.Deal(802, 1001, "XAUUSD", 0, 0, 0.5m, 2400, 0, 0, 0, T0, 2, 2));   // at or below the last: ignored
         await connection.RecordAsync("deals", "add", 251, d1);   // same identity, newer sequence, same content: no event
         await connection.RecordAsync("positions", "add", 150, P1);
         await connection.RecordAsync("positions", "update", 150, P1);   // at the last: ignored
         await connection.RecordAsync("positions", "update", 151, P1);   // newer, unchanged: no event
-        await connection.RecordAsync("positions", "update", 152, FeedPayloadJson.Position(501, 1001, "XAUUSD", 0, 0.10m, 2400.5, 2410.0, 95.0, -0.2, 1_789_000_000));
+        await connection.RecordAsync("positions", "update", 152, FeedPayloadJson.Position(501, 1001, "XAUUSD", 0, 0.10m, 2400.5, 2410.0, 95.0, -0.2, T0));
         await connection.HeartbeatAsync();
 
         await WaitUntilAsync(() => api.LastFrameAtUtc is not null && api.Diagnostics()["framesReceived"] is long n && n >= 15, what: "all frames");
@@ -296,10 +306,10 @@ public class LiveBridgeApiTests
 
         await connection.HelloAsync("resume");
         await connection.ReplayAsync("positions",
-            Rec("positions", "update", 150, FeedPayloadJson.Position(501, 1001, "XAUUSD", 0, 0.10m, 2400.5, 2410.0, 95.0, -0.2, 1_789_000_000)),
-            Rec("positions", "delete", 160, FeedPayloadJson.Position(502, 1001, "EURUSD", 1, 1.00m, 1.08547, 1.08500, 47.0, 0, 1_789_000_100, closingDeal: 778)));
+            Rec("positions", "update", 150, FeedPayloadJson.Position(501, 1001, "XAUUSD", 0, 0.10m, 2400.5, 2410.0, 95.0, -0.2, T0)),
+            Rec("positions", "delete", 160, FeedPayloadJson.Position(502, 1001, "EURUSD", 1, 1.00m, 1.08547, 1.08500, 47.0, 0, T0 + 100, closingDeal: 778)));
         await connection.ReplayAsync("deals",
-            Rec("deals", "add", 260, FeedPayloadJson.Deal(778, 1001, "EURUSD", 0, 1, 1.00m, 1.085, 47.0, 0, -7, 1_789_000_700, 9002, 502)));
+            Rec("deals", "add", 260, FeedPayloadJson.Deal(778, 1001, "EURUSD", 0, 1, 1.00m, 1.085, 47.0, 0, -7, T0 + 700, 9002, 502)));
         await connection.ReplayAsync("accounts", Rec("accounts", "state", 350, A1));
         await connection.ReplayGapAsync("ticks", "beyond the buffer");
         await connection.SnapshotAsync("ticks", Rec("ticks", "tick", 0, T1));
@@ -333,7 +343,7 @@ public class LiveBridgeApiTests
         var (connection, _) = await ConnectSnapshotAsync(api, server);
         var events = Captured.Attach(api);
 
-        await connection.RecordAsync("deals", "add", 201, FeedPayloadJson.Deal(801, 1001, "XAUUSD", 0, 0, 0.5m, 2400, 0, 0, 0, 1_789_000_000, 1, 1));
+        await connection.RecordAsync("deals", "add", 201, FeedPayloadJson.Deal(801, 1001, "XAUUSD", 0, 0, 0.5m, 2400, 0, 0, 0, T0, 1, 1));
         await WaitUntilAsync(() => events.Deals.Count == 1, what: "the first deal");
 
         await connection.ByeAsync("too slow: 100000 behind");
@@ -350,7 +360,7 @@ public class LiveBridgeApiTests
 
         await again.HelloAsync("resume");
         await again.ReplayAsync("positions");
-        await again.ReplayAsync("deals", Rec("deals", "add", 202, FeedPayloadJson.Deal(802, 1001, "XAUUSD", 1, 1, 0.5m, 2401, 50, 0, 0, 1_789_000_010, 2, 1)));
+        await again.ReplayAsync("deals", Rec("deals", "add", 202, FeedPayloadJson.Deal(802, 1001, "XAUUSD", 1, 1, 0.5m, 2401, 50, 0, 0, T0 + 10, 2, 1)));
         await again.ReplayAsync("accounts");
         await again.ReplayAsync("ticks");
         await again.ReplayEndAsync(100, 202, 300, 400);
@@ -455,7 +465,7 @@ public class LiveBridgeApiTests
         options.AckEveryMs = 150;
         using var api = new LiveBridgeApi(options);
         var (connection, _) = await ConnectSnapshotAsync(api, server);
-        await connection.RecordAsync("deals", "add", 201, FeedPayloadJson.Deal(801, 1001, "XAUUSD", 0, 0, 0.5m, 2400, 0, 0, 0, 1_789_000_000, 1, 1));
+        await connection.RecordAsync("deals", "add", 201, FeedPayloadJson.Deal(801, 1001, "XAUUSD", 0, 0, 0.5m, 2400, 0, 0, 0, T0, 1, 1));
 
         await WaitUntilAsync(() => connection.Acks.Any(a => a.GetProperty("seq").TryGetProperty("deals", out var d) && d.GetInt64() == 201), what: "an ack with the deal sequence");
         var ack = connection.Acks.Last(a => a.GetProperty("seq").GetProperty("deals").GetInt64() == 201);
@@ -487,7 +497,7 @@ public class LiveBridgeApiTests
         var state = TempStatePath();
         var api = new LiveBridgeApi(TestOptions(server, state));
         var (connection, _) = await ConnectSnapshotAsync(api, server);
-        await connection.RecordAsync("deals", "add", 201, FeedPayloadJson.Deal(801, 1001, "XAUUSD", 0, 0, 0.5m, 2400, 0, 0, 0, 1_789_000_000, 1, 1));
+        await connection.RecordAsync("deals", "add", 201, FeedPayloadJson.Deal(801, 1001, "XAUUSD", 0, 0, 0.5m, 2400, 0, 0, 0, T0, 1, 1));
         await WaitUntilAsync(() => api.RequestDeals(1001, DateTimeOffset.UnixEpoch, DateTimeOffset.UtcNow).Count == 1);
 
         api.Disconnect();
