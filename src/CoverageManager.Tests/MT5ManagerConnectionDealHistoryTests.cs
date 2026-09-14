@@ -69,6 +69,7 @@ public class MT5ManagerConnectionDealHistoryTests
 
     private sealed class FakeFactory : IMT5ApiFactory
     {
+        public bool DialEnabled => true;
         public FakeApi Api { get; } = new();
         public string ProviderName => MT5ApiProviders.LiveBridge;
         public bool RequiresManagerAccount => false;

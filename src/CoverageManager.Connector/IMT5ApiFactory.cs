@@ -28,6 +28,12 @@ public interface IMT5ApiFactory
     /// </summary>
     string? Endpoint { get; }
 
+    /// <summary>
+    /// The "connect to feed" switch (<c>LiveBridge:Enabled</c>, default false). While false the connection service does
+    /// not attempt to connect at all and the API itself refuses to dial.
+    /// </summary>
+    bool DialEnabled { get; }
+
     /// <summary>Creates a fresh, not-yet-initialized API instance. The caller owns disposal.</summary>
     IMT5Api Create();
 }

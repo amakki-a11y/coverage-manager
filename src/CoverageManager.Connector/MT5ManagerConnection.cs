@@ -92,6 +92,8 @@ public sealed class MT5ManagerConnection : BackgroundService
 
     public bool IsConnected => _api?.IsConnected ?? false;
     public string ApiProvider => _apiFactory.ProviderName;
+    /// <summary>The "connect to feed" switch as configured (LiveBridge:Enabled). False = this process never dials.</summary>
+    public bool FeedDialEnabled => _apiFactory.DialEnabled;
 
     /// <summary>Provider-specific counters (the Live Bridge feed session), null for providers without any.</summary>
     public IReadOnlyDictionary<string, object?>? ApiDiagnostics => (_api as IMT5ApiDiagnostics)?.Diagnostics();
@@ -165,6 +167,16 @@ public sealed class MT5ManagerConnection : BackgroundService
         _logger.LogInformation("MT5 API provider: {Provider}", _apiFactory.ProviderName);
 
         var backoffMs = InitialBackoffMs;
+
+        if (!_apiFactory.DialEnabled)
+        {
+            // Default-off switch (LiveBridge:Enabled). Idle quietly instead of failing a connect every backoff: the
+            // API would refuse anyway, and a loud retry loop hides the one line that says why.
+            _logger.LogWarning("B-Book feed connection is DISABLED (LiveBridge:Enabled=false): not connecting. " +
+                               "Set LiveBridge__Enabled=true in the service configuration to connect.");
+            try { await Task.Delay(Timeout.Infinite, stoppingToken); } catch (OperationCanceledException) { }
+            return;
+        }
 
         while (!stoppingToken.IsCancellationRequested)
         {

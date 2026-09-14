@@ -110,6 +110,7 @@ public class ExposureController : ControllerBase
         {
             mt5Connected = _mt5Connection.IsConnected,
             mt5Provider = _mt5Connection.ApiProvider,
+            feedDialEnabled = _mt5Connection.FeedDialEnabled,
             mt5Server = _mt5Connection.ConnectedServer,
             bbookPositions = _mt5Connection.PositionCount,
             loginCount = _mt5Connection.LoginCount
@@ -142,6 +143,7 @@ public class ExposureController : ControllerBase
             mt5Connected = _mt5Connection.IsConnected,
             stage = "2b",
             mt5Provider = _mt5Connection.ApiProvider,
+            feedDialEnabled = _mt5Connection.FeedDialEnabled,
             liveBridge = _mt5Connection.ApiDiagnostics,
             dealHistory = _mt5Connection.DealHistory,
             dealSync = _dataSync.Status,

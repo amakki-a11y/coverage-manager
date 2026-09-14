@@ -35,6 +35,7 @@ public class LiveBridgeApiTests
 
     private static LiveBridgeOptions TestOptions(FakeFeedServer server, string statePath, string key = Key) => new()
     {
+        Enabled = true,   // the connect-to-feed switch defaults to off; these tests dial a loopback fake
         Url = server.Url,
         ApiKey = key,
         StatePath = statePath,
@@ -242,6 +243,31 @@ public class LiveBridgeApiTests
         Assert.AreEqual(1, applied["accounts"]);
         Assert.AreEqual(2, applied["ticks"]);
         Assert.AreEqual("LiveBridge", diagnostics["provider"]);
+    }
+
+    [TestMethod]
+    public void ConnectSwitch_DefaultsOff_InCode()
+    {
+        Assert.IsFalse(new LiveBridgeOptions().Enabled, "a missing or partial config must never be able to dial the feed");
+        Assert.IsFalse(new MT5ApiFactory(MT5ApiProviders.LiveBridge, new LiveBridgeOptions(),
+            Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance).DialEnabled);
+    }
+
+    [TestMethod]
+    public async Task ConnectSwitch_Off_RefusesBeforeDialing_EvenWithAValidKeyAndUrl()
+    {
+        await using var server = new FakeFeedServer();
+        var options = TestOptions(server, TempStatePath());
+        options.Enabled = false;                       // everything else valid: real key, reachable URL
+        using var api = new LiveBridgeApi(options, Microsoft.Extensions.Logging.Abstractions.NullLogger<LiveBridgeApi>.Instance);
+
+        Assert.IsTrue(api.Initialize(), api.LastError);
+        Assert.IsFalse(api.Connect("mt5.example:443", 1065, "unused", 2_000), "must refuse while disabled");
+        StringAssert.Contains(api.LastError, "LiveBridge:Enabled=false");
+
+        await Task.Delay(500);
+        Assert.AreEqual(0, server.Accepted, "the feed was never dialed: no connection reached the server");
+        Assert.IsFalse(api.IsConnected);
     }
 
     [TestMethod]
@@ -642,7 +668,8 @@ public class MT5ApiFactoryTests
     [TestMethod]
     public void Factory_LiveBridge_CreatesTheFeedAdapter_WhichFailsFastWithoutAKey()
     {
-        var factory = new MT5ApiFactory("LiveBridge", new LiveBridgeOptions { Url = "wss://feed.example:5571/feed/x", ApiKey = "" });
+        // Switch armed so this exercises the key check itself; the switch has its own ConnectSwitch_* tests.
+        var factory = new MT5ApiFactory("LiveBridge", new LiveBridgeOptions { Enabled = true, Url = "wss://feed.example:5571/feed/x", ApiKey = "" });
         Assert.AreEqual(MT5ApiProviders.LiveBridge, factory.ProviderName);
 
         using var api = factory.Create();

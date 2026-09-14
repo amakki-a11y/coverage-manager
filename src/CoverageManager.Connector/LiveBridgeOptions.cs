@@ -8,6 +8,16 @@ public sealed class LiveBridgeOptions
 {
     public const string SectionName = "LiveBridge";
 
+    /// <summary>
+    /// "Connect to feed" switch. <b>Default false, in code</b>: while false, <see cref="LiveBridgeApi.Connect"/> refuses
+    /// before looking at the URL or key, so nothing dials the feed -- not a <c>dotnet run</c>, not a double-clicked exe,
+    /// not a process that happens to inherit a feed key from its environment. Only a service configuration that sets
+    /// <c>LiveBridge__Enabled=true</c> alongside its own key can connect. Reason: the bridge replaces a same-name
+    /// consumer on connect, so an accidental launch holding v1's key would displace live v1 (seen 2026-09-13: a copy of
+    /// v1's key sat in a user environment that any launch on the server would have inherited).
+    /// </summary>
+    public bool Enabled { get; set; } = false;
+
     /// <summary>Feed endpoint; the URL path names the source, e.g. <c>wss://feed.connecttrader.app:5571/feed/BBcorp-Live</c>.</summary>
     public string Url { get; set; } = "";
 

@@ -71,6 +71,9 @@ public sealed class MT5ApiFactory : IMT5ApiFactory
     public bool RequiresManagerAccount => false;
 
     /// <inheritdoc />
+    public bool DialEnabled => _liveBridgeOptions.Enabled;
+
+    /// <inheritdoc />
     public string? Endpoint => _liveBridgeOptions.Url;
 
     /// <param name="provider">Raw <c>MT5:Provider</c> value; null/blank selects the Live Bridge feed.</param>

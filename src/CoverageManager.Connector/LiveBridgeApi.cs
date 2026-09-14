@@ -199,6 +199,13 @@ public sealed class LiveBridgeApi : IMT5Api, IMT5ApiDiagnostics, IMT5DealHistory
     {
         ThrowIfDisposed();
         if (!_initialized) { LastError = "LiveBridgeApi: call Initialize() first"; return false; }
+        // The "connect to feed" switch comes FIRST, before the URL or the key is even read: with it off nothing can
+        // dial, whatever key this process may have inherited. See LiveBridgeOptions.Enabled.
+        if (!_options.Enabled)
+        {
+            LastError = "LiveBridgeApi: the feed is disabled (LiveBridge:Enabled=false); set LiveBridge__Enabled=true in the service configuration to connect";
+            return false;
+        }
         if (string.IsNullOrWhiteSpace(_options.Url)) { LastError = "LiveBridgeApi: LiveBridge:Url is not set"; return false; }
         if (!Uri.TryCreate(_options.Url, UriKind.Absolute, out var uri) || (uri.Scheme != "ws" && uri.Scheme != "wss"))
         {
