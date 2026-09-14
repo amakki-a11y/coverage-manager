@@ -34,6 +34,31 @@ param(
 # on every build (harmless), which would kill the script. Use Continue
 # and rely on $LASTEXITCODE checks below to catch actual failures.
 $ErrorActionPreference = "Continue"
+
+# ---------------------------------------------------------------------------
+# 0. v1 ONLY. Refuse to build a v2 checkout (docs/V2_PARALLEL_RUN.md, H3).
+# This script stages into publish\api-staging for a swap into publish\api and
+# restarts coverage-api -- the live v1 binaries and service. Run from a v2
+# checkout it would be an accidental cutover. v2 uses _deploy\deploy-v2.ps1.
+# Markers: files that exist only in v2 (local Postgres store, feed switch).
+# ---------------------------------------------------------------------------
+$v2Markers = @(
+    "src\CoverageManager.Api\Services\PostgresService.cs",
+    "db\migrations",
+    "docs\V2_PARALLEL_RUN.md"
+)
+$v2Found = @($v2Markers | Where-Object { Test-Path (Join-Path $RepoRoot $_) })
+if ($v2Found.Count -gt 0) {
+    Write-Host ""
+    Write-Host "REFUSED: this is a v2 checkout. deploy.ps1 deploys v1 only." -ForegroundColor Red
+    Write-Host "  It would stage v2 for a swap into publish\api and restart coverage-api (live v1)." -ForegroundColor Red
+    Write-Host "  v2 markers found:" -ForegroundColor Red
+    $v2Found | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
+    Write-Host "  For v2 use: .\_deploy\deploy-v2.ps1 (folder C:\CoverageManagerV2\app, service coverage-api-v2)." -ForegroundColor Yellow
+    Write-Host "  For v1 run this script from a checkout of the live branch." -ForegroundColor Yellow
+    exit 2
+}
+
 Set-Location $RepoRoot
 
 function Step($msg) {
