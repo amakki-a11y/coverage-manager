@@ -49,6 +49,7 @@ public class ExposureController : ControllerBase
     private readonly SupabaseReadOnlyLedger _readOnlyLedger;
     private readonly DataSyncService _dataSync;
     private readonly DealHistoryReader _history;
+    private readonly CollectorPositionsPoller _coveragePoll;
 
     public ExposureController(
         ExposureEngine exposureEngine,
@@ -63,8 +64,10 @@ public class ExposureController : ControllerBase
         ILogger<ExposureController> logger,
         SupabaseReadOnlyLedger readOnlyLedger,
         DataSyncService dataSync,
-        DealHistoryReader history)
+        DealHistoryReader history,
+        CollectorPositionsPoller coveragePoll)
     {
+        _coveragePoll = coveragePoll;
         _exposureEngine = exposureEngine;
         _positionManager = positionManager;
         _mt5Connection = mt5Connection;
@@ -229,7 +232,10 @@ public class ExposureController : ControllerBase
                 lastFetchAtUtc = _mappingRefresh.LastFetchAtUtc,
                 lastFetchOk = _mappingRefresh.LastFetchOk,
                 consecutiveFailures = _mappingRefresh.ConsecutiveFailures
-            }
+            },
+            // v2 read of the collector's GET /positions. stale = no snapshot applied for PollStaleAfterMs;
+            // ambiguousEmptySkipped counts [] answers held back (unhealthy collector, or awaiting a 2nd confirm).
+            coveragePoll = _coveragePoll.Status
         });
     }
 

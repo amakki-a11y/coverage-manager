@@ -231,6 +231,14 @@ try
     // the controller resolves the same instance for the diagnostics block.
     builder.Services.AddSingleton<MappingRefreshService>();
     builder.Services.AddHostedService(sp => sp.GetRequiredService<MappingRefreshService>());
+
+    // v2 reads coverage positions from the collector's GET /positions (H2, V2_PARALLEL_RUN.md): the collector
+    // pushes to a single backend (v1) and stays untouched. Coverage:PollEnabled; diagnostics.coveragePoll.
+    builder.Services.AddSingleton(sp => new CollectorPositionsPoller(
+        sp.GetRequiredService<IHttpClientFactory>(), sp.GetRequiredService<PositionManager>(),
+        sp.GetRequiredService<ExposureBroadcastService>(), sp.GetRequiredService<IConfiguration>(),
+        sp.GetRequiredService<ILogger<CollectorPositionsPoller>>()));
+    builder.Services.AddHostedService(sp => sp.GetRequiredService<CollectorPositionsPoller>());
     // -----------------------------------------------------------------------
 
     builder.Services.AddControllers()
