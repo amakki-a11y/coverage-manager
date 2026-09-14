@@ -271,8 +271,12 @@ designed-in, or multi-source day one?
 
 ## 7. LP / coverage collector — unchanged
 
-No change. The Python FastAPI collector keeps polling the coverage MT5 terminal at
-100ms and POSTing to the backend; `/positions`, `/deals`, `/deals/raw`, `/health`
+No change to the collector. It keeps polling the coverage MT5 terminal at
+100ms and POSTing to **one** backend (`BACKEND_URL`, v1 during the parallel run). v2 does not
+depend on that push: `CollectorPositionsPoller` reads the collector's existing `GET /positions`
+every second (`Coverage:PollEnabled`), applying an empty answer only when `/health` confirms it on
+two consecutive polls (the collector also returns `[]` when its MT5 call fails); counters on
+`diagnostics.coveragePoll`. Coverage `openTime` is not in that payload (known gap). Otherwise: `/positions`, `/deals`, `/deals/raw`, `/health`
 stay as-is. Coverage settled P&L stays REST-driven (the collector has no event hook
 into the C# backend — same as v1). The known collector-hang stopgap (health-probe +
 `nssm restart` scheduled task) carries forward until the `asyncio.wait_for` timeout
@@ -317,6 +321,9 @@ wrapper lands (still a good idea, still not v2-specific).
    - Equity P&L per login vs MT5 Summary (v1 matched 39/40 penny-perfect).
    - Address the **symbol-mapping suffix gap** here: feed client symbols carry
      group suffixes (`UT100-20`) that need mapping rows or hedge reads 0%.
+5. **Delta re-import before the parallel run, v1 NOT frozen** (§9a clarification):
+   `db\import\delta-reimport.ps1`; expected drift on `verify` while v1 keeps writing.
+   Operational checklist: `docs/V2_PARALLEL_RUN.md`.
 
 ### 8.3 Cutover
 
@@ -333,6 +340,9 @@ wrapper lands (still a good idea, still not v2-specific).
 
 - When v2 matches v1 within tolerance across a full trading day, switch dealers to v2
   (DNS / reverse-proxy target, or the `dealing.connecttrader.app` Caddy upstream).
+- **Final delta import with v1 frozen (cutover only):** stop v1's writers, run
+  `db\import\delta-reimport.ps1` once more, and require `verify` to report **zero drift**
+  before switching dealers. This is the only point at which v1 is frozen (§9a).
 - **Freeze v1 as a read-only archive:** stop v1's writers (or set its store
   read-only), keep the Supabase project reachable read-only for historical lookups
   for an agreed retention window, then export a final snapshot and downsize/pause the
@@ -373,8 +383,18 @@ wrapper lands (still a good idea, still not v2-specific).
    decision covers closed `deals` only. Do `trade_audit_log`, `bridge_executions` and
    `alert_events` follow the same 12-month window, or keep full history (they are far
    smaller)? Until a call is made they import in full and are never pruned.
-8. **`HedgeRatio` ignores hedge direction** (found diagnosing the two failing
-   `ExposureEngineTests`, 2026-09-13). *Nothing changed; owner decision required.*
+8. ~~**`HedgeRatio` ignores hedge direction**~~
+   **RESOLVED 2026-09-13 (owner) — (a) + (b): a wrong-way hedge counts as 0% cover for the
+   wrong-way part AND gets its own distinct WRONG-WAY flag per symbol in the risk banner.**
+   Built: `HedgeRatio = max(0, CoverageNet × sign(BBookNet)) / |BBookNet| × 100` (uncapped above;
+   no client net = 100 as before), new `WrongWayVolume` / `IsWrongWay` on `ExposureSummary`;
+   `RiskBanner` shows a red WRONG-WAY chip listing each wrong-way symbol with its lots (wrong-way
+   symbols are left out of "worst hedge"). `NetVolume` / To Cover and the portfolio total are
+   unchanged. Measured on **nets**, consistent with To Cover: coverage BUY 8 + SELL 3 against
+   clients +10 nets +5 → 50%, not flagged; legs netting the wrong way → 0% and flagged. The two
+   stale tests are rewritten to the client − coverage convention with same-way, wrong-way and
+   mixed cases. `AlertEngine` `hedge_ratio` and Compare `hedgePercent` follow the engine.
+   Diagnosis as found:
    - **The two tests are stale, not an engine defect.** They were written in `05620d9`
      (2026-03-31) when `NetVolume = BBookNet + CoverageNet`. The next day `73a5c77` deliberately
      changed it to `BBookNet − CoverageNet` ("coverage mirrors client direction"); the tests were
@@ -400,6 +420,14 @@ wrapper lands (still a good idea, still not v2-specific).
 **Order of work:** Phase 3 **real import first**, then the `bridge_executions` port
 (§8.3 blocker), then a **delta re-import** immediately before the parallel run to pick up
 everything v1 wrote in the meantime.
+
+**Freeze clarification (owner, 2026-09-13):** the delta import for the **parallel run runs
+WITHOUT freezing v1** — v1 stays the live dealer tool. v2 is still correct: the import is
+idempotent (upsert by key) and v2's own feed streams everything from the moment it connects,
+so re-running the delta later only fills rows in. `verify` **will** report drift on the
+tables v1 keeps writing (`deals`, `trading_accounts`, snapshots); that drift is expected
+during the parallel run and is not a failure. **Freezing v1's writers applies only at
+cutover** (§8.3): freeze, run the final delta import, verify clean (zero drift), then switch.
 
 **`RequestDeals` reads history from Postgres — REQUIRED (Phase 3).** The 12-month
 closed-trades look-back must be served from local Postgres, not from the feed. `FeedBook`

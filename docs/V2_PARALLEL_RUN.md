@@ -1,7 +1,8 @@
 # v2 parallel-run readiness (beside live v1, same server)
 
-**Status:** readiness list, 2026-09-13. Nothing here has been executed. v2 has **not** been
-started against the real feed; `:5000` and v1 are untouched. Verified facts are marked
+**Status:** readiness list, 2026-09-13. H1, H2 and H3 are **resolved** (see §0). The
+runbook (§4) has not been executed: v2 has **not** been started against the real feed;
+`:5000` and v1 are untouched. Verified facts are marked
 *verified*; everything else is a requirement or a recommendation.
 
 **Principle:** during the parallel run v2 shares **nothing that writes or identifies** with v1
@@ -11,6 +12,14 @@ only **read-only** (the coverage collector, Postgres is v2-only).
 ---
 
 ## 0. Must be resolved BEFORE anyone starts v2 (hazards found)
+
+| # | Status (2026-09-13) |
+|---|---|
+| **H1** | **RESOLVED.** (1) The stale user-scope `LiveBridge__ApiKey` was removed from `makkioo`. Before removal it was confirmed to be an exact copy of v1's service key. Afterwards it was absent from `HKCU\Environment`, v1's NSSM key was intact and `coverage-api` was Running. Processes already running at removal time keep the value in memory until they restart; new logons and processes do not get it. (2) **Connect-to-feed switch** `LiveBridge:Enabled`, default **false** in code and in `appsettings.json` (`98db5fa`). While off, `LiveBridgeApi.Connect` refuses before dialing and `MT5ManagerConnection` idles with one warning; `status`/`diagnostics` show `feedDialEnabled`. Only v2's service environment turns it on (§3). |
+| **H2** | **RESOLVED.** `CollectorPositionsPoller` (`f8bb7ca`) reads the collector's `GET /positions` every 1 s (`Coverage:PollEnabled=true`; collector untouched). An empty answer is applied only when `/health` is `ok` and fresh on two consecutive polls, because the collector also returns `[]` when MT5 fails. HTTP errors keep the last snapshot. `login` comes from `/health`. `openTime` is not in the payload (known gap: polled coverage rows have no open time). Counters: `diagnostics.coveragePoll`. The dead `PollFallbackEnabled` key is gone. |
+| **H3** | **RESOLVED.** `_deploy/deploy.ps1` exits 2 before doing anything on a v2 checkout (`34dd531`). v2 has its own `_deploy/deploy-v2.ps1`: it stages into `C:\CoverageManagerV2\app-staging` and only prints the swap for `coverage-api-v2`. It refuses any folder inside a v1 `publish` folder and the service name `coverage-api`. `-CheckOnly` runs the guards only. |
+
+Hazards as found:
 
 | # | Hazard | Evidence | Required action |
 |---|---|---|---|
@@ -75,6 +84,7 @@ Set **explicitly on the service**, so nothing inherited from any account can lea
 ASPNETCORE_ENVIRONMENT=Production
 Kestrel__Endpoints__Http__Url=http://127.0.0.1:5100
 MT5__Provider=LiveBridge
+LiveBridge__Enabled=true
 LiveBridge__Url=wss://feed.connecttrader.app:5571/feed/BBcorp-Live
 LiveBridge__ApiKey=<coverage-manager-v2 key from the bridge -- out of band>
 LiveBridge__StatePath=C:\CoverageManagerV2\state\livebridge-state.json
@@ -83,7 +93,11 @@ Supabase__ReadOnly=true
 Supabase__Key=
 Centroid__Enabled=false
 Retention__Months=12
+Coverage__PollEnabled=true
 ```
+
+`LiveBridge__Enabled=true` is the connect-to-feed switch (H1). It is **off** everywhere else,
+so only this service, holding the `coverage-manager-v2` key, can dial.
 
 `Postgres__PasswordFile` is readable by LocalSystem (*verified*: the secrets folder ACL grants
 SYSTEM full control). Postgres itself listens on `127.0.0.1:5432` only.
@@ -97,12 +111,12 @@ SYSTEM full control). Postgres itself listens on `127.0.0.1:5432` only.
 - `127.0.0.1:5100` free; v1 `coverage-api` Running; bridge Health shows `coverage-manager` connected.
 - `coverage_v2` migrations current (`db\apply-migrations.ps1 -Database coverage_v2 -User coverage_app` reports nothing to apply).
 
-**Build** (from the `v2-local-postgres` checkout; never into `publish\`):
+**Build** (from the `v2-local-postgres` checkout; never `_deploy\deploy.ps1`, which refuses a v2 checkout):
 ```powershell
-dotnet publish src\CoverageManager.Api\CoverageManager.Api.csproj -c Release -o C:\CoverageManagerV2\app
-cd web; npm ci; npm run build; cd ..
-New-Item -ItemType Directory -Force C:\CoverageManagerV2\app\wwwroot, C:\CoverageManagerV2\state | Out-Null
-Copy-Item -Recurse -Force web\dist\* C:\CoverageManagerV2\app\wwwroot
+.\_deploy\deploy-v2.ps1 -CheckOnly      # guards only
+.\_deploy\deploy-v2.ps1                 # stages C:\CoverageManagerV2\app-staging, prints the swap
+New-Item -ItemType Directory -Force C:\CoverageManagerV2\state | Out-Null
+# first install only: Rename-Item C:\CoverageManagerV2\app-staging C:\CoverageManagerV2\app
 ```
 
 **Install** (elevated):
@@ -114,12 +128,13 @@ nssm set coverage-api-v2 Start SERVICE_DEMAND_START          # manual start duri
 nssm set coverage-api-v2 AppEnvironmentExtra <the §3 lines>
 ```
 
-**Close the history gap:** the import cut is 2026-09-13 00:41 UTC. If the bridge's first-connect
-deal replay (§2.5) starts later than that, run `db\import\delta-reimport.ps1` right after v2's
-first connect. v1 stays live during a parallel run, so verify **will** show drift on
-`deals` / `trading_accounts` (expected; see `db/README.md`). *Open question for the owner:* the
-plan said "delta re-import with v1 writers frozen", which conflicts with v1 staying the live
-dealer tool; freezing is only needed for a clean verify, not for a correct v2 store.
+**Close the history gap:** the import cut is 2026-09-13 00:41 UTC. Run
+`db\import\delta-reimport.ps1` right after v2's first connect, and again later if the bridge's
+first-connect deal replay (§2.5) starts after the cut. **v1 is NOT frozen for this** (owner,
+2026-09-13; `V2_PLAN.md` §9a). The import is idempotent and v2's live feed keeps the store
+correct, so `verify` **will** show drift on `deals` / `trading_accounts` / snapshots while v1
+keeps writing. That drift is expected, not a failure (see `db/README.md`). Freezing v1's writers
+applies **only at cutover**, where the final delta import must verify with zero drift.
 
 **Start and verify:**
 ```powershell
@@ -127,7 +142,7 @@ nssm start coverage-api-v2
 ```
 Then, all read-only:
 - `http://127.0.0.1:5100/api/exposure/status` -> `mt5Provider` = `LiveBridge`, connected.
-- `http://127.0.0.1:5100/api/exposure/diagnostics` -> `liveBridge.state` = `live`, `source` = `BBcorp-Live`, `dealSync.pending` near 0.
+- `http://127.0.0.1:5100/api/exposure/diagnostics` -> `liveBridge.state` = `live`, `source` = `BBcorp-Live`, `dealSync.pending` near 0, `coveragePoll.stale` = false with `lastAppliedCount` equal to the collector's open LP positions.
 - Bridge Health: **both** `coverage-manager` and `coverage-manager-v2` connected.
 - v1 unaffected: its `/api/exposure/status` on `:5000` still connected, and `coverage-manager` shows no reconnect or replace.
 
@@ -145,9 +160,10 @@ bridge to revoke the `coverage-manager-v2` key. `coverage_v2` is kept.
 
 ## 5. Not blocking the parallel run, but worth knowing
 
-- The 2 failing `ExposureEngineTests` are **stale tests** (see `V2_PLAN.md` §9.8), and the
-  engine's `HedgeRatio` is direction-blind: a wrong-way hedge reads as covered. That affects v1
-  and v2 identically, so it does not distort a v1-versus-v2 comparison.
+- **Hedge % differs from v1 by design** (`V2_PLAN.md` §9.8, resolved). v2 counts a wrong-way
+  hedge as 0% and flags it WRONG-WAY; v1 still shows `|coverage/client|`. When diffing hedge %
+  between v1 and v2, expect differences exactly on symbols whose coverage net is opposite the
+  client net. Net volume / To Cover are computed identically.
 - `CompareController`, `CoverageController` and `MarkupController` hardcode the collector URL
   (`localhost:8100` / `127.0.0.1:8100`) rather than reading `Coverage:CollectorUrl`. Correct on
   this box; wrong anywhere else.
