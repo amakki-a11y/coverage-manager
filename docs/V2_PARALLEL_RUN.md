@@ -52,6 +52,27 @@ WebSocket URLs (`web/src/config.ts`), so the copy in v2's `wwwroot` talks only t
 
 ## 2. What the bridge must provide (for guard to take to the bridge)
 
+> **Bridge confirmation, 2026-09-14 09:50 UTC** (the bridge's 2nd-consumer report, relayed by the
+> Live Bridge + Coverage Manager coordination session `bbcorp-6d`):
+> - **Item 1 -- CONFIRMED.** `coverage-manager-v2` exists on `BBcorp-Live`, enabled, on the live
+>   1.0.15 bridge host (Stage B does not need the 1.0.17 publish).
+> - **Item 2 -- CONFIRMED.** Two consumers stay connected at once, matched by key; replace-on-connect
+>   hits only the SAME name, so `coverage-manager-v2` can never displace `coverage-manager`.
+> - **Items 3 + 4 -- CONFIRMED.** The consumer is IP-locked to `37.148.206.228` only; revoking it
+>   ends only that consumer, without touching v1. (No separate one-connection-per-IP statement;
+>   v1 and v2 share this IP, so both showing on the bridge Health page during Stage B is the
+>   final proof.)
+> - **Item 5 -- CONFIRMED.** `resume = null` gives snapshot + live and **no past deals**. Resume WITH
+>   a deals sequence gives every deal after it from the 15-minute ring plus the store (every deal
+>   since 2026-09-11 00:57 UTC, cap 500,000). v2 has no resume state, so its first connect replays
+>   no deals: the gap from the import cut (2026-09-13 00:41 UTC) to v2's first connect is closed by
+>   `db\import\delta-reimport.ps1` (§4), not by seeding a deals sequence (the gap likely exceeds
+>   the 500k cap and the matching sequence is unknown).
+> - Items 6-8 were not covered by the report and stay open (observe 6 and 7 during Stage B).
+> - Item 9: the key is in v2's key file on this server (§3). **Still open before Stage B:** the
+>   bridge confirms the spare `coverage-manager-v2` key copy on the bridge VPS was deleted, then the
+>   owner's GO to set `LiveBridge__Enabled=true`.
+
 1. **A second consumer key, named `coverage-manager-v2`**, on source **`BBcorp-Live`**, with the
    same four streams as `coverage-manager` (positions, deals, accounts, ticks) and the same
    console symbol selection. v2 identifies itself **only** by this bearer key -- there is no
