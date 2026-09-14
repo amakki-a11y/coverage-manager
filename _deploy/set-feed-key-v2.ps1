@@ -32,7 +32,8 @@ param(
     [string]$ServiceName = "coverage-api-v2",
     [string]$ServiceAccount = "",
     [string]$KeyFile = "C:\ProgramData\CoverageManagerV2\secrets\livebridge_v2_key.txt",
-    [switch]$AclOnly = $false
+    [switch]$AclOnly = $false,
+    [int]$MinLength = 20
 )
 
 $ErrorActionPreference = "Stop"
@@ -100,15 +101,30 @@ foreach ($ace in @($acl.Access)) {
 Set-Acl -Path $KeyFile -AclObject $acl
 
 if (-not $AclOnly) {
-    $secure = Read-Host 'coverage-manager-v2 key' -AsSecureString
-    $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+    # Entered twice and length-checked BEFORE anything is written: a paste into a masked prompt can
+    # silently deliver one character (seen 2026-09-14: a 1-character key file). The existing file
+    # is left untouched on any refusal.
+    Write-Host "Type or paste the key, press Enter; then enter it again. Nothing is echoed." -ForegroundColor Gray
+    $s1 = Read-Host 'coverage-manager-v2 key' -AsSecureString
+    $s2 = Read-Host 'coverage-manager-v2 key (again)' -AsSecureString
+    $b1 = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($s1)
+    $b2 = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($s2)
     try {
-        $plain = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
-        if ([string]::IsNullOrWhiteSpace($plain)) { Refuse "empty key; nothing written." }
-        [IO.File]::WriteAllText($KeyFile, $plain.Trim(), [Text.Encoding]::ASCII)
+        $p1 = ([Runtime.InteropServices.Marshal]::PtrToStringBSTR($b1)).Trim()
+        $p2 = ([Runtime.InteropServices.Marshal]::PtrToStringBSTR($b2)).Trim()
+        if ($p1.Length -eq 0) { Refuse "empty key; nothing written." }
+        if (-not [string]::Equals($p1, $p2, [StringComparison]::Ordinal)) {
+            Refuse "the two entries differ (lengths $($p1.Length) and $($p2.Length)); nothing written."
+        }
+        if ($p1.Length -lt $MinLength) {
+            Refuse "key is $($p1.Length) characters, below the minimum $MinLength -- likely a failed paste; nothing written. (Override with -MinLength only if the bridge really issues shorter keys.)"
+        }
+        if ($p1 -match '\s') { Refuse "key contains whitespace; nothing written." }
+        [IO.File]::WriteAllText($KeyFile, $p1, [Text.Encoding]::ASCII)
     } finally {
-        [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
-        $plain = $null
+        [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($b1)
+        [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($b2)
+        $p1 = $null; $p2 = $null
     }
 }
 
