@@ -14,7 +14,8 @@ namespace CoverageManager.Core.Engines;
 ///   <item><c>BBookPnL</c> / <c>CoveragePnL</c> — sum of <c>Profit + Swap</c> across open positions.</item>
 ///   <item><c>NetVolume = BBookNet − CoverageNet</c> — "To Cover" column.</item>
 ///   <item><c>NetPnL = −BBookPnL + CoveragePnL</c> — broker's edge on currently-open positions.</item>
-///   <item><c>HedgeRatio</c> — <c>|CoverageNet| / |BBookNet|</c>, uncapped (may exceed 100%).</item>
+///   <item><c>HedgeRatio</c> — <c>max(0, CoverageNet × sign(BBookNet)) / |BBookNet|</c>, uncapped (may exceed 100%);
+///   a wrong-way coverage net counts 0% and sets <c>WrongWayVolume</c> / <c>IsWrongWay</c>.</item>
 /// </list>
 ///
 /// <para><b>Live floating P&amp;L:</b> when a <see cref="PriceCache"/> is provided

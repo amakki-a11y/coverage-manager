@@ -24,9 +24,21 @@ public class ExposureSummary
     public decimal NetVolume => BBookNetVolume - CoverageNetVolume;
     public decimal NetPnL => -BBookPnL + CoveragePnL;
 
-    // Hedge ratio: how much of B-Book is covered by LP
+    // Hedge ratio: how much of the client net is covered by LP coverage IN THE CLIENT'S DIRECTION
+    // (owner decision, V2_PLAN 9.8). Coverage mirrors client direction, so only coverage net on the
+    // client's side covers anything; a wrong-way coverage net counts as 0% cover (never negative) and
+    // is flagged through WrongWayVolume / IsWrongWay. Measured on nets, like NetVolume / "To Cover":
+    // client +10 with coverage BUY 8 + SELL 3 nets to +5 -> 50%. Uncapped above (over-hedge > 100%).
+    // No client net -> 100 (nothing to hedge), as before.
     public decimal HedgeRatio => BBookNetVolume == 0 ? 100
-        : Math.Abs(CoverageNetVolume / BBookNetVolume) * 100;
+        : Math.Max(0m, CoverageNetVolume * Math.Sign(BBookNetVolume)) / Math.Abs(BBookNetVolume) * 100;
+
+    // Lots of coverage net pointing AGAINST the client net (adds to the broker's exposure instead of
+    // reducing it). 0 when coverage is same-way, flat, or there is no client net to be against.
+    public decimal WrongWayVolume => BBookNetVolume == 0 ? 0
+        : Math.Max(0m, -CoverageNetVolume * Math.Sign(BBookNetVolume));
+
+    public bool IsWrongWay => WrongWayVolume > 0;
 
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }

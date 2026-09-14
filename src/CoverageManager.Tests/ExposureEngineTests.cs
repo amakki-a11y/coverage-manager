@@ -60,58 +60,127 @@ public class ExposureEngineTests
         Assert.AreEqual(400m, xau.BBookPnL); // 500 + (-100)
     }
 
-    [TestMethod]
-    public void CalculateExposure_WithCoverage_CorrectHedgeRatio()
+    // Convention (CLAUDE.md "Coverage mirrors client direction"): NetVolume = To Cover = BBookNet - CoverageNet.
+    // HedgeRatio counts only coverage net in the client's direction; wrong-way coverage counts 0% and is flagged
+    // (owner decision, V2_PLAN 9.8). Mapping: 100 GOLD coverage lots = 1 XAUUSD B-Book lot.
+
+    private ExposureSummary Xau(decimal clientNet, params (string dir, decimal goldLots)[] coverage)
     {
-        // B-Book: net +10 lots
         _pm.UpdateBBookPosition("bbook:1001:100", new Position
         {
-            Source = "bbook", Symbol = "XAUUSD", Direction = "BUY",
-            VolumeLots = 10, OpenPrice = 2650
+            Source = "bbook", Symbol = "XAUUSD", Direction = clientNet >= 0 ? "BUY" : "SELL",
+            VolumeLots = Math.Abs(clientNet), OpenPrice = 2650
         });
-
-        // Coverage: net -5 lots (normalized from 500 GOLD lots)
-        _pm.UpdateCoveragePositions(new[]
+        var ticket = 200;
+        _pm.UpdateCoveragePositions(coverage.Select(c => new CoveragePositionDto
         {
-            new CoveragePositionDto
-            {
-                Symbol = "GOLD", Direction = "SELL", Volume = 500,
-                OpenPrice = 2650, Ticket = 200
-            }
-        });
-
-        var result = _engine.CalculateExposure();
-        Assert.AreEqual(1, result.Count);
-
-        var xau = result[0];
-        Assert.AreEqual(10m, xau.BBookNetVolume);
-        Assert.AreEqual(-5m, xau.CoverageNetVolume); // 500 × (1/100) = 5, sell = -5
-        Assert.AreEqual(5m, xau.NetVolume); // 10 + (-5)
-        Assert.AreEqual(50m, xau.HedgeRatio); // |(-5)/10| × 100 = 50%
+            Symbol = "GOLD", Direction = c.dir, Volume = c.goldLots, OpenPrice = 2650, Ticket = ticket++
+        }).ToArray());
+        return _engine.CalculateExposure().Single();
     }
 
     [TestMethod]
-    public void CalculateExposure_FullyHedged_HedgeRatio100()
+    public void SameWay_HalfHedged_Is50Percent_NotWrongWay()
     {
-        _pm.UpdateBBookPosition("bbook:1001:100", new Position
-        {
-            Source = "bbook", Symbol = "XAUUSD", Direction = "BUY",
-            VolumeLots = 10, OpenPrice = 2650
-        });
+        var xau = Xau(+10, ("BUY", 500));
 
-        _pm.UpdateCoveragePositions(new[]
-        {
-            new CoveragePositionDto
-            {
-                Symbol = "GOLD", Direction = "SELL", Volume = 1000,
-                OpenPrice = 2650, Ticket = 200
-            }
-        });
+        Assert.AreEqual(10m, xau.BBookNetVolume);
+        Assert.AreEqual(5m, xau.CoverageNetVolume);     // 500 x (1/100)
+        Assert.AreEqual(5m, xau.NetVolume);             // To Cover: buy 5 more
+        Assert.AreEqual(50m, xau.HedgeRatio);
+        Assert.AreEqual(0m, xau.WrongWayVolume);
+        Assert.IsFalse(xau.IsWrongWay);
+    }
 
-        var result = _engine.CalculateExposure();
-        var xau = result[0];
+    [TestMethod]
+    public void SameWay_FullyHedged_Is100Percent_ToCoverZero()
+    {
+        var xau = Xau(+10, ("BUY", 1000));
+
         Assert.AreEqual(0m, xau.NetVolume);
         Assert.AreEqual(100m, xau.HedgeRatio);
+        Assert.IsFalse(xau.IsWrongWay);
+    }
+
+    [TestMethod]
+    public void SameWay_ClientsShort_CoverageShort_Is100Percent()
+    {
+        var xau = Xau(-10, ("SELL", 1000));
+
+        Assert.AreEqual(-10m, xau.BBookNetVolume);
+        Assert.AreEqual(0m, xau.NetVolume);
+        Assert.AreEqual(100m, xau.HedgeRatio);
+        Assert.IsFalse(xau.IsWrongWay);
+    }
+
+    [TestMethod]
+    public void SameWay_OverHedged_IsUncappedAbove100()
+    {
+        var xau = Xau(+10, ("BUY", 1500));
+
+        Assert.AreEqual(-5m, xau.NetVolume);            // To Cover: sell 5
+        Assert.AreEqual(150m, xau.HedgeRatio);
+        Assert.IsFalse(xau.IsWrongWay);
+    }
+
+    [TestMethod]
+    public void WrongWay_CountsZeroCover_AndIsFlagged()
+    {
+        // Clients long 10, coverage SELL 5: the old |cov/client| read this as 50% hedged.
+        var xau = Xau(+10, ("SELL", 500));
+
+        Assert.AreEqual(-5m, xau.CoverageNetVolume);
+        Assert.AreEqual(15m, xau.NetVolume);            // To Cover unchanged: buy 15
+        Assert.AreEqual(0m, xau.HedgeRatio);
+        Assert.AreEqual(5m, xau.WrongWayVolume);
+        Assert.IsTrue(xau.IsWrongWay);
+    }
+
+    [TestMethod]
+    public void WrongWay_ClientsShort_CoverageLong_IsFlagged()
+    {
+        // Clients short 10, coverage BUY 10: the old metric read this as 100% hedged.
+        var xau = Xau(-10, ("BUY", 1000));
+
+        Assert.AreEqual(-20m, xau.NetVolume);
+        Assert.AreEqual(0m, xau.HedgeRatio);
+        Assert.AreEqual(10m, xau.WrongWayVolume);
+        Assert.IsTrue(xau.IsWrongWay);
+    }
+
+    [TestMethod]
+    public void Mixed_LegsNetSameWay_CoverIsTheNet_NotFlagged()
+    {
+        // Coverage BUY 8 + SELL 3 against clients +10: net +5 same-way -> 50%, consistent with To Cover 5.
+        var xau = Xau(+10, ("BUY", 800), ("SELL", 300));
+
+        Assert.AreEqual(8m, xau.CoverageBuyVolume);
+        Assert.AreEqual(3m, xau.CoverageSellVolume);
+        Assert.AreEqual(5m, xau.NetVolume);
+        Assert.AreEqual(50m, xau.HedgeRatio);
+        Assert.IsFalse(xau.IsWrongWay);
+    }
+
+    [TestMethod]
+    public void Mixed_LegsNetWrongWay_CountsZero_AndIsFlagged()
+    {
+        // Coverage BUY 2 + SELL 6 against clients +10: net -4 wrong-way -> 0%, flagged 4 lots.
+        var xau = Xau(+10, ("BUY", 200), ("SELL", 600));
+
+        Assert.AreEqual(14m, xau.NetVolume);
+        Assert.AreEqual(0m, xau.HedgeRatio);
+        Assert.AreEqual(4m, xau.WrongWayVolume);
+        Assert.IsTrue(xau.IsWrongWay);
+    }
+
+    [TestMethod]
+    public void NoCoverage_IsZeroPercent_NotWrongWay()
+    {
+        var xau = Xau(+10);
+
+        Assert.AreEqual(10m, xau.NetVolume);
+        Assert.AreEqual(0m, xau.HedgeRatio);
+        Assert.IsFalse(xau.IsWrongWay);
     }
 
     [TestMethod]
@@ -129,6 +198,7 @@ public class ExposureEngineTests
 
         var result = _engine.CalculateExposure();
         Assert.AreEqual(100m, result[0].HedgeRatio);
+        Assert.IsFalse(result[0].IsWrongWay, "no client net: nothing to be wrong-way against");
     }
 
     [TestMethod]

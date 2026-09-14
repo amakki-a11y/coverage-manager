@@ -29,7 +29,11 @@ export interface ExposureSummary {
   coveragePnL: number;
   netVolume: number;
   netPnL: number;
+  /** Coverage net in the client's direction / |client net| x 100; wrong-way coverage counts 0 (uncapped above). */
   hedgeRatio: number;
+  /** Lots of coverage net pointing against the client net; 0 when same-way, flat, or no client net. */
+  wrongWayVolume: number;
+  isWrongWay: boolean;
 }
 
 export interface SymbolMapping {

@@ -9,6 +9,10 @@ import type { ExposureSummary } from '../types';
  *   1. Portfolio-wide unhedged volume (|sum(netVolume)|) against dealer-set
  *      amber/red thresholds stored in localStorage.
  *   2. The worst under-hedged symbol (largest |net| with hedgeRatio < 80%).
+ *   3. WRONG-WAY: every symbol whose coverage net points against the client net
+ *      (it adds exposure instead of covering it). The engine counts that as 0%
+ *      hedged; the banner lists each such symbol with its wrong-way lots as a
+ *      separate red flag, so it is never mistaken for a merely thin hedge.
  *
  * Hidden when everything is within tolerance to avoid banner fatigue.
  * Thresholds are configurable via the gear icon; defaults tuned for a
@@ -43,16 +47,24 @@ export function RiskBanner({ summaries }: Props) {
 
   // Worst-hedged symbol among those with meaningful B-Book net volume.
   // We treat anything < 0.5 lot net as "noise".
-  const meaningful = summaries.filter(s => Math.abs(s.bBookNetVolume ?? 0) > 0.5);
+  const NOISE_LOTS = 0.5;
+  const meaningful = summaries.filter(s => Math.abs(s.bBookNetVolume ?? 0) > NOISE_LOTS);
+
+  // Wrong-way symbols get their own flag (and are left out of "worst" so the two never overlap).
+  const wrongWay = summaries
+    .filter(s => s.isWrongWay && (s.wrongWayVolume ?? 0) > NOISE_LOTS)
+    .sort((a, b) => (b.wrongWayVolume ?? 0) - (a.wrongWayVolume ?? 0));
+
   const worstHedge = meaningful
-    .filter(s => (s.hedgeRatio ?? 0) < 80)
+    .filter(s => !s.isWrongWay && (s.hedgeRatio ?? 0) < 80)
     .sort((a, b) => Math.abs(b.netVolume ?? 0) - Math.abs(a.netVolume ?? 0))[0];
 
   const level: 'ok' | 'amber' | 'red' =
     unhedgedTotal >= redLots ? 'red'
     : unhedgedTotal >= amberLots ? 'amber'
-    : worstHedge ? 'amber'
+    : worstHedge || wrongWay.length > 0 ? 'amber'
     : 'ok';
+  const fmtLots = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   if (level === 'ok' && !configOpen) return null;
 
@@ -75,6 +87,22 @@ export function RiskBanner({ summaries }: Props) {
           <span style={{ fontSize: 12, fontWeight: 700, color: textColor, letterSpacing: 0.3 }}>
             UNHEDGED {unhedgedTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} lots
           </span>
+          {wrongWay.length > 0 && (
+            <span
+              title="Coverage net is opposite to the client net: it adds exposure instead of covering it (counted as 0% hedged)"
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                fontSize: 12, fontWeight: 700, color: THEME.red,
+                background: THEME.badgeRed, border: `1px solid ${THEME.red}`,
+                borderRadius: 4, padding: '1px 8px', letterSpacing: 0.3,
+              }}
+            >
+              WRONG-WAY
+              <span style={{ fontWeight: 400 }}>
+                {wrongWay.map(s => `${s.canonicalSymbol} ${fmtLots(s.wrongWayVolume ?? 0)}`).join(' · ')} lots
+              </span>
+            </span>
+          )}
           {worstHedge && (
             <span style={{ fontSize: 12, color: textColor }}>
               {'\u00B7'} worst: <strong>{worstHedge.canonicalSymbol}</strong>{' '}
