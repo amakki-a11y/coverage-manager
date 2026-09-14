@@ -102,18 +102,30 @@ so only this service, holding the `coverage-manager-v2` key, can dial.
 **The feed key is never in the service environment.** It lives in
 `C:\ProgramData\CoverageManagerV2\secrets\livebridge_v2_key.txt` (`LiveBridge:ApiKeyFile`, also the
 `appsettings.json` default): one line, the key only, ASCII, ACL = `SYSTEM` + `Administrators`
-only (inheritance removed). The adapter reads it at every connect, never logs it, and refuses
-to start a session if `LiveBridge__ApiKey` is ALSO set, so an inherited key can never win.
-Write it from an **elevated** Windows PowerShell; the key is typed at a masked prompt, so it is
-not on the command line, not in PSReadLine history and not on the clipboard:
+plus **Read for the account the service runs as** (inheritance removed; nobody else). The adapter
+reads it at every connect, never logs it, and refuses to start a session if `LiveBridge__ApiKey`
+is ALSO set, so an inherited key can never win.
+
+Write it with `_deploy\set-feed-key-v2.ps1` from an **elevated** Windows PowerShell, **after**
+installing the service (§4). The script reads the service's actual account (`Win32_Service.StartName`)
+and grants that account Read -- nothing broader (Everyone / Users / Authenticated Users /
+Interactive / Guests are refused). The key is typed at a masked prompt: not on the command line,
+not in PSReadLine history, not on the clipboard, never printed.
 
 ```powershell
-$p='C:\ProgramData\CoverageManagerV2\secrets\livebridge_v2_key.txt'; $s=Read-Host 'coverage-manager-v2 key' -AsSecureString; $b=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($s); try { New-Item -ItemType File -Force $p | Out-Null; icacls $p /inheritance:r /grant:r '*S-1-5-18:F' '*S-1-5-32-544:F' | Out-Null; [IO.File]::WriteAllText($p, [Runtime.InteropServices.Marshal]::PtrToStringBSTR($b), [Text.Encoding]::ASCII) } finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($b) }; icacls $p; (Get-Item $p).Length
+.\_deploy\set-feed-key-v2.ps1            # writes the key; ACL = SYSTEM F, Administrators F, <service account> R
+.\_deploy\set-feed-key-v2.ps1 -AclOnly   # re-apply the ACL after changing the service account; key untouched
 ```
 
-Expected output: `BUILTIN\Administrators:(F)` and `NT AUTHORITY\SYSTEM:(F)` only, and a length equal
-to the key's character count. Re-running it replaces the key (rotation; picked up at the next
-fresh session).
+For a LocalSystem service the ACL is just `NT AUTHORITY\SYSTEM:(F)` + `BUILTIN\Administrators:(F)`;
+for any other account a third line `<account>:(R)` appears. Re-running without `-AclOnly` replaces
+the key (rotation; picked up at the next fresh session).
+
+**Prove the service can read it before arming the switch.** With `LiveBridge__Enabled` still unset
+(false), start the service and check `/api/exposure/diagnostics.feedKey`: `readable` = true and
+`runningAs` = the service account (`NT AUTHORITY\SYSTEM` for LocalSystem). This is a read-only
+preflight -- nothing dials. The startup log has the same line (`Live Bridge key: readable ...`).
+Only then add `LiveBridge__Enabled=true`.
 
 `Postgres__PasswordFile` is readable by LocalSystem (*verified*: the secrets folder ACL grants
 SYSTEM full control). Postgres itself listens on `127.0.0.1:5432` only.
@@ -141,7 +153,16 @@ nssm install coverage-api-v2 C:\CoverageManagerV2\app\CoverageManager.Api.exe
 nssm set coverage-api-v2 AppDirectory C:\CoverageManagerV2\app
 nssm set coverage-api-v2 ObjectName LocalSystem
 nssm set coverage-api-v2 Start SERVICE_DEMAND_START          # manual start during the parallel run
-nssm set coverage-api-v2 AppEnvironmentExtra <the §3 lines>
+nssm set coverage-api-v2 AppEnvironmentExtra <the §3 lines WITHOUT LiveBridge__Enabled=true>
+```
+
+**Key + read proof (switch still off)** (elevated):
+```powershell
+.\_deploy\set-feed-key-v2.ps1            # reads the account from the installed service; masked prompt
+nssm start coverage-api-v2
+# diagnostics.feedKey.readable = true, runningAs = NT AUTHORITY\SYSTEM; liveBridge not connected; nothing dialed
+nssm stop coverage-api-v2
+nssm set coverage-api-v2 AppEnvironmentExtra <the full §3 lines, now WITH LiveBridge__Enabled=true>
 ```
 
 **Close the history gap:** the import cut is 2026-09-13 00:41 UTC. Run

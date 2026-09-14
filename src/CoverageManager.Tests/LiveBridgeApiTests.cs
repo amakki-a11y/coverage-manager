@@ -703,6 +703,27 @@ public class LiveBridgeApiTests
     }
 
     [TestMethod]
+    public void KeyPreflight_ReportsReadableAndTheAccount_WithSwitchOff_AndNeverCarriesTheKey()
+    {
+        var o = new LiveBridgeOptions { Enabled = false, ApiKeyFile = TempKeyFile("SECRETVALUE-123\n") };
+        var s = o.CheckApiKey();
+        Assert.IsTrue(s.Readable, s.Error);
+        Assert.AreEqual("file", s.Source);
+        Assert.AreEqual(o.ApiKeyFile, s.Path);
+        Assert.IsFalse(string.IsNullOrWhiteSpace(s.RunningAs));
+        Assert.IsFalse(s.ToString().Contains("SECRETVALUE"), "the status never carries the key");
+
+        var missing = new LiveBridgeOptions { ApiKeyFile = TempKeyFile(null) }.CheckApiKey();
+        Assert.IsFalse(missing.Readable);
+        StringAssert.Contains(missing.Error, "does not exist");
+
+        var both = new LiveBridgeOptions { ApiKey = "SECRETVALUE", ApiKeyFile = TempKeyFile("x") }.CheckApiKey();
+        Assert.AreEqual("both", both.Source);
+        Assert.IsFalse(both.Readable);
+        Assert.IsFalse(both.ToString().Contains("SECRETVALUE"));
+    }
+
+    [TestMethod]
     public void AppSettings_PointsAtTheV2KeyFile_AndKeepsTheSwitchOff()
     {
         var path = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "CoverageManager.Api", "appsettings.json");

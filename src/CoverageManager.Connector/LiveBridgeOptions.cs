@@ -37,6 +37,29 @@ public sealed class LiveBridgeOptions
     public string ApiKeyFile { get; set; } = "";
 
     /// <summary>
+    /// Read-only preflight: can THIS process (its Windows account) resolve a feed key? Never dials, never returns or
+    /// logs the key, and works while <see cref="Enabled"/> is false -- so a freshly installed service can prove it
+    /// reads its key file before anyone turns the switch on.
+    /// </summary>
+    public FeedKeyStatus CheckApiKey()
+    {
+        var ok = TryResolveApiKey(out _, out var error);
+        var source = !string.IsNullOrWhiteSpace(ApiKey) && !string.IsNullOrWhiteSpace(ApiKeyFile) ? "both"
+            : !string.IsNullOrWhiteSpace(ApiKey) ? "environment"
+            : !string.IsNullOrWhiteSpace(ApiKeyFile) ? "file"
+            : "none";
+        string account;
+        try
+        {
+            account = OperatingSystem.IsWindows()
+                ? System.Security.Principal.WindowsIdentity.GetCurrent().Name
+                : Environment.UserName;
+        }
+        catch (Exception) { account = Environment.UserName; }
+        return new FeedKeyStatus(source, string.IsNullOrWhiteSpace(ApiKeyFile) ? null : ApiKeyFile, ok, ok ? null : error, account);
+    }
+
+    /// <summary>
     /// The key to dial with, from <see cref="ApiKey"/> or <see cref="ApiKeyFile"/> (exactly one). On failure
     /// <paramref name="error"/> says why; it names the setting and the path, never the key or any file content.
     /// </summary>
@@ -147,3 +170,7 @@ public sealed class LiveBridgeOptions
         return Path.Combine(root, "livebridge-state.json");
     }
 }
+
+/// <summary>Outcome of <see cref="LiveBridgeOptions.CheckApiKey"/>: where the key comes from, whether this process's
+/// account could read it, and that account's name. Never carries the key.</summary>
+public sealed record FeedKeyStatus(string Source, string? Path, bool Readable, string? Error, string RunningAs);

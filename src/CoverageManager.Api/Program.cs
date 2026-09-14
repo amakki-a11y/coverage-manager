@@ -87,6 +87,16 @@ try
     var liveBridgeOptions = builder.Configuration.GetSection(LiveBridgeOptions.SectionName).Get<LiveBridgeOptions>()
                             ?? new LiveBridgeOptions();
     Log.Information("MT5 API provider: {Provider}", mt5Provider);
+    // Feed-key preflight (read only, never dials, runs while LiveBridge:Enabled=false): proves the account this
+    // process runs as can read its key file. Also on /api/exposure/diagnostics.feedKey.
+    var feedKey = liveBridgeOptions.CheckApiKey();
+    if (feedKey.Readable)
+        Log.Information("Live Bridge key: readable from {Source} {Path} as {Account}; dial switch Enabled={Enabled}",
+            feedKey.Source, feedKey.Path, feedKey.RunningAs, liveBridgeOptions.Enabled);
+    else
+        Log.Warning("Live Bridge key: NOT readable as {Account}: {Error}; dial switch Enabled={Enabled}",
+            feedKey.RunningAs, feedKey.Error, liveBridgeOptions.Enabled);
+    builder.Services.AddSingleton(liveBridgeOptions);
     builder.Services.AddSingleton<IMT5ApiFactory>(sp =>
         new MT5ApiFactory(mt5Provider, liveBridgeOptions, sp.GetRequiredService<ILoggerFactory>()));
 

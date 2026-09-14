@@ -50,6 +50,7 @@ public class ExposureController : ControllerBase
     private readonly DataSyncService _dataSync;
     private readonly DealHistoryReader _history;
     private readonly CollectorPositionsPoller _coveragePoll;
+    private readonly LiveBridgeOptions _liveBridgeOptions;
 
     public ExposureController(
         ExposureEngine exposureEngine,
@@ -65,9 +66,11 @@ public class ExposureController : ControllerBase
         SupabaseReadOnlyLedger readOnlyLedger,
         DataSyncService dataSync,
         DealHistoryReader history,
-        CollectorPositionsPoller coveragePoll)
+        CollectorPositionsPoller coveragePoll,
+        LiveBridgeOptions liveBridgeOptions)
     {
         _coveragePoll = coveragePoll;
+        _liveBridgeOptions = liveBridgeOptions;
         _exposureEngine = exposureEngine;
         _positionManager = positionManager;
         _mt5Connection = mt5Connection;
@@ -147,6 +150,9 @@ public class ExposureController : ControllerBase
             stage = "2b",
             mt5Provider = _mt5Connection.ApiProvider,
             feedDialEnabled = _mt5Connection.FeedDialEnabled,
+            // Re-checked on every call (one small file read; never dials, never returns the key): readable=true with
+            // runningAs = the service account proves the installed service can read its key before the switch is on.
+            feedKey = _liveBridgeOptions.CheckApiKey(),
             liveBridge = _mt5Connection.ApiDiagnostics,
             dealHistory = _mt5Connection.DealHistory,
             dealSync = _dataSync.Status,
