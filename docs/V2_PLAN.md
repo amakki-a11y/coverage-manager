@@ -94,7 +94,7 @@ Two distinct "bridges" — do not conflate them:
 | `MappingRefreshService` | Existed to heal Supabase TLS-reset cold starts. Local Postgres doesn't TLS-reset; mapping cache reloads via a simple query + optional `LISTEN/NOTIFY`. |
 | `DataSyncService` paced/throttled/probed writer (500 rows/req, 20 req/tick, 250ms apart, HardCap, consecutiveFailures probe) | The pacing machinery is entirely a Supabase-rate-limit workaround. Local Postgres takes batched `INSERT … ON CONFLICT` / `COPY` synchronously. A bounded write queue stays; the elaborate pacing does not. |
 | `aggregate_bbook_settled_pnl`, `aggregate_bbook_pnl_full`, `latest_snapshots_before`, `GetSnapshotsAtAsync` **as Supabase RPCs** | Re-expressed as local SQL (functions or parameterized queries). The 46s/81s roundtrips they replaced never existed locally. |
-| `account_settings` table + Settings "Connections" MT5 Manager credential UI | No Manager to authenticate. Feed creds live in config/env (`LiveBridge:Url` + `LiveBridge__ApiKey`). |
+| `account_settings` table + Settings "Connections" MT5 Manager credential UI | No Manager to authenticate. Feed creds live in config/env (`LiveBridge:Url` + key file `LiveBridge:ApiKeyFile`). |
 
 ### 3.2 KEEP unchanged (pure domain / presentation)
 
@@ -310,7 +310,7 @@ wrapper lands (still a good idea, still not v2-specific).
      `trade_audit_log`, `alert_events` in full (see §9.7). Export via Supabase →
      CSV/`COPY` import. Verify row counts **against the same 12-month window on both
      sides** so the comparison is apples-to-apples.
-3. **Point v2 at the feed** (`LiveBridge:Url` + `LiveBridge__ApiKey`), single source
+3. **Point v2 at the feed** (`LiveBridge:Url` + key file `LiveBridge:ApiKeyFile`, `LiveBridge__Enabled=true`), single source
    to start. v2 streams new deals/positions/accounts/ticks into Postgres from the
    moment it connects; historical ranges are served from the imported archive.
 4. **Verify to the penny.** Run v1 and v2 side by side and diff:

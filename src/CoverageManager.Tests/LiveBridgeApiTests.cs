@@ -609,6 +609,115 @@ public class LiveBridgeApiTests
         Assert.AreEqual(2, diagnostics["deals"]);
         Assert.AreEqual(api.DealHistory.FromUtc, diagnostics["fromUtc"]);
     }
+
+    // ---- LiveBridge:ApiKeyFile ---------------------------------------------------------------
+
+    private static string TempKeyFile(string? content)
+    {
+        var path = Path.Combine(Path.GetTempPath(), "cm-livebridge-tests", Guid.NewGuid().ToString("N") + ".key");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        if (content is not null) File.WriteAllText(path, content);
+        return path;
+    }
+
+    [TestMethod]
+    public async Task KeyFile_DialsWithTheKeyFromTheFile_TrailingNewlineIgnored()
+    {
+        await using var server = new FakeFeedServer();
+        var options = TestOptions(server, TempStatePath());
+        options.ApiKey = "";
+        options.ApiKeyFile = TempKeyFile(Key + "\r\n");
+        using var api = new LiveBridgeApi(options, Microsoft.Extensions.Logging.Abstractions.NullLogger<LiveBridgeApi>.Instance);
+
+        var (connection, _) = await ConnectSnapshotAsync(api, server);
+        Assert.AreEqual("Bearer " + Key, connection.RequestHeaders["authorization"]);
+        Assert.IsTrue(api.IsConnected);
+    }
+
+    [TestMethod]
+    public async Task KeyFile_WrongKeyInFile_IsRefusedByTheFeed_AndTheKeyIsNeverEchoed()
+    {
+        await using var server = new FakeFeedServer();
+        var options = TestOptions(server, TempStatePath());
+        options.ApiKey = "";
+        options.ApiKeyFile = TempKeyFile("not-the-key-SECRETVALUE");
+        using var api = new LiveBridgeApi(options, Microsoft.Extensions.Logging.Abstractions.NullLogger<LiveBridgeApi>.Instance);
+
+        Assert.IsTrue(api.Initialize(), api.LastError);
+        Assert.IsFalse(api.Connect("srv", 1, "pw", 5_000));
+        StringAssert.Contains(api.LastError, "401");
+        Assert.IsFalse(api.LastError.Contains("SECRETVALUE"));
+    }
+
+    [TestMethod]
+    public void KeyFile_MissingEmptyOrMalformed_FailsBeforeDialing_WithoutEchoingContent()
+    {
+        var cases = new (string? content, string expect)[]
+        {
+            (null, "does not exist"),
+            ("  \r\n", "is empty"),
+            ("abc SECRETVALUE", "only the key on one line"),
+            ("abc\nSECRETVALUE", "only the key on one line"),
+        };
+        foreach (var (content, expect) in cases)
+        {
+            var o = new LiveBridgeOptions { ApiKeyFile = TempKeyFile(content) };
+            Assert.IsFalse(o.TryResolveApiKey(out var key, out var error), expect);
+            Assert.AreEqual("", key);
+            StringAssert.Contains(error, expect);
+            Assert.IsFalse(error.Contains("SECRETVALUE"), "file content is never echoed");
+        }
+    }
+
+    [TestMethod]
+    public async Task KeyFile_AndEnvironmentKeyBothSet_IsRefused_BeforeDialing()
+    {
+        // An inherited LiveBridge__ApiKey (e.g. a copy of v1's key) must never silently win over v2's key file.
+        await using var server = new FakeFeedServer();
+        var options = TestOptions(server, TempStatePath());      // ApiKey = valid key, as if inherited
+        options.ApiKeyFile = TempKeyFile(Key);
+        using var api = new LiveBridgeApi(options, Microsoft.Extensions.Logging.Abstractions.NullLogger<LiveBridgeApi>.Instance);
+
+        Assert.IsTrue(api.Initialize(), api.LastError);
+        Assert.IsFalse(api.Connect("srv", 1, "pw", 2_000));
+        StringAssert.Contains(api.LastError, "set exactly one");
+        await Task.Delay(300);
+        Assert.AreEqual(0, server.Accepted);
+    }
+
+    [TestMethod]
+    public async Task KeyFile_SwitchOff_FileIsNotEvenNeeded_NothingDials()
+    {
+        await using var server = new FakeFeedServer();
+        var options = TestOptions(server, TempStatePath());
+        options.Enabled = false;
+        options.ApiKey = "";
+        options.ApiKeyFile = TempKeyFile(Key);
+        using var api = new LiveBridgeApi(options, Microsoft.Extensions.Logging.Abstractions.NullLogger<LiveBridgeApi>.Instance);
+
+        Assert.IsTrue(api.Initialize(), api.LastError);
+        Assert.IsFalse(api.Connect("srv", 1, "pw", 2_000));
+        StringAssert.Contains(api.LastError, "LiveBridge:Enabled=false");
+        await Task.Delay(300);
+        Assert.AreEqual(0, server.Accepted);
+    }
+
+    [TestMethod]
+    public void AppSettings_PointsAtTheV2KeyFile_AndKeepsTheSwitchOff()
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "CoverageManager.Api", "appsettings.json");
+        using var doc = JsonDocument.Parse(File.ReadAllText(Path.GetFullPath(path)));
+        var lb = doc.RootElement.GetProperty(LiveBridgeOptions.SectionName);
+        Assert.AreEqual(@"C:\ProgramData\CoverageManagerV2\secrets\livebridge_v2_key.txt", lb.GetProperty("ApiKeyFile").GetString());
+        Assert.AreEqual("", lb.GetProperty("ApiKey").GetString(), "no key in the tracked settings file");
+        Assert.IsFalse(lb.GetProperty("Enabled").GetBoolean(), "the connect-to-feed switch stays off by default");
+    }
+
+    [TestMethod]
+    public void Factory_UnknownProvider_FailsAtConstruction()
+    {
+        Assert.ThrowsException<ArgumentException>(() => new MT5ApiFactory("nope"));
+    }
 }
 
 [TestClass]
@@ -677,13 +786,8 @@ public class MT5ApiFactoryTests
         Assert.IsInstanceOfType(api, typeof(IMT5ApiDiagnostics));
         Assert.IsTrue(api.Initialize());
         Assert.IsFalse(api.Connect("srv", 1, "pw"));
-        StringAssert.Contains(api.LastError, "LiveBridge__ApiKey");
+        StringAssert.Contains(api.LastError, "LiveBridge:ApiKeyFile");
         Assert.IsFalse(api.LastError.Contains("pw"), "the password is never echoed");
     }
 
-    [TestMethod]
-    public void Factory_UnknownProvider_FailsAtConstruction()
-    {
-        Assert.ThrowsException<ArgumentException>(() => new MT5ApiFactory("nope"));
-    }
 }

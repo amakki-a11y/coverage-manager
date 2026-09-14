@@ -28,6 +28,66 @@ public sealed class LiveBridgeOptions
     public string ApiKey { get; set; } = "";
 
     /// <summary>
+    /// Path to a file holding ONLY the bearer key (surrounding whitespace / a trailing newline ignored), kept outside the
+    /// repo in an ACL-locked folder -- the same pattern as <c>Postgres:PasswordFile</c>. v2 default:
+    /// <c>C:\ProgramData\CoverageManagerV2\secrets\livebridge_v2_key.txt</c>. Read on every <see cref="LiveBridgeApi.Connect"/>,
+    /// so a rotated key is picked up by the next fresh session. Setting BOTH this and <see cref="ApiKey"/> is refused:
+    /// a key inherited from some environment must never silently replace the one in the file (see <see cref="Enabled"/>).
+    /// </summary>
+    public string ApiKeyFile { get; set; } = "";
+
+    /// <summary>
+    /// The key to dial with, from <see cref="ApiKey"/> or <see cref="ApiKeyFile"/> (exactly one). On failure
+    /// <paramref name="error"/> says why; it names the setting and the path, never the key or any file content.
+    /// </summary>
+    public bool TryResolveApiKey(out string key, out string error)
+    {
+        key = "";
+        var hasEnv = !string.IsNullOrWhiteSpace(ApiKey);
+        var hasFile = !string.IsNullOrWhiteSpace(ApiKeyFile);
+
+        if (hasEnv && hasFile)
+        {
+            error = "both LiveBridge__ApiKey and LiveBridge:ApiKeyFile are set; set exactly one (v2: the key file, and remove LiveBridge__ApiKey from the environment)";
+            return false;
+        }
+        if (hasEnv)
+        {
+            key = ApiKey.Trim();
+            error = "";
+            return true;
+        }
+        if (!hasFile)
+        {
+            error = "no feed key: set LiveBridge:ApiKeyFile to a file holding the key the bridge console generated (or the environment variable LiveBridge__ApiKey)";
+            return false;
+        }
+
+        string text;
+        try
+        {
+            if (!File.Exists(ApiKeyFile)) { error = $"LiveBridge:ApiKeyFile '{ApiKeyFile}' does not exist or this account cannot see it"; return false; }
+            text = File.ReadAllText(ApiKeyFile);
+        }
+        catch (Exception ex)
+        {
+            error = $"LiveBridge:ApiKeyFile '{ApiKeyFile}' could not be read ({ex.GetType().Name}); check the file ACL grants this service account read access";
+            return false;
+        }
+
+        var trimmed = text.Trim();
+        if (trimmed.Length == 0) { error = $"LiveBridge:ApiKeyFile '{ApiKeyFile}' is empty"; return false; }
+        if (trimmed.Any(c => char.IsWhiteSpace(c) || char.IsControl(c)))
+        {
+            error = $"LiveBridge:ApiKeyFile '{ApiKeyFile}' must hold only the key on one line (found whitespace or control characters inside it)";
+            return false;
+        }
+        key = trimmed;
+        error = "";
+        return true;
+    }
+
+    /// <summary>
     /// Where the last applied sequence per stream is kept between runs (a small JSON file), so a restart resumes instead
     /// of taking a snapshot. Empty = <c>%LOCALAPPDATA%\CoverageManager\livebridge-state.json</c>, which survives a
     /// <c>publish\api</c> swap.

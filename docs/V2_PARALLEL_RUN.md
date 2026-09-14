@@ -37,7 +37,7 @@ Hazards as found:
 | Binaries + workdir | `C:\CoverageManager\publish\api` | `C:\CoverageManagerV2\app` | v1's folder is inside the repo tree and is the deploy-swap target (H3) |
 | Listen | `127.0.0.1:5000` | `127.0.0.1:5100` (*verified free*) | port clash |
 | Public route | Caddy `dealing.connecttrader.app` + `http://37.148.206.228` -> `:5000` | **none** (RDP -> `127.0.0.1:5100`) | changing Caddy touches production; a v2 site is an owner decision |
-| Feed consumer | key for `coverage-manager` (NSSM env) | **new** key for `coverage-manager-v2` (NSSM env only) | the bridge replaces a same-name connection (H1) |
+| Feed consumer | key for `coverage-manager` (NSSM env) | **new** key for `coverage-manager-v2` (key file, §3) | the bridge replaces a same-name connection (H1) |
 | Feed resume state | explicit `LiveBridge__StatePath` in v1's NSSM env | `C:\CoverageManagerV2\state\livebridge-state.json` | the default path is per-Windows-account, not per-app; sharing it corrupts resume sequences |
 | Logs | `publish\api\logs\` (relative to workdir) | `C:\CoverageManagerV2\app\logs\` | relative path follows the workdir |
 | Store | Supabase `svhmhcqopkdgccnzgvzp` | local Postgres `coverage_v2` | -- ; v2 sets `Supabase__ReadOnly=true` as a backstop (no v2 code writes Supabase) |
@@ -71,8 +71,8 @@ WebSocket URLs (`web/src/config.ts`), so the copy in v2's `wwwroot` talks only t
    accounts).
 8. **Certificate:** confirm the feed certificate is unchanged (v2 can pin it with
    `LiveBridge__CertificateThumbprint` if the bridge provides the thumbprint).
-9. Key handover **out of band** -- never in chat or tickets; it goes straight into v2's NSSM
-   environment.
+9. Key handover **out of band** -- never in chat or tickets; it goes straight into v2's key
+   file (§3), never into an environment variable.
 
 ---
 
@@ -86,7 +86,7 @@ Kestrel__Endpoints__Http__Url=http://127.0.0.1:5100
 MT5__Provider=LiveBridge
 LiveBridge__Enabled=true
 LiveBridge__Url=wss://feed.connecttrader.app:5571/feed/BBcorp-Live
-LiveBridge__ApiKey=<coverage-manager-v2 key from the bridge -- out of band>
+LiveBridge__ApiKeyFile=C:\ProgramData\CoverageManagerV2\secrets\livebridge_v2_key.txt
 LiveBridge__StatePath=C:\CoverageManagerV2\state\livebridge-state.json
 Postgres__PasswordFile=C:\ProgramData\CoverageManagerV2\secrets\pg_app.txt
 Supabase__ReadOnly=true
@@ -98,6 +98,22 @@ Coverage__PollEnabled=true
 
 `LiveBridge__Enabled=true` is the connect-to-feed switch (H1). It is **off** everywhere else,
 so only this service, holding the `coverage-manager-v2` key, can dial.
+
+**The feed key is never in the service environment.** It lives in
+`C:\ProgramData\CoverageManagerV2\secrets\livebridge_v2_key.txt` (`LiveBridge:ApiKeyFile`, also the
+`appsettings.json` default): one line, the key only, ASCII, ACL = `SYSTEM` + `Administrators`
+only (inheritance removed). The adapter reads it at every connect, never logs it, and refuses
+to start a session if `LiveBridge__ApiKey` is ALSO set, so an inherited key can never win.
+Write it from an **elevated** Windows PowerShell; the key is typed at a masked prompt, so it is
+not on the command line, not in PSReadLine history and not on the clipboard:
+
+```powershell
+$p='C:\ProgramData\CoverageManagerV2\secrets\livebridge_v2_key.txt'; $s=Read-Host 'coverage-manager-v2 key' -AsSecureString; $b=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($s); try { New-Item -ItemType File -Force $p | Out-Null; icacls $p /inheritance:r /grant:r '*S-1-5-18:F' '*S-1-5-32-544:F' | Out-Null; [IO.File]::WriteAllText($p, [Runtime.InteropServices.Marshal]::PtrToStringBSTR($b), [Text.Encoding]::ASCII) } finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($b) }; icacls $p; (Get-Item $p).Length
+```
+
+Expected output: `BUILTIN\Administrators:(F)` and `NT AUTHORITY\SYSTEM:(F)` only, and a length equal
+to the key's character count. Re-running it replaces the key (rotation; picked up at the next
+fresh session).
 
 `Postgres__PasswordFile` is readable by LocalSystem (*verified*: the secrets folder ACL grants
 SYSTEM full control). Postgres itself listens on `127.0.0.1:5432` only.

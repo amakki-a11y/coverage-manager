@@ -212,9 +212,9 @@ public sealed class LiveBridgeApi : IMT5Api, IMT5ApiDiagnostics, IMT5DealHistory
             LastError = $"LiveBridgeApi: LiveBridge:Url '{_options.Url}' is not a ws:// or wss:// URL";
             return false;
         }
-        if (string.IsNullOrWhiteSpace(_options.ApiKey))
+        if (!_options.TryResolveApiKey(out var apiKey, out var keyError))
         {
-            LastError = "LiveBridgeApi: LiveBridge:ApiKey is empty; set the environment variable LiveBridge__ApiKey to the key the bridge console generated";
+            LastError = "LiveBridgeApi: " + keyError;
             return false;
         }
 
@@ -226,7 +226,7 @@ public sealed class LiveBridgeApi : IMT5Api, IMT5ApiDiagnostics, IMT5DealHistory
             _cts = new CancellationTokenSource();
             first = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
             var ct = _cts.Token;
-            _loop = Task.Run(() => RunAsync(uri, first, ct), CancellationToken.None);
+            _loop = Task.Run(() => RunAsync(uri, apiKey, first, ct), CancellationToken.None);
         }
         _logger.LogInformation("Live Bridge: connecting to {Url} (the MT5 server {Server} / login {Login} given by the caller are not used by the feed)",
             uri, server, login);
@@ -452,7 +452,7 @@ public sealed class LiveBridgeApi : IMT5Api, IMT5ApiDiagnostics, IMT5DealHistory
 
     // ---- The session loop ------------------------------------------------------------------
 
-    private async Task RunAsync(Uri uri, TaskCompletionSource<string?> first, CancellationToken ct)
+    private async Task RunAsync(Uri uri, string apiKey, TaskCompletionSource<string?> first, CancellationToken ct)
     {
         var backoff = Math.Max(100, _options.ReconnectMs);
         var isFirst = true;
@@ -464,7 +464,7 @@ public sealed class LiveBridgeApi : IMT5Api, IMT5ApiDiagnostics, IMT5DealHistory
             try
             {
                 _state = isFirst ? "connecting" : "reconnecting";
-                socket = await FeedSocket.ConnectAsync(uri, _options.ApiKey, _options.CertificateThumbprint,
+                socket = await FeedSocket.ConnectAsync(uri, apiKey, _options.CertificateThumbprint,
                     TimeSpan.FromMilliseconds(Math.Max(1000, _options.HandshakeTimeoutMs)), ct).ConfigureAwait(false);
                 lock (_gate) _socket = socket;
 
@@ -908,7 +908,7 @@ public sealed class LiveBridgeApi : IMT5Api, IMT5ApiDiagnostics, IMT5DealHistory
 
     private static string Describe(Exception ex) => ex switch
     {
-        FeedConnectException { Status: HttpStatusCode.Unauthorized } => "the feed refused the key (HTTP 401): check LiveBridge__ApiKey against the bridge console",
+        FeedConnectException { Status: HttpStatusCode.Unauthorized } => "the feed refused the key (HTTP 401): check the key in LiveBridge:ApiKeyFile (or LiveBridge__ApiKey) against the bridge console",
         FeedConnectException { Status: HttpStatusCode.Forbidden } => "the feed refused this address (HTTP 403): it is not on the consumer's allowlist",
         FeedConnectException { Status: HttpStatusCode.NotFound } => "the feed does not serve the source named in LiveBridge:Url (HTTP 404)",
         FeedConnectException c when c.Status is { } s => $"the feed refused the connection (HTTP {(int)s} {s})",
