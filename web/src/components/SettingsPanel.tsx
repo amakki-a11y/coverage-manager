@@ -1237,7 +1237,7 @@ function ReconciliationCard() {
   useEffect(() => { fetchRuns(); }, [fetchRuns]);
 
   const runNow = async () => {
-    if (!confirm('Run the feed/store self-check now? It compares the Live Bridge feed's retained window with the stored deals and re-writes any that are missing or differ. It never deletes deals.')) return;
+    if (!confirm('Run the feed/store self-check now? It compares the Live Bridge feed retained window with the stored deals and re-writes any that are missing or differ. It never deletes deals.')) return;
     setRunning(true);
     setError(null);
     try {
